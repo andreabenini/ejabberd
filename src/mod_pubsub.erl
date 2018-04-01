@@ -685,12 +685,17 @@ remove_user(User, Server) ->
 				    ({#pubsub_node{nodeid = {H, N}, type = Type}, owner})
 					    when N == HomeTreeBase, Type == <<"hometree">> ->
 					delete_node(H, N, Entity);
-				    ({#pubsub_node{id = Nidx}, publisher}) ->
+				    ({#pubsub_node{id = Nidx}, _}) ->
+					{result, State} = node_action(Host, PType,
+							get_state,
+							[Nidx, jid:tolower(Entity)]),
+					ItemIds = State#pubsub_state.items,
 					node_action(Host, PType,
-					    set_affiliation,
-					    [Nidx, Entity, none]);
-				    (_) ->
-					ok
+						    remove_extra_items,
+						    [Nidx, 0, ItemIds]),
+					node_action(Host, PType,
+						    set_affiliation,
+						    [Nidx, Entity, none])
 				end,
 				Affs)
 		    end,
@@ -1999,8 +2004,12 @@ get_items(Host, Node, From, SubId, _MaxItems, ItemIds, RSM) ->
 				     Host, From, Owners, AccessModel, AllowedGroups),
 			case ItemIds of
 			    [ItemId] ->
-				node_call(Host, Type, get_item,
-					  [Nidx, ItemId, From, AccessModel, PS, RG, undefined]);
+				case node_call(Host, Type, get_item,
+					       [Nidx, ItemId, From, AccessModel, PS, RG, undefined])
+				of
+				    {error, _} -> {result, {[], undefined}};
+				    Result -> Result
+				end;
 			    _ ->
 				node_call(Host, Type, get_items,
 					  [Nidx, From, AccessModel, PS, RG, SubId, RSM])
@@ -2026,10 +2035,8 @@ get_items(Host, Node, From, SubId, _MaxItems, ItemIds, RSM) ->
 	    {result,
 	     #pubsub{items = #ps_items{node = Node,
 				       items = itemsEls([Item])}}};
-	_ ->
-	    {result,
-	     #pubsub{items = #ps_items{node = Node,
-				       items = itemsEls([])}}}
+	Error ->
+	    Error
     end.
 
 get_items(Host, Node) ->
@@ -3885,8 +3892,4 @@ mod_options(Host) ->
      {plugins, [?STDNODE]},
      {max_subscriptions_node, undefined},
      {default_node_config, []},
-     %% Avoid using OMEMO by default because it
-     %% introduces a lot of hard-to-track problems
-     {force_node_config,
-      [{<<"eu.siacs.conversations.axolotl.*">>,
-	[{access_model, whitelist}]}]}].
+     {force_node_config, []}].

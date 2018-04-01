@@ -3,7 +3,7 @@ defmodule Ejabberd.Mixfile do
 
   def project do
     [app: :ejabberd,
-     version: "18.1.0",
+     version: "18.3.0",
      description: description(),
      elixir: "~> 1.4",
      elixirc_paths: ["lib"],
@@ -29,7 +29,7 @@ defmodule Ejabberd.Mixfile do
      included_applications: [:lager, :mnesia, :inets, :p1_utils, :cache_tab,
                              :fast_tls, :stringprep, :fast_xml, :xmpp,
                              :stun, :fast_yaml, :esip, :jiffy, :p1_oauth2,
-                             :eimp, :fs, :base64url, :jose]
+                             :eimp, :base64url, :jose]
                          ++ cond_apps()]
   end
 
@@ -74,10 +74,9 @@ defmodule Ejabberd.Mixfile do
      {:p1_oauth2, "~> 0.6.1"},
      {:distillery, "~> 1.0"},
      {:ex_doc, ">= 0.0.0", only: :dev},
-     {:eimp, github: "processone/eimp", ref: "c7201d18"},
+     {:eimp, "~> 1.0"},
      {:base64url, "~> 0.0.1"},
-     {:jose, "~> 1.8"},
-     {:fs, "~> 3.4"}]
+     {:jose, "~> 1.8"}]
     ++ cond_deps()
   end
 
