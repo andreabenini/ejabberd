@@ -36,9 +36,9 @@
 -define(CONNECT_TIMEOUT, 8000).
 
 start(Host) ->
-    p1_http:start(),
-    Pool_size = ejabberd_config:get_option({ext_api_http_pool_size, Host}, 100),
-    p1_http:set_pool_size(Pool_size).
+    application:start(inets),
+    Size = ejabberd_config:get_option({ext_api_http_pool_size, Host}, 100),
+    httpc:set_options([{max_sessions, Size}]).
 
 stop(_Host) ->
     ok.
@@ -78,21 +78,26 @@ patch(Server, Path, Params, Content) ->
     request(Server, patch, Path, Params, "application/json", Data).
 
 request(Server, Method, Path, Params, Mime, Data) ->
-    URI = url(Server, Path, Params),
+    URI = to_list(url(Server, Path, Params)),
     Opts = [{connect_timeout, ?CONNECT_TIMEOUT},
             {timeout, ?HTTP_TIMEOUT}],
     Hdrs = [{"connection", "keep-alive"},
-            {"content-type", Mime},
-            {"User-Agent", "ejabberd"}],
+	    {"User-Agent", "ejabberd"}],
+    Req = if
+              (Method =:= post) orelse (Method =:= patch) orelse (Method =:= put) orelse (Method =:= delete) ->
+                  {URI, Hdrs, to_list(Mime), Data};
+              true ->
+                  {URI, Hdrs}
+          end,
     Begin = os:timestamp(),
-    Result = case catch p1_http:request(Method, URI, Hdrs, Data, Opts) of
-        {ok, Code, _, <<>>} ->
+    Result = try httpc:request(Method, Req, Opts, [{body_format, binary}]) of
+        {ok, {{_, Code, _}, _, <<>>}} ->
             {ok, Code, []};
-        {ok, Code, _, <<" ">>} ->
+        {ok, {{_, Code, _}, _, <<" ">>}} ->
             {ok, Code, []};
-        {ok, Code, _, <<"\r\n">>} ->
+        {ok, {{_, Code, _}, _, <<"\r\n">>}} ->
             {ok, Code, []};
-        {ok, Code, _, Body} ->
+        {ok, {{_, Code, _}, _, Body}} ->
             try jiffy:decode(Body) of
                 JSon ->
                     {ok, Code, JSon}
@@ -110,8 +115,9 @@ request(Server, Method, Path, Params, Mime, Data) ->
                        "** URI = ~s~n"
                        "** Err = ~p",
                        [URI, Reason]),
-            {error, {http_error, {error, Reason}}};
-        {'EXIT', Reason} ->
+            {error, {http_error, {error, Reason}}}
+        catch
+        exit:Reason ->
             ?ERROR_MSG("HTTP request failed:~n"
                        "** URI = ~s~n"
                        "** Err = ~p",
@@ -141,6 +147,11 @@ request(Server, Method, Path, Params, Mime, Data) ->
 %%% HTTP helpers
 %%%----------------------------------------------------------------------
 
+to_list(V) when is_binary(V) ->
+    binary_to_list(V);
+to_list(V) ->
+    V.
+
 encode_json(Content) ->
     case catch jiffy:encode(Content) of
         {'EXIT', Reason} ->
@@ -164,7 +175,7 @@ base_url(Server, Path) ->
             Base = ejabberd_config:get_option({ext_api_url, Server},
                                               <<"http://localhost/api">>),
             case binary:last(Base) of
-                47 -> <<Base/binary, BPath/binary>>;
+                $/ -> <<Base/binary, BPath/binary>>;
                 _ -> <<Base/binary, "/", BPath/binary>>
             end
     end,
@@ -174,13 +185,13 @@ base_url(Server, Path) ->
     end.
 
 url(Url, []) ->
-    binary_to_list(Url);
+    Url;
 url(Url, Params) ->
     L = [<<"&", (iolist_to_binary(Key))/binary, "=",
           (misc:url_encode(Value))/binary>>
             || {Key, Value} <- Params],
     <<$&, Encoded/binary>> = iolist_to_binary(L),
-    binary_to_list(<<Url/binary, $?, Encoded/binary>>).
+    <<Url/binary, $?, Encoded/binary>>.
 url(Server, Path, Params) ->
     case binary:split(base_url(Server, Path), <<"?">>) of
         [Url] ->
