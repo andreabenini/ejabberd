@@ -3277,7 +3277,8 @@ get_config(Lang, StateData, From) ->
 	      translate:translate(Lang, <<"Configuration of room ~s">>),
 	      [jid:encode(StateData#state.jid)]),
     Fs = [{roomname, Config#config.title},
-	  {roomdesc, Config#config.description}] ++
+	  {roomdesc, Config#config.description},
+	  {lang, Config#config.lang}] ++
 	case acl:match_rule(StateData#state.server_host, AccessPersistent, From) of
 	    allow -> [{persistentroom, Config#config.persistent}];
 	    deny -> []
@@ -3399,6 +3400,7 @@ set_config(Opts, Config, ServerHost, Lang) ->
 	 ({maxusers, V}, C) -> C#config{max_users = V};
 	 ({enablelogging, V}, C) -> C#config{logging = V};
 	 ({pubsub, V}, C) -> C#config{pubsub = V};
+	 ({lang, L}, C) -> C#config{lang = L};
 	 ({captcha_whitelist, Js}, C) ->
 	      LJIDs = [jid:tolower(J) || J <- Js],
 	      C#config{captcha_whitelist = ?SETS:from_list(LJIDs)};
@@ -3630,6 +3632,9 @@ set_opts([{Opt, Val} | Opts], StateData) ->
 	    allow_subscription ->
 		StateData#state{config =
 				    (StateData#state.config)#config{allow_subscription = Val}};
+	    lang ->
+		StateData#state{config =
+				    (StateData#state.config)#config{lang = Val}};
 	    subscribers ->
 		  {Subscribers, Nicks} =
 		      lists:foldl(
@@ -3709,6 +3714,7 @@ make_opts(StateData) ->
      ?MAKE_CONFIG_OPT(#config.vcard),
      ?MAKE_CONFIG_OPT(#config.vcard_xupdate),
      ?MAKE_CONFIG_OPT(#config.pubsub),
+     ?MAKE_CONFIG_OPT(#config.lang),
      {captcha_whitelist,
       (?SETS):to_list((StateData#state.config)#config.captcha_whitelist)},
      {affiliations,
@@ -3821,7 +3827,7 @@ process_iq_disco_info(From, #iq{type = get, lang = Lang,
 				sub_els = [#disco_info{node = <<>>}]},
 		      StateData) ->
     DiscoInfo = make_disco_info(From, StateData),
-    Extras = iq_disco_info_extras(Lang, StateData),
+    Extras = iq_disco_info_extras(Lang, StateData, false),
     {result, DiscoInfo#disco_info{xdata = [Extras]}};
 process_iq_disco_info(From, #iq{type = get, lang = Lang,
 				sub_els = [#disco_info{node = Node}]},
@@ -3831,25 +3837,33 @@ process_iq_disco_info(From, #iq{type = get, lang = Lang,
 	DiscoInfo = make_disco_info(From, StateData),
 	Hash = mod_caps:compute_disco_hash(DiscoInfo, sha),
 	Node = <<(?EJABBERD_URI)/binary, $#, Hash/binary>>,
-	{result, DiscoInfo#disco_info{node = Node}}
+	Extras = iq_disco_info_extras(Lang, StateData, true),
+	{result, DiscoInfo#disco_info{node = Node, xdata = [Extras]}}
     catch _:{badmatch, _} ->
 	    Txt = <<"Invalid node name">>,
 	    {error, xmpp:err_item_not_found(Txt, Lang)}
     end.
 
--spec iq_disco_info_extras(binary(), state()) -> xdata().
-iq_disco_info_extras(Lang, StateData) ->
+-spec iq_disco_info_extras(binary(), state(), boolean()) -> xdata().
+iq_disco_info_extras(Lang, StateData, Static) ->
     Fs1 = [{description, (StateData#state.config)#config.description},
-	   {occupants, ?DICT:size(StateData#state.nicks)},
-	   {contactjid, get_owners(StateData)}],
+	   {contactjid, get_owners(StateData)},
+	   {changesubject, (StateData#state.config)#config.allow_change_subj},
+	   {lang, (StateData#state.config)#config.lang}],
     Fs2 = case (StateData#state.config)#config.pubsub of
 	      Node when is_binary(Node), Node /= <<"">> ->
 		  [{pubsub, Node}|Fs1];
 	      _ ->
 		  Fs1
 	  end,
+    Fs3 = case Static of
+	      false ->
+		  [{occupants, ?DICT:size(StateData#state.nicks)}|Fs2];
+	      true ->
+		  Fs2
+	  end,
     #xdata{type = result,
-	   fields = muc_roominfo:encode(Fs2, Lang)}.
+	   fields = muc_roominfo:encode(Fs3, Lang)}.
 
 -spec process_iq_disco_items(jid(), iq(), state()) ->
 				    {error, stanza_error()} | {result, disco_items()}.
