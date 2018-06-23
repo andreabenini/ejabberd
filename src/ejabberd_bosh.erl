@@ -44,13 +44,9 @@
 	 handle_sync_event/4, handle_info/3, terminate/3,
 	 code_change/4]).
 
--include("ejabberd.hrl").
 -include("logger.hrl").
-
 -include("xmpp.hrl").
-
 -include("ejabberd_http.hrl").
-
 -include("bosh.hrl").
 
 %%-define(DBGFSM, true).
@@ -103,8 +99,8 @@
          prev_key = <<"">>                        :: binary(),
          prev_poll                                :: erlang:timestamp() | undefined,
          max_concat = unlimited                   :: unlimited | non_neg_integer(),
-	 responses = gb_trees:empty()             :: ?TGB_TREE,
-	 receivers = gb_trees:empty()             :: ?TGB_TREE,
+	 responses = gb_trees:empty()             :: gb_trees:tree(),
+	 receivers = gb_trees:empty()             :: gb_trees:tree(),
 	 shaped_receivers                         :: p1_queue:queue(),
          ip                                       :: inet:ip_address(),
          max_requests = 1                         :: non_neg_integer()}).

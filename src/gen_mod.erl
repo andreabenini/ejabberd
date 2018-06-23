@@ -56,7 +56,6 @@
 	     {ram_db_type, 2},
 	     {ram_db_type, 3}]).
 
--include("ejabberd.hrl").
 -include("logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
@@ -127,10 +126,9 @@ stop_child(Proc) ->
 
 %% Start all the modules in all the hosts
 start_modules() ->
-    lists:foreach(
-	fun(Host) ->
-	    start_modules(Host)
-	end, ?MYHOSTS).
+    Hosts = ejabberd_config:get_myhosts(),
+    ?INFO_MSG("Loading modules for ~s", [format_hosts_list(Hosts)]),
+    lists:foreach(fun start_modules/1, Hosts).
 
 get_modules_options(Host) ->
     sort_modules(Host, ejabberd_config:get_option({modules, Host}, [])).
@@ -328,7 +326,7 @@ stop_modules() ->
     lists:foreach(
 	fun(Host) ->
 	    stop_modules(Host)
-	end, ?MYHOSTS).
+	end, ejabberd_config:get_myhosts()).
 
 -spec stop_modules(binary()) -> ok.
 
@@ -419,7 +417,7 @@ get_module_opt(Host, Module, Opt) ->
 get_module_opt(Host, Module, Opt, F) when is_function(F) ->
     get_module_opt(Host, Module, Opt, undefined);
 get_module_opt(global, Module, Opt, Default) ->
-    Hosts = (?MYHOSTS),
+    Hosts = ejabberd_config:get_myhosts(),
     [Value | Values] = lists:map(fun (Host) ->
 					 get_module_opt(Host, Module, Opt,
 							Default)
@@ -745,6 +743,16 @@ format_module_error(Module, Fun, Arity, Opts, Class, Reason, St) ->
 			  [Module, Fun, Opts, Class, Reason, St])
     end.
 
+format_hosts_list([Host]) ->
+    Host;
+format_hosts_list([H1, H2]) ->
+    [H1, " and ", H2];
+format_hosts_list([H1, H2, H3]) ->
+    [H1, ", ", H2, " and ", H3];
+format_hosts_list([H1, H2|Hs]) ->
+    io_lib:format("~s, ~s and ~B more hosts",
+		  [H1, H2, length(Hs)]).
+
 -spec db_type(binary() | global, module()) -> db_type();
 	     (opts(), module()) -> db_type().
 
@@ -858,7 +866,7 @@ get_hosts(Opts, Prefix) ->
         undefined ->
             case get_opt(host, Opts) of
                 undefined ->
-                    [<<Prefix/binary, Host/binary>> || Host <- ?MYHOSTS];
+                    [<<Prefix/binary, Host/binary>> || Host <- ejabberd_config:get_myhosts()];
                 Host ->
                     [Host]
             end;
@@ -893,7 +901,7 @@ config_reloaded() ->
     lists:foreach(
       fun(Host) ->
 	      reload_modules(Host)
-      end, ?MYHOSTS).
+      end, ejabberd_config:get_myhosts()).
 
 -spec is_equal_opt(atom(), opts(), opts()) ->
 			  true | {false, any(), any()}.

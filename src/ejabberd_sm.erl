@@ -85,7 +85,6 @@
 -export([init/1, handle_call/3, handle_cast/2,
 	 handle_info/2, terminate/2, code_change/3, opt_type/1]).
 
--include("ejabberd.hrl").
 -include("logger.hrl").
 
 -include("xmpp.hrl").
@@ -243,10 +242,12 @@ get_user_info(User, Server) ->
     LServer = jid:nameprep(Server),
     Mod = get_sm_backend(LServer),
     Ss = online(get_sessions(Mod, LUser, LServer)),
-    [{LResource, [{node, node(Pid)}|Info]}
+    [{LResource, [{node, node(Pid)}, {ts, Ts}, {pid, Pid},
+		  {priority, Priority} | Info]}
      || #session{usr = {_, _, LResource},
+		 priority = Priority,
 		 info = Info,
-		 sid = {_, Pid}} <- clean_session_list(Ss)].
+		 sid = {Ts, Pid}} <- clean_session_list(Ss)].
 
 -spec get_user_info(binary(), binary(), binary()) -> info() | offline.
 
@@ -260,8 +261,11 @@ get_user_info(User, Server, Resource) ->
 	    offline;
 	Ss ->
 	    Session = lists:max(Ss),
-	    Node = node(element(2, Session#session.sid)),
-	    [{node, Node}|Session#session.info]
+	    {Ts, Pid} = Session#session.sid,
+	    Node = node(Pid),
+	    Priority = Session#session.priority,
+	    [{node, Node}, {ts, Ts}, {pid, Pid}, {priority, Priority}
+	     |Session#session.info]
     end.
 
 -spec set_presence(sid(), binary(), binary(), binary(),
@@ -428,7 +432,7 @@ init([]) ->
     ejabberd_hooks:add(host_up, ?MODULE, host_up, 50),
     ejabberd_hooks:add(host_down, ?MODULE, host_down, 60),
     ejabberd_hooks:add(config_reloaded, ?MODULE, config_reloaded, 50),
-    lists:foreach(fun host_up/1, ?MYHOSTS),
+    lists:foreach(fun host_up/1, ejabberd_config:get_myhosts()),
     ejabberd_commands:register_commands(get_commands_spec()),
     {ok, #state{}}.
 
@@ -445,7 +449,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    lists:foreach(fun host_down/1, ?MYHOSTS),
+    lists:foreach(fun host_down/1, ejabberd_config:get_myhosts()),
     ejabberd_hooks:delete(host_up, ?MODULE, host_up, 50),
     ejabberd_hooks:delete(host_down, ?MODULE, host_down, 60),
     ejabberd_hooks:delete(config_reloaded, ?MODULE, config_reloaded, 50),
@@ -848,7 +852,7 @@ get_sm_backend(Host) ->
 -spec get_sm_backends() -> [module()].
 
 get_sm_backends() ->
-    lists:usort([get_sm_backend(Host) || Host <- ?MYHOSTS]).
+    lists:usort([get_sm_backend(Host) || Host <- ejabberd_config:get_myhosts()]).
 
 -spec get_vh_by_backend(module()) -> [binary()].
 
@@ -856,7 +860,7 @@ get_vh_by_backend(Mod) ->
     lists:filter(
       fun(Host) ->
 	      get_sm_backend(Host) == Mod
-      end, ?MYHOSTS).
+      end, ejabberd_config:get_myhosts()).
 
 %%--------------------------------------------------------------------
 %%% Cache stuff
@@ -919,7 +923,7 @@ use_cache() ->
       fun(Host) ->
 	      Mod = get_sm_backend(Host),
 	      use_cache(Mod, Host)
-      end, ?MYHOSTS).
+      end, ejabberd_config:get_myhosts()).
 
 -spec cache_nodes(module(), binary()) -> [node()].
 cache_nodes(Mod, LServer) ->

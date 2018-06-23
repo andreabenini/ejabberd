@@ -40,7 +40,6 @@
 	 get_info/5, transform_module_options/1, mod_opt_type/1,
 	 mod_options/1, depends/2]).
 
--include("ejabberd.hrl").
 -include("logger.hrl").
 -include("translate.hrl").
 -include("xmpp.hrl").
@@ -239,7 +238,7 @@ get_vh_services(Host) ->
     Hosts = lists:sort(fun (H1, H2) ->
 			       byte_size(H1) >= byte_size(H2)
 		       end,
-		       ?MYHOSTS),
+		       ejabberd_config:get_myhosts()),
     lists:filter(fun (H) ->
 			 case lists:dropwhile(fun (VH) ->
 						      not
@@ -367,15 +366,21 @@ get_sm_identity(Acc, _From,
 
 -spec get_sm_features(features_acc(), jid(), jid(), binary(), binary()) ->
 			     {error, stanza_error()} | {result, [binary()]}.
-get_sm_features(empty, From, To, _Node, Lang) ->
+get_sm_features(empty, From, To, Node, Lang) ->
     #jid{luser = LFrom, lserver = LSFrom} = From,
     #jid{luser = LTo, lserver = LSTo} = To,
     case {LFrom, LSFrom} of
-      {LTo, LSTo} -> {error, xmpp:err_item_not_found()};
-      _ ->
+	{LTo, LSTo} ->
+	    case Node of
+		<<"">> -> {result, [?NS_DISCO_INFO, ?NS_DISCO_ITEMS]};
+		_ -> {error, xmpp:err_item_not_found()}
+	    end;
+	_ ->
 	    Txt = <<"Query to another users is forbidden">>,
 	    {error, xmpp:err_not_allowed(Txt, Lang)}
     end;
+get_sm_features({result, Features}, _From, _To, <<"">>, _Lang) ->
+    {result, [?NS_DISCO_INFO, ?NS_DISCO_ITEMS|Features]};
 get_sm_features(Acc, _From, _To, _Node, _Lang) -> Acc.
 
 -spec get_user_resources(binary(), binary()) -> [disco_item()].

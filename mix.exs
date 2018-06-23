@@ -61,7 +61,7 @@ defmodule Ejabberd.Mixfile do
     [{:lager, "~> 3.4.0"},
      {:p1_utils, "~> 1.0"},
      {:fast_xml, "~> 1.1"},
-     {:xmpp, github: "processone/xmpp", tag: "d958206"},
+     {:xmpp, github: "processone/xmpp", tag: "e26a39a"},
      {:cache_tab, "~> 1.0"},
      {:stringprep, "~> 1.0"},
      {:fast_yaml, "~> 1.0"},
@@ -125,7 +125,7 @@ defmodule Ejabberd.Mixfile do
   defp vars do
     case :file.consult("vars.config") do
       {:ok,config} -> config
-      _ -> [zlib: true, iconv: true]
+      _ -> [zlib: true, iconv: false]
     end
   end
 
