@@ -29,8 +29,8 @@
 -protocol({xep, 363, '0.1'}).
 
 -define(SERVICE_REQUEST_TIMEOUT, 5000). % 5 seconds.
+-define(CALL_TIMEOUT, 60000). % 1 minute.
 -define(SLOT_TIMEOUT, 18000000). % 5 hours.
--define(FORMAT(Error), file:format_error(Error)).
 -define(URL_ENC(URL), binary_to_list(misc:url_encode(URL))).
 -define(ADDR_TO_STR(IP), ejabberd_config:may_hide_data(misc:ip_to_list(IP))).
 -define(STR_TO_INT(Str, B), binary_to_integer(iolist_to_binary(Str), B)).
@@ -178,18 +178,14 @@ mod_opt_type(dir_mode) ->
 mod_opt_type(docroot) ->
     fun iolist_to_binary/1;
 mod_opt_type(put_url) ->
-    fun(<<"http://", _/binary>> = URL) -> URL;
-       (<<"https://", _/binary>> = URL) -> URL
-    end;
+    fun misc:try_url/1;
 mod_opt_type(get_url) ->
-    fun(<<"http://", _/binary>> = URL) -> URL;
-       (<<"https://", _/binary>> = URL) -> URL;
-       (undefined) -> undefined
+    fun(undefined) -> undefined;
+       (URL) -> misc:try_url(URL)
     end;
 mod_opt_type(service_url) ->
-    fun(<<"http://", _/binary>> = URL) -> URL;
-       (<<"https://", _/binary>> = URL) -> URL;
-       (undefined) -> undefined
+    fun(undefined) -> undefined;
+       (URL) -> misc:try_url(URL)
     end;
 mod_opt_type(custom_headers) ->
     fun(Headers) ->
@@ -378,7 +374,7 @@ process(LocalPath, #request{method = Method, host = Host, ip = IP})
 process(_LocalPath, #request{method = 'PUT', host = Host, ip = IP,
 			     length = Length} = Request) ->
     {Proc, Slot} = parse_http_request(Request),
-    case catch gen_server:call(Proc, {use_slot, Slot, Length}) of
+    case catch gen_server:call(Proc, {use_slot, Slot, Length}, ?CALL_TIMEOUT) of
 	{ok, Path, FileMode, DirMode, GetPrefix, Thumbnail, CustomHeaders} ->
 	    ?DEBUG("Storing file from ~s for ~s: ~s",
 		   [?ADDR_TO_STR(IP), Host, Path]),
@@ -389,17 +385,17 @@ process(_LocalPath, #request{method = 'PUT', host = Host, ip = IP,
 		{ok, Headers, OutData} ->
 		    http_response(201, Headers ++ CustomHeaders, OutData);
 		{error, Error} ->
-		    ?ERROR_MSG("Cannot store file ~s from ~s for ~s: ~p",
-			       [Path, ?ADDR_TO_STR(IP), Host, ?FORMAT(Error)]),
+		    ?INFO_MSG("Cannot store file ~s from ~s for ~s: ~s",
+			      [Path, ?ADDR_TO_STR(IP), Host, format_error(Error)]),
 		    http_response(500)
 	    end;
 	{error, size_mismatch} ->
-	    ?INFO_MSG("Rejecting file from ~s for ~s: Unexpected size (~B)",
-		      [?ADDR_TO_STR(IP), Host, Length]),
+	    ?INFO_MSG("Rejecting file ~s from ~s for ~s: Unexpected size (~B)",
+		      [lists:last(Slot), ?ADDR_TO_STR(IP), Host, Length]),
 	    http_response(413);
 	{error, invalid_slot} ->
-	    ?INFO_MSG("Rejecting file from ~s for ~s: Invalid slot",
-		      [?ADDR_TO_STR(IP), Host]),
+	    ?INFO_MSG("Rejecting file ~s from ~s for ~s: Invalid slot",
+		      [lists:last(Slot), ?ADDR_TO_STR(IP), Host]),
 	    http_response(403);
 	Error ->
 	    ?ERROR_MSG("Cannot handle PUT request from ~s for ~s: ~p",
@@ -410,7 +406,7 @@ process(_LocalPath, #request{method = Method, host = Host, ip = IP} = Request)
     when Method == 'GET';
 	 Method == 'HEAD' ->
     {Proc, [_UserDir, _RandDir, FileName] = Slot} = parse_http_request(Request),
-    case catch gen_server:call(Proc, get_conf) of
+    case catch gen_server:call(Proc, get_conf, ?CALL_TIMEOUT) of
 	{ok, DocRoot, CustomHeaders} ->
 	    Path = str:join([DocRoot | Slot], <<$/>>),
 	    case file:open(Path, [read]) of
@@ -443,7 +439,7 @@ process(_LocalPath, #request{method = Method, host = Host, ip = IP} = Request)
 		    http_response(404);
 		{error, Error} ->
 		    ?INFO_MSG("Cannot serve ~s to ~s: ~s",
-			      [Path, ?ADDR_TO_STR(IP), ?FORMAT(Error)]),
+			      [Path, ?ADDR_TO_STR(IP), format_error(Error)]),
 		    http_response(500)
 	    end;
 	Error ->
@@ -456,7 +452,7 @@ process(_LocalPath, #request{method = 'OPTIONS', host = Host,
     ?DEBUG("Responding to OPTIONS request from ~s for ~s",
 	   [?ADDR_TO_STR(IP), Host]),
     {Proc, _Slot} = parse_http_request(Request),
-    case catch gen_server:call(Proc, get_conf) of
+    case catch gen_server:call(Proc, get_conf, ?CALL_TIMEOUT) of
 	{ok, _DocRoot, CustomHeaders} ->
 	    http_response(200, CustomHeaders);
 	Error ->
@@ -581,8 +577,8 @@ create_slot(#state{service_url = undefined,
 	allow ->
 	    RandStr = randoms:get_alphanum_string(SecretLength),
 	    FileStr = make_file_string(File),
-	    ?INFO_MSG("Got HTTP upload slot for ~s (file: ~s)",
-		      [jid:encode(JID), File]),
+	    ?INFO_MSG("Got HTTP upload slot for ~s (file: ~s, size: ~B)",
+		      [jid:encode(JID), File, Size]),
 	    {ok, [UserStr, RandStr, FileStr]};
 	deny ->
 	    {error, xmpp:err_service_unavailable()};
@@ -605,8 +601,8 @@ create_slot(#state{service_url = ServiceURL},
 	    case binary:split(Body, <<$\n>>, [global, trim]) of
 		[<<"http", _/binary>> = PutURL,
 		 <<"http", _/binary>> = GetURL] ->
-		    ?INFO_MSG("Got HTTP upload slot for ~s (file: ~s)",
-			      [jid:encode(JID), File]),
+		    ?INFO_MSG("Got HTTP upload slot for ~s (file: ~s, size: ~B)",
+			      [jid:encode(JID), File, Size]),
 		    {ok, PutURL, GetURL};
 		Lines ->
 		    ?ERROR_MSG("Can't parse data received for ~s from <~s>: ~p",
@@ -690,19 +686,12 @@ iq_disco_info(Host, Lang, Name, AddInfo) ->
 	       infinity ->
 		   AddInfo;
 	       MaxSize ->
-		   MaxSizeStr = integer_to_binary(MaxSize),
-		   XData = lists:map(
-			     fun(NS) ->
-				     Fields = [#xdata_field{
-						  type = hidden,
-						  var = <<"FORM_TYPE">>,
-						  values = [NS]},
-					       #xdata_field{
-						  var = <<"max-file-size">>,
-						  values = [MaxSizeStr]}],
-				     #xdata{type = result, fields = Fields}
-			     end, [?NS_HTTP_UPLOAD, ?NS_HTTP_UPLOAD_0]),
-		   XData ++ AddInfo
+		   lists:foldl(
+		     fun(NS, Acc) ->
+			     Fs = http_upload:encode(
+				    [{'max-file-size', MaxSize}], NS, Lang),
+			     [#xdata{type = result, fields = Fs}|Acc]
+		     end, AddInfo, [?NS_HTTP_UPLOAD_0, ?NS_HTTP_UPLOAD])
 	   end,
     #disco_info{identities = [#identity{category = <<"store">>,
 					type = <<"file">>,
@@ -827,6 +816,20 @@ code_to_message(413) -> <<"File size doesn't match requested size.">>;
 code_to_message(500) -> <<"Internal server error.">>;
 code_to_message(_Code) -> <<"">>.
 
+-spec format_error(atom()) -> string().
+format_error(Reason) ->
+    case file:format_error(Reason) of
+	"unknown POSIX error" ->
+	    case inet:format_error(Reason) of
+		"unknown POSIX error" ->
+		    atom_to_list(Reason);
+		Txt ->
+		    Txt
+	    end;
+	Txt ->
+	    Txt
+    end.
+
 %%--------------------------------------------------------------------
 %% Image manipulation stuff.
 %%--------------------------------------------------------------------
@@ -848,7 +851,7 @@ identify(Path) ->
 	end
     catch _:{badmatch, {error, Reason}} ->
 	    ?DEBUG("Failed to read file ~s: ~s",
-		   [Path, file:format_error(Reason)]),
+		   [Path, format_error(Reason)]),
 	    pass
     end.
 
@@ -878,7 +881,7 @@ convert(Path, #media_info{type = T, width = W, height = H} = Info) ->
 				    {ok, OutPath, OutInfo};
 				{error, Why} ->
 				    ?ERROR_MSG("Failed to write to ~s: ~s",
-					       [OutPath, file:format_error(Why)]),
+					       [OutPath, format_error(Why)]),
 				    pass
 			    end;
 			{error, Why} ->
@@ -888,7 +891,7 @@ convert(Path, #media_info{type = T, width = W, height = H} = Info) ->
 		    end;
 		{error, Why} ->
 		    ?ERROR_MSG("Failed to read file ~s: ~s",
-			       [Path, file:format_error(Why)]),
+			       [Path, format_error(Why)]),
 		    pass
 	    end
     end.
@@ -917,8 +920,8 @@ remove_user(User, Server) ->
 	{error, enoent} ->
 	    ?DEBUG("Found no HTTP upload directory of ~s@~s", [User, Server]);
 	{error, Error} ->
-	    ?ERROR_MSG("Cannot remove HTTP upload directory of ~s@~s: ~p",
-		       [User, Server, ?FORMAT(Error)])
+	    ?ERROR_MSG("Cannot remove HTTP upload directory of ~s@~s: ~s",
+		       [User, Server, format_error(Error)])
     end,
     ok.
 

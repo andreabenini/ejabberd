@@ -3,7 +3,7 @@ defmodule Ejabberd.Mixfile do
 
   def project do
     [app: :ejabberd,
-     version: "18.4.0",
+     version: "18.6.0",
      description: description(),
      elixir: "~> 1.4",
      elixirc_paths: ["lib"],
@@ -61,7 +61,7 @@ defmodule Ejabberd.Mixfile do
     [{:lager, "~> 3.4.0"},
      {:p1_utils, "~> 1.0"},
      {:fast_xml, "~> 1.1"},
-     {:xmpp, github: "processone/xmpp", tag: "e26a39a"},
+     {:xmpp, "~> 1.2"},
      {:cache_tab, "~> 1.0"},
      {:stringprep, "~> 1.0"},
      {:fast_yaml, "~> 1.0"},
