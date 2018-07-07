@@ -84,7 +84,7 @@
          max_rooms_discoitems = 100 :: non_neg_integer(),
 	 queue_type = ram :: ram | file,
          default_room_opts = [] :: list(),
-         room_shaper = none :: shaper:shaper()}).
+         room_shaper = none :: ejabberd_shaper:shaper()}).
 
 -type muc_room_opts() :: [{atom(), any()}].
 -callback init(binary(), gen_mod:opts()) -> any().
@@ -568,7 +568,7 @@ process_muc_unique(#iq{type = set, lang = Lang} = IQ) ->
 process_muc_unique(#iq{from = From, type = get,
 		       sub_els = [#muc_unique{}]} = IQ) ->
     Name = str:sha(term_to_binary([From, p1_time_compat:timestamp(),
-				      randoms:get_string()])),
+				      p1_rand:get_string()])),
     xmpp:make_iq_result(IQ, #muc_unique{name = Name}).
 
 -spec process_mucsub(iq()) -> iq().

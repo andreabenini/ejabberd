@@ -57,6 +57,7 @@
 -include("logger.hrl").
 -include("ejabberd_config.hrl").
 -include_lib("kernel/include/file.hrl").
+-include_lib("kernel/include/inet.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -callback opt_type(atom()) -> function() | [atom()].
@@ -75,7 +76,7 @@ start() ->
 	    UnixTime = p1_time_compat:system_time(seconds),
 	    SharedKey = case erlang:get_cookie() of
 			    nocookie ->
-				str:sha(randoms:get_string());
+				str:sha(p1_rand:get_string());
 			    Cookie ->
 				str:sha(misc:atom_to_binary(Cookie))
 			end,
@@ -115,7 +116,7 @@ start(Hosts, Opts) ->
     UnixTime = p1_time_compat:system_time(seconds),
     SharedKey = case erlang:get_cookie() of
 		    nocookie ->
-			str:sha(randoms:get_string());
+			str:sha(p1_rand:get_string());
 		    Cookie ->
 			str:sha(misc:atom_to_binary(Cookie))
 		end,
@@ -782,7 +783,23 @@ set_opts(State) ->
 	fun(#local_config{key = Key, value = Val}) ->
 		{Key, Val}
 	end, Opts)),
+    set_fqdn(),
     set_log_level().
+
+set_fqdn() ->
+    FQDNs = case get_option(fqdn, []) of
+		[] ->
+		    {ok, Hostname} = inet:gethostname(),
+		    case inet:gethostbyname(Hostname) of
+			{ok, #hostent{h_name = FQDN}} ->
+			    [iolist_to_binary(FQDN)];
+			{error, _} ->
+			    []
+		    end;
+		Domains ->
+		    Domains
+	      end,
+    xmpp:set_config([{fqdn, FQDNs}]).
 
 set_log_level() ->
     Level = get_option(loglevel, 4),
@@ -1245,7 +1262,7 @@ transform_terms(Terms) ->
             ejabberd_s2s,
             ejabberd_listener,
             ejabberd_sql_sup,
-            shaper,
+            ejabberd_shaper,
             ejabberd_s2s_out,
             acl,
             ejabberd_config],
@@ -1452,10 +1469,16 @@ opt_type(node_start) ->
     fun(I) when is_integer(I), I>=0 -> I end;
 opt_type(validate_stream) ->
     fun(B) when is_boolean(B) -> B end;
+opt_type(fqdn) ->
+    fun(Domain) when is_binary(Domain) ->
+	    [Domain];
+       (Domains) ->
+	    [iolist_to_binary(Domain) || Domain <- Domains]
+    end;
 opt_type(_) ->
     [hide_sensitive_log_data, hosts, language, max_fsm_queue,
      default_db, default_ram_db, queue_type, queue_dir, loglevel,
-     use_cache, cache_size, cache_missed, cache_life_time,
+     use_cache, cache_size, cache_missed, cache_life_time, fqdn,
      shared_key, node_start, validate_stream, negotiation_timeout].
 
 -spec may_hide_data(any()) -> any().

@@ -53,7 +53,7 @@
          sha1 = <<"">> :: binary(),
          host = <<"">> :: binary(),
          auth_type = anonymous :: plain | anonymous,
-         shaper = none :: shaper:shaper()}).
+         shaper = none :: ejabberd_shaper:shaper()}).
 
 %% Unused callbacks
 handle_event(_Event, StateName, StateData) ->
@@ -245,14 +245,19 @@ handle_sync_event(_Event, _From, StateName,
 %%%-------------------------------------------------
 relay(MySocket, PeerSocket, Shaper) ->
     case gen_tcp:recv(MySocket, 0) of
-      {ok, Data} ->
-	  gen_tcp:send(PeerSocket, Data),
-	  {NewShaper, Pause} = shaper:update(Shaper, byte_size(Data)),
-	  if Pause > 0 -> timer:sleep(Pause);
-	     true -> pass
-	  end,
-	  relay(MySocket, PeerSocket, NewShaper);
-      _ -> stopped
+	{ok, Data} ->
+	    case gen_tcp:send(PeerSocket, Data) of
+		ok ->
+		    {NewShaper, Pause} = ejabberd_shaper:update(Shaper, byte_size(Data)),
+		    if Pause > 0 -> timer:sleep(Pause);
+		       true -> pass
+		    end,
+		    relay(MySocket, PeerSocket, NewShaper);
+		{error, _} = Err ->
+		    Err
+	    end;
+	{error, _} = Err ->
+	    Err
     end.
 
 %%%------------------------
@@ -273,11 +278,11 @@ select_auth_method(anonymous, AuthMethods) ->
 find_maxrate(Shaper, JID1, JID2, Host) ->
     MaxRate1 = case acl:match_rule(Host, Shaper, JID1) of
                    deny -> none;
-                   R1 -> shaper:new(R1)
+                   R1 -> ejabberd_shaper:new(R1)
                end,
     MaxRate2 = case acl:match_rule(Host, Shaper, JID2) of
                    deny -> none;
-                   R2 -> shaper:new(R2)
+                   R2 -> ejabberd_shaper:new(R2)
                end,
     if MaxRate1 == none; MaxRate2 == none -> none;
        true -> lists:max([MaxRate1, MaxRate2])
@@ -299,7 +304,7 @@ listen_opt_type(accept_interval) ->
 
 listen_options() ->
     [{auth_type, anonymous},
-     {recbuf, 8192},
-     {sndbuf, 8192},
+     {recbuf, 65536},
+     {sndbuf, 65536},
      {accept_interval, 0},
      {shaper, none}].

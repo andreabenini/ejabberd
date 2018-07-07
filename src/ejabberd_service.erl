@@ -101,7 +101,7 @@ init([State, Opts]) ->
 	      end,
     GlobalRoutes = proplists:get_value(global_routes, Opts, true),
     Timeout = ejabberd_config:negotiation_timeout(),
-    State1 = xmpp_stream_in:change_shaper(State, Shaper),
+    State1 = xmpp_stream_in:change_shaper(State, ejabberd_shaper:new(Shaper)),
     State2 = xmpp_stream_in:set_timeout(State1, Timeout),
     State3 = State2#{access => Access,
 		     xmlns => ?NS_COMPONENT,
@@ -261,7 +261,7 @@ check_from(From, #{host_opts := HostOpts}) ->
     dict:is_key(Server, HostOpts).
 
 random_password() ->
-    str:sha(randoms:bytes(20)).
+    str:sha(p1_rand:bytes(20)).
 
 transform_listen_option({hosts, Hosts, O}, Opts) ->
     case lists:keyfind(hosts, 1, Opts) of
