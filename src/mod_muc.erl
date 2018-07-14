@@ -295,6 +295,15 @@ handle_cast({reload, ServerHost, NewOpts, OldOpts}, #state{hosts = OldHosts}) ->
 	      ejabberd_router:unregister_route(OldHost),
 	      unregister_iq_handlers(OldHost)
       end, OldHosts -- NewHosts),
+    lists:foreach(
+      fun(Host) ->
+	      lists:foreach(
+		fun({_, _, Pid}) when node(Pid) == node() ->
+			Pid ! config_reloaded;
+		   (_) ->
+			ok
+		end, get_online_rooms(ServerHost, Host))
+      end, misc:intersection(NewHosts, OldHosts)),
     {noreply, NewState};
 handle_cast(Msg, State) ->
     ?WARNING_MSG("unexpected cast: ~p", [Msg]),
@@ -880,10 +889,9 @@ mod_opt_type(db_type) -> fun(T) -> ejabberd_config:v_db(?MODULE, T) end;
 mod_opt_type(ram_db_type) -> fun(T) -> ejabberd_config:v_db(?MODULE, T) end;
 mod_opt_type(history_size) ->
     fun (I) when is_integer(I), I >= 0 -> I end;
-mod_opt_type(host) -> fun iolist_to_binary/1;
+mod_opt_type(host) -> fun ejabberd_config:v_host/1;
 mod_opt_type(name) -> fun iolist_to_binary/1;
-mod_opt_type(hosts) ->
-    fun (L) -> lists:map(fun iolist_to_binary/1, L) end;
+mod_opt_type(hosts) -> fun ejabberd_config:v_hosts/1;
 mod_opt_type(max_room_desc) ->
     fun (infinity) -> infinity;
 	(I) when is_integer(I), I > 0 -> I
@@ -994,7 +1002,7 @@ mod_options(Host) ->
      {max_room_id, infinity},
      {max_room_name, infinity},
      {max_rooms_discoitems, 100},
-     {max_user_conferences, 10},
+     {max_user_conferences, 100},
      {max_users, 200},
      {max_users_admin_threshold, 5},
      {max_users_presence, 1000},

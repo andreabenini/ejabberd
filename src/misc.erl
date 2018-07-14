@@ -34,8 +34,9 @@
 	 l2i/1, i2l/1, i2l/2, expr_to_term/1, term_to_expr/1,
 	 now_to_usec/1, usec_to_now/1, encode_pid/1, decode_pid/2,
 	 compile_exprs/2, join_atoms/2, try_read_file/1, get_descr/2,
-	 css_dir/0, img_dir/0, js_dir/0, msgs_dir/0, sql_dir/0,
-	 read_css/1, read_img/1, read_js/1, try_url/1]).
+	 css_dir/0, img_dir/0, js_dir/0, msgs_dir/0, sql_dir/0, lua_dir/0,
+	 read_css/1, read_img/1, read_js/1, read_lua/1, try_url/1,
+	 intersection/2, format_val/1]).
 
 %% Deprecated functions
 -export([decode_base64/1, encode_base64/1]).
@@ -262,6 +263,10 @@ msgs_dir() ->
 sql_dir() ->
     get_dir("sql").
 
+-spec lua_dir() -> file:filename().
+lua_dir() ->
+    get_dir("lua").
+
 -spec read_css(file:filename()) -> {ok, binary()} | {error, file:posix()}.
 read_css(File) ->
     read_file(filename:join(css_dir(), File)).
@@ -274,11 +279,34 @@ read_img(File) ->
 read_js(File) ->
     read_file(filename:join(js_dir(), File)).
 
+-spec read_lua(file:filename()) -> {ok, binary()} | {error, file:posix()}.
+read_lua(File) ->
+    read_file(filename:join(lua_dir(), File)).
+
 -spec get_descr(binary(), binary()) -> binary().
 get_descr(Lang, Text) ->
     Desc = translate:translate(Lang, Text),
     Copyright = ejabberd_config:get_copyright(),
     <<Desc/binary, $\n, Copyright/binary>>.
+
+-spec intersection(list(), list()) -> list().
+intersection(L1, L2) ->
+    lists:filter(
+      fun(E) ->
+              lists:member(E, L2)
+      end, L1).
+
+-spec format_val(any()) -> iodata().
+format_val(I) when is_integer(I) ->
+    integer_to_list(I);
+format_val(S) when is_binary(S) ->
+    <<$", S/binary, $">>;
+format_val(B) when is_atom(B) ->
+    erlang:atom_to_binary(B, utf8);
+format_val(YAML) ->
+    try [io_lib:nl(), fast_yaml:encode(YAML)]
+    catch _:_ -> io_lib:format("~p", [YAML])
+    end.
 
 %%%===================================================================
 %%% Internal functions

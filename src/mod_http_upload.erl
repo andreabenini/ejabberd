@@ -151,9 +151,9 @@ stop(ServerHost) ->
 
 -spec mod_opt_type(atom()) -> fun((term()) -> term()) | [atom()].
 mod_opt_type(host) ->
-    fun iolist_to_binary/1;
+    fun ejabberd_config:v_host/1;
 mod_opt_type(hosts) ->
-    fun (L) -> lists:map(fun iolist_to_binary/1, L) end;
+    fun ejabberd_config:v_hosts/1;
 mod_opt_type(name) ->
     fun iolist_to_binary/1;
 mod_opt_type(access) ->
@@ -584,7 +584,7 @@ create_slot(#state{service_url = undefined,
     UserStr = make_user_string(JID, JIDinURL),
     UserDir = <<DocRoot/binary, $/, UserStr/binary>>,
     case ejabberd_hooks:run_fold(http_upload_slot_request, ServerHost, allow,
-				 [JID, UserDir, Size, Lang]) of
+				 [ServerHost, JID, UserDir, Size, Lang]) of
 	allow ->
 	    RandStr = p1_rand:get_alphanum_string(SecretLength),
 	    FileStr = make_file_string(File),
@@ -688,7 +688,7 @@ make_query_string(Slot, Size, #state{external_secret = Key}) when Key /= <<>> ->
     UrlPath = str:join(Slot, <<$/>>),
     SizeStr = integer_to_binary(Size),
     Data = <<UrlPath/binary, " ", SizeStr/binary>>,
-    HMAC = str:to_hexlist(crypto:hmac(sha256, Data, Key)),
+    HMAC = str:to_hexlist(crypto:hmac(sha256, Key, Data)),
     <<"?v=", HMAC/binary>>;
 make_query_string(_Slot, _Size, _State) ->
     <<>>.
