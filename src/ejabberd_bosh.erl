@@ -365,15 +365,22 @@ wait_for_session(#body{attrs = Attrs} = Req, From,
     {State3, RespEls} = get_response_els(State2),
     State4 = stop_inactivity_timer(State3),
     case RespEls of
-      [] ->
-	  State5 = restart_wait_timer(State4),
-	  Receivers = gb_trees:insert(RID, {From, Resp},
-				      State5#state.receivers),
-	  {next_state, active,
-	   State5#state{receivers = Receivers}};
-      _ ->
-	  reply_next_state(State4, Resp#body{els = RespEls}, RID,
-			   From)
+	[{xmlstreamstart, _, _} = El1] ->
+	    OutBuf = buf_in([El1], State4#state.el_obuf),
+	    State5 = restart_wait_timer(State4),
+	    Receivers = gb_trees:insert(RID, {From, Resp},
+					State5#state.receivers),
+	    {next_state, active,
+	     State5#state{receivers = Receivers, el_obuf = OutBuf}};
+	[] ->
+	    State5 = restart_wait_timer(State4),
+	    Receivers = gb_trees:insert(RID, {From, Resp},
+					State5#state.receivers),
+	    {next_state, active,
+	     State5#state{receivers = Receivers}};
+	_ ->
+	    reply_next_state(State4, Resp#body{els = RespEls}, RID,
+			     From)
     end;
 wait_for_session(_Event, _From, State) ->
     ?ERROR_MSG("unexpected sync event in 'wait_for_session': ~p",
@@ -404,7 +411,7 @@ active(#body{attrs = Attrs, size = Size} = Req, From,
 		    {next_state, active,
 		     State2#state{shaped_receivers = Q}}
 	    catch error:full ->
-		  cancel_timer(TRef),
+		  misc:cancel_timer(TRef),
 		  RID = get_attr(rid, Attrs),
 		  reply_stop(State1,
 			     #body{http_reason = <<"Too many requests">>,
@@ -552,7 +559,7 @@ handle_sync_event({send_xml, El}, _From, StateName,
 	  State2 = case p1_queue:out(State1#state.shaped_receivers)
 		       of
 		     {{value, {TRef, From, Body}}, Q} ->
-			 cancel_timer(TRef),
+			 misc:cancel_timer(TRef),
 			 p1_fsm:send_event(self(), {Body, From}),
 			 State1#state{shaped_receivers = Q};
 		     _ -> State1
@@ -572,7 +579,8 @@ handle_sync_event(_Event, _From, StateName, State) ->
 
 handle_info({timeout, TRef, wait_timeout}, StateName,
 	    #state{wait_timer = TRef} = State) ->
-    {next_state, StateName, drop_holding_receiver(State)};
+    State2 = State#state{wait_timer = undefined},
+    {next_state, StateName, drop_holding_receiver(State2)};
 handle_info({timeout, TRef, inactive}, _StateName,
 	    #state{inactivity_timer = TRef} = State) ->
     {stop, normal, State};
@@ -691,7 +699,8 @@ drop_holding_receiver(State, RID) ->
 					    State1#state.receivers),
 	    State2 = State1#state{receivers = Receivers},
 	    do_reply(State2, From, Body, RID);
-	none -> State
+	none ->
+	    restart_inactivity_timer(State)
     end.
 
 do_reply(State, From, Body, RID) ->
@@ -1035,12 +1044,8 @@ buf_out(Buf, I, Els) ->
       {empty, _} -> buf_out(Buf, 0, Els)
     end.
 
-cancel_timer(TRef) when is_reference(TRef) ->
-    p1_fsm:cancel_timer(TRef);
-cancel_timer(_) -> false.
-
 restart_timer(TRef, Timeout, Msg) ->
-    cancel_timer(TRef),
+    misc:cancel_timer(TRef),
     erlang:start_timer(timer:seconds(Timeout), self(), Msg).
 
 restart_inactivity_timer(#state{inactivity_timeout =
@@ -1057,7 +1062,7 @@ restart_inactivity_timer(#state{inactivity_timer =
 
 stop_inactivity_timer(#state{inactivity_timer = TRef} =
 			  State) ->
-    cancel_timer(TRef),
+    misc:cancel_timer(TRef),
     State#state{inactivity_timer = undefined}.
 
 restart_wait_timer(#state{wait_timer = TRef,
@@ -1067,7 +1072,7 @@ restart_wait_timer(#state{wait_timer = TRef,
     State#state{wait_timer = NewTRef}.
 
 stop_wait_timer(#state{wait_timer = TRef} = State) ->
-    cancel_timer(TRef), State#state{wait_timer = undefined}.
+    misc:cancel_timer(TRef), State#state{wait_timer = undefined}.
 
 start_shaper_timer(Timeout) ->
     erlang:start_timer(Timeout, self(), shaper_timeout).
