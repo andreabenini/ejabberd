@@ -787,7 +787,8 @@ process_groupchat_message(#message{from = From, lang = Lang} = Packet, StateData
 			 drop ->
 			     {next_state, normal_state, StateData};
 			 NewPacket1 ->
-			     NewPacket = xmpp:remove_subtag(NewPacket1, #nick{}),
+			     NewPacket = xmpp:put_meta(xmpp:remove_subtag(NewPacket1, #nick{}),
+				 muc_sender_real_jid, From),
 			     Node = if Subject == [] -> ?NS_MUCSUB_NODES_MESSAGES;
 				       true -> ?NS_MUCSUB_NODES_SUBJECT
 				    end,
@@ -2173,7 +2174,9 @@ send_initial_presences_and_messages(From, Nick, Presence, NewState, OldState) ->
 send_self_presence(JID, State) ->
     AvatarHash = (State#state.config)#config.vcard_xupdate,
     DiscoInfo = make_disco_info(JID, State),
-    DiscoHash = mod_caps:compute_disco_hash(DiscoInfo, sha),
+    Extras = iq_disco_info_extras(<<"en">>, State, true),
+    DiscoInfo1 = DiscoInfo#disco_info{xdata = [Extras]},
+    DiscoHash = mod_caps:compute_disco_hash(DiscoInfo1, sha),
     Els1 = [#caps{hash = <<"sha-1">>,
 		  node = ejabberd_config:get_uri(),
 		  version = DiscoHash}],
@@ -3896,10 +3899,11 @@ process_iq_disco_info(From, #iq{type = get, lang = Lang,
     try
 	true = mod_caps:is_valid_node(Node),
 	DiscoInfo = make_disco_info(From, StateData),
-	Hash = mod_caps:compute_disco_hash(DiscoInfo, sha),
-	Node = <<(ejabberd_config:get_uri())/binary, $#, Hash/binary>>,
 	Extras = iq_disco_info_extras(Lang, StateData, true),
-	{result, DiscoInfo#disco_info{node = Node, xdata = [Extras]}}
+	DiscoInfo1 = DiscoInfo#disco_info{xdata = [Extras]},
+	Hash = mod_caps:compute_disco_hash(DiscoInfo1, sha),
+	Node = <<(ejabberd_config:get_uri())/binary, $#, Hash/binary>>,
+	{result, DiscoInfo1#disco_info{node = Node}}
     catch _:{badmatch, _} ->
 	    Txt = <<"Invalid node name">>,
 	    {error, xmpp:err_item_not_found(Txt, Lang)}
