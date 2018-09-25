@@ -533,9 +533,6 @@ handle_sync_event({change_config, Config}, _From,
 handle_sync_event({change_state, NewStateData}, _From,
 		  StateName, _StateData) ->
     {reply, {ok, NewStateData}, StateName, NewStateData};
-handle_sync_event(check_tombstone, _From,
-		  StateName, StateData) ->
-    {reply, check_tombstone(StateData), StateName, StateData};
 handle_sync_event({process_item_change, Item, UJID}, _From, StateName, StateData) ->
     case process_item_change(Item, StateData, UJID) of
 	{error, _} = Err ->
@@ -863,7 +860,7 @@ process_normal_message(From, #message{lang = Lang} = Pkt, StateData) ->
 	{ok, [#muc_invite{}|_] = Invitations} ->
 	    lists:foldl(
 	      fun(Invitation, AccState) ->
-		      process_invitation(From, Invitation, Lang, AccState)
+		      process_invitation(From, Pkt, Invitation, Lang, AccState)
 	      end, StateData, Invitations);
 	{ok, [{role, participant}]} ->
 	    process_voice_request(From, Pkt, StateData);
@@ -876,9 +873,9 @@ process_normal_message(From, #message{lang = Lang} = Pkt, StateData) ->
 	    StateData
     end.
 
--spec process_invitation(jid(), muc_invite(), binary(), state()) -> state().
-process_invitation(From, Invitation, Lang, StateData) ->
-    IJID = route_invitation(From, Invitation, Lang, StateData),
+-spec process_invitation(jid(), message(), muc_invite(), binary(), state()) -> state().
+process_invitation(From, Pkt, Invitation, Lang, StateData) ->
+    IJID = route_invitation(From, Pkt, Invitation, Lang, StateData),
     Config = StateData#state.config,
     case Config#config.members_only of
 	true ->
@@ -2865,8 +2862,13 @@ find_changed_items(UJID, UAffiliation, URole,
     TAffiliation = get_affiliation(JID, StateData),
     TRole = get_role(JID, StateData),
     ServiceAf = get_service_affiliation(JID, StateData),
+    UIsSubscriber = is_subscriber(UJID, StateData),
+    URole1 = case {URole, UIsSubscriber} of
+	{none, true} -> subscriber;
+	{UR, _} -> UR
+    end,
     CanChangeRA = case can_change_ra(UAffiliation,
-				     URole,
+				     URole1,
 				     TAffiliation,
 				     TRole, RoleOrAff, RoleOrAffValue,
 				     ServiceAf) of
@@ -2986,8 +2988,18 @@ can_change_ra(_FAffiliation, _FRole, _TAffiliation,
 can_change_ra(_FAffiliation, moderator, _TAffiliation,
 	      visitor, role, none, _ServiceAf) ->
     true;
+can_change_ra(FAffiliation, subscriber, _TAffiliation,
+	      visitor, role, none, _ServiceAf)
+    when (FAffiliation == owner) or
+	   (FAffiliation == admin) ->
+    true;
 can_change_ra(_FAffiliation, moderator, _TAffiliation,
 	      visitor, role, participant, _ServiceAf) ->
+    true;
+can_change_ra(FAffiliation, subscriber, _TAffiliation,
+	      visitor, role, participant, _ServiceAf)
+    when (FAffiliation == owner) or
+	   (FAffiliation == admin) ->
     true;
 can_change_ra(FAffiliation, _FRole, _TAffiliation,
 	      visitor, role, moderator, _ServiceAf)
@@ -2997,8 +3009,18 @@ can_change_ra(FAffiliation, _FRole, _TAffiliation,
 can_change_ra(_FAffiliation, moderator, _TAffiliation,
 	      participant, role, none, _ServiceAf) ->
     true;
+can_change_ra(FAffiliation, subscriber, _TAffiliation,
+	      participant, role, none, _ServiceAf)
+    when (FAffiliation == owner) or
+	   (FAffiliation == admin) ->
+    true;
 can_change_ra(_FAffiliation, moderator, _TAffiliation,
 	      participant, role, visitor, _ServiceAf) ->
+    true;
+can_change_ra(FAffiliation, subscriber, _TAffiliation,
+	      participant, role, visitor, _ServiceAf)
+    when (FAffiliation == owner) or
+	   (FAffiliation == admin) ->
     true;
 can_change_ra(FAffiliation, _FRole, _TAffiliation,
 	      participant, role, moderator, _ServiceAf)
@@ -3028,6 +3050,24 @@ can_change_ra(_FAffiliation, _FRole, admin, moderator,
     false;
 can_change_ra(admin, _FRole, _TAffiliation, moderator,
 	      role, participant, _ServiceAf) ->
+    true;
+can_change_ra(owner, moderator, TAffiliation,
+	      moderator, role, none, _ServiceAf)
+    when TAffiliation /= owner ->
+    true;
+can_change_ra(owner, subscriber, TAffiliation,
+	      moderator, role, none, _ServiceAf)
+    when TAffiliation /= owner ->
+    true;
+can_change_ra(admin, moderator, TAffiliation,
+	      moderator, role, none, _ServiceAf)
+    when (TAffiliation /= owner) and
+         (TAffiliation /= admin) ->
+    true;
+can_change_ra(admin, subscriber, TAffiliation,
+	      moderator, role, none, _ServiceAf)
+    when (TAffiliation /= owner) and
+         (TAffiliation /= admin) ->
     true;
 can_change_ra(_FAffiliation, _FRole, _TAffiliation,
 	      _TRole, role, _Value, _ServiceAf) ->
@@ -3795,51 +3835,10 @@ destroy_room(DEl, StateData) ->
     case (StateData#state.config)#config.persistent of
       true ->
 	  mod_muc:forget_room(StateData#state.server_host,
-			      StateData#state.host, StateData#state.room),
-	  maybe_create_tombstone(DEl, StateData);
+			      StateData#state.host, StateData#state.room);
       false -> ok
     end,
     {result, undefined, stop}.
-
--define(TOMBSTONE_NAME, <<"Room tombstone">>).
--define(TOMBSTONE_REASON, <<"Expiring tombstone">>).
-
-maybe_create_tombstone(DEl, StateData) ->
-    case DEl#muc_destroy.reason of
-	?TOMBSTONE_REASON ->
-	    ok;
-	_ ->
-	    TombstoneExpiry = gen_mod:get_module_opt(StateData#state.server_host,
-					 mod_muc, tombstone_expiry),
-	    create_tombstone(TombstoneExpiry, StateData)
-    end.
-
-create_tombstone(TombstoneExpiry, _) when TombstoneExpiry =< 0 ->
-    ok;
-create_tombstone(TombstoneExpiry, #state{server_host = Server, host = Host, room = Room}) ->
-    ?INFO_MSG("Creating tombstone for room ~s@~s", [Room, Host]),
-    Password = integer_to_binary(misc:now_to_usec(now()) + TombstoneExpiry*1000000),
-    Opts1 = gen_mod:get_module_opt(Server, mod_muc, default_room_options),
-    {_, Opts2} = proplists:split(Opts1, [title, password, persistent, public]),
-    Opts3 = [{title, ?TOMBSTONE_NAME}, {password, Password}, {persistent, true}, {public, false} | Opts2],
-    mod_muc:create_room(
-	    Host,
-	    Room,
-	    jid:make(<<"tombstone">>, <<"">>),
-	    <<"">>,
-	    Opts3).
-
-check_tombstone(#state{config = Config}) ->
-    case Config#config.title of
-        ?TOMBSTONE_NAME ->
-            case binary_to_integer(Config#config.password) < misc:now_to_usec(now()) of
-                true ->
-                    expired;
-                false ->
-                    locked
-            end;
-        _ -> not_tombstone
-    end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Disco
@@ -4236,8 +4235,8 @@ check_invitation(From, Invitations, Lang, StateData) ->
 	    {error, xmpp:err_not_allowed(Txt, Lang)}
     end.
 
--spec route_invitation(jid(), muc_invite(), binary(), state()) -> jid().
-route_invitation(From, Invitation, Lang, StateData) ->
+-spec route_invitation(jid(), message(), muc_invite(), binary(), state()) -> jid().
+route_invitation(From, Pkt, Invitation, Lang, StateData) ->
     #muc_invite{to = JID, reason = Reason} = Invitation,
     Invite = Invitation#muc_invite{to = undefined, from = From},
     Password = case (StateData#state.config)#config.password_protected of
@@ -4276,10 +4275,12 @@ route_invitation(From, Invitation, Lang, StateData) ->
 		   type = normal,
 		   body = xmpp:mk_text(Body),
 		   sub_els = [XUser, XConference]},
-    ejabberd_hooks:run(muc_invite, StateData#state.server_host,
-		       [StateData#state.jid, StateData#state.config,
-			From, JID, Reason]),
-    ejabberd_router:route(Msg),
+    Msg2 = ejabberd_hooks:run_fold(muc_invite,
+				   StateData#state.server_host,
+				   Msg,
+				   [StateData#state.jid, StateData#state.config,
+				    From, JID, Reason, Pkt]),
+    ejabberd_router:route(Msg2),
     JID.
 
 %% Handle a message sent to the room by a non-participant.
