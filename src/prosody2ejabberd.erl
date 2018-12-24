@@ -189,7 +189,11 @@ convert_data(Host, "vcard", User, [Data]) ->
 	    ok
     end;
 convert_data(_Host, "config", _User, [Data]) ->
-    RoomJID = jid:decode(proplists:get_value(<<"jid">>, Data, <<"">>)),
+    RoomJID1 = case proplists:get_value(<<"jid">>, Data, not_found) of
+	not_found -> proplists:get_value(<<"_jid">>, Data, room_jid_not_found);
+	A when is_binary(A) -> A
+    end,
+    RoomJID = jid:decode(RoomJID1),
     Config = proplists:get_value(<<"_data">>, Data, []),
     RoomCfg = convert_room_config(Data),
     case proplists:get_bool(<<"persistent">>, Config) of
@@ -303,22 +307,24 @@ convert_roster_item(LUser, LServer, JIDstring, LuaList) ->
 	    InitR = #roster{usj = {LUser, LServer, LJID},
 			    us = {LUser, LServer},
 			    jid = LJID},
-	    Roster =
-		lists:foldl(
-		  fun({<<"groups">>, Val}, R) ->
+	    lists:foldl(
+		  fun({<<"groups">>, Val}, [R]) ->
 			  Gs = lists:flatmap(
 				 fun({G, true}) -> [G];
 				    (_) -> []
 				 end, Val),
-			  R#roster{groups = Gs};
-		     ({<<"subscription">>, Sub}, R) ->
-			  R#roster{subscription = misc:binary_to_atom(Sub)};
-		     ({<<"ask">>, <<"subscribe">>}, R) ->
-			  R#roster{ask = out};
-		     ({<<"name">>, Name}, R) ->
-			  R#roster{name = Name}
-		  end, InitR, LuaList),
-	    [Roster]
+			  [R#roster{groups = Gs}];
+		     ({<<"subscription">>, Sub}, [R]) ->
+			  [R#roster{subscription = misc:binary_to_atom(Sub)}];
+		     ({<<"ask">>, <<"subscribe">>}, [R]) ->
+			  [R#roster{ask = out}];
+		     ({<<"name">>, Name}, [R]) ->
+			  [R#roster{name = Name}];
+		     ({<<"persist">>, false}, _) ->
+			  [];
+		     (_, []) ->
+			  []
+		  end, [InitR], LuaList)
     catch _:{bad_jid, _} ->
 	    []
     end.
@@ -358,9 +364,11 @@ convert_room_config(Data) ->
 		end,
     [{affiliations, convert_room_affiliations(Data)},
      {allow_change_subj, proplists:get_bool(<<"changesubject">>, Config)},
+     {mam, proplists:get_bool(<<"archiving">>, Config)},
      {description, proplists:get_value(<<"description">>, Config, <<"">>)},
      {members_only,	proplists:get_bool(<<"members_only">>, Config)},
      {moderated, proplists:get_bool(<<"moderated">>, Config)},
+     {persistent, proplists:get_bool(<<"persistent">>, Config)},
      {anonymous, Anonymous}] ++ Pass ++ Subj.
 
 convert_privacy_item({_, Item}) ->
@@ -517,6 +525,11 @@ el_to_offline_msg(LUser, LServer, #xmlel{attrs = Attrs} = El) ->
 deserialize(L) ->
     deserialize(L, #xmlel{}, []).
 
+deserialize([{Other, _}|T], El, Acc)
+  when (Other == <<"key">>)
+       or (Other == <<"when">>)
+       or (Other == <<"with">>) ->
+    deserialize(T, El, Acc);
 deserialize([{<<"attr">>, Attrs}|T], El, Acc) ->
     deserialize(T, El#xmlel{attrs = Attrs ++ El#xmlel.attrs}, Acc);
 deserialize([{<<"name">>, Name}|T], El, Acc) ->
