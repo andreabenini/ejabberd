@@ -5,7 +5,7 @@
 %%% Created : 16 Jan 2003 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2018   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2019   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -255,7 +255,7 @@ publish_data(JID, Data) ->
 			       {access_model, whitelist}],
 		    case mod_pubsub:publish_item(
 			   LBJID, LServer, ?NS_STORAGE_BOOKMARKS, JID,
-			   <<>>, [El], PubOpts, all) of
+			   <<"current">>, [El], PubOpts, all) of
 			{result, _} -> ok;
 			{error, _} = Err -> Err
 		    end

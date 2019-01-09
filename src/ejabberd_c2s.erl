@@ -2,7 +2,7 @@
 %%% Created :  8 Dec 2016 by Evgeny Khramtsov <ekhramtsov@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2018   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2019   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -638,15 +638,16 @@ route_probe_reply(From, #{jid := To,
     Subscription = get_subscription(To, From),
     if IsAnotherResource orelse
        Subscription == both orelse Subscription == from ->
-	    Packet = misc:add_delay_info(LastPres, To, TS),
-	    case privacy_check_packet(State, Packet, out) of
+	    Packet = xmpp:set_from_to(LastPres, To, From),
+	    Packet2 = misc:add_delay_info(Packet, To, TS),
+	    case privacy_check_packet(State, Packet2, out) of
 		deny ->
 		    ok;
 		allow ->
 		    ejabberd_hooks:run(presence_probe_hook,
 				       LServer,
 				       [From, To, self()]),
-		    ejabberd_router:route(xmpp:set_from_to(Packet, To, From))
+		    ejabberd_router:route(Packet2)
 	    end;
        true ->
 	    ok
