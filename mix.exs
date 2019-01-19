@@ -25,12 +25,12 @@ defmodule Ejabberd.Mixfile do
 
   def application do
     [mod: {:ejabberd_app, []},
-     applications: [:ssl, :os_mon],
+     applications: [:kernel, :stdlib, :sasl, :ssl],
      included_applications: [:lager, :mnesia, :inets, :p1_utils, :cache_tab,
                              :fast_tls, :stringprep, :fast_xml, :xmpp,
                              :stun, :fast_yaml, :esip, :jiffy, :p1_oauth2,
-                             :eimp, :base64url, :jose, :pkix]
-                         ++ cond_apps()]
+                             :eimp, :base64url, :jose, :pkix, :os_mon]
+     ++ cond_apps()]
   end
 
   defp if_function_exported(mod, fun, arity, okResult) do
@@ -70,7 +70,7 @@ defmodule Ejabberd.Mixfile do
     [{:lager, "~> 3.6.0"},
      {:p1_utils, "~> 1.0"},
      {:fast_xml, "~> 1.1"},
-     {:xmpp, "~> 1.2"},
+     {:xmpp, "~> 1.3.0"},
      {:cache_tab, "~> 1.0"},
      {:stringprep, "~> 1.0"},
      {:fast_yaml, "~> 1.0"},
