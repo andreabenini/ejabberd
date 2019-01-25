@@ -699,36 +699,42 @@ handle_info(_Info, StateName, StateData) ->
     {next_state, StateName, StateData}.
 
 terminate(Reason, _StateName, StateData) ->
-    ?INFO_MSG("Stopping MUC room ~s@~s",
-	      [StateData#state.room, StateData#state.host]),
-    ReasonT = case Reason of
-		shutdown ->
-		    <<"You are being removed from the room "
-		      "because of a system shutdown">>;
-		_ -> <<"Room terminates">>
-	      end,
-    Packet = #presence{
-		type = unavailable,
-		sub_els = [#muc_user{items = [#muc_item{affiliation = none,
-							reason = ReasonT,
-							role = none}],
-				     status_codes = [332,110]}]},
-    maps:fold(
-      fun(LJID, Info, _) ->
-	      Nick = Info#user.nick,
-	      case Reason of
-		  shutdown ->
-		      send_wrapped(jid:replace_resource(StateData#state.jid, Nick),
-				   Info#user.jid, Packet,
-				   ?NS_MUCSUB_NODES_PARTICIPANTS,
-				   StateData);
-		  _ -> ok
-	      end,
-	      tab_remove_online_user(LJID, StateData)
-      end, [], get_users_and_subscribers(StateData)),
-    add_to_log(room_existence, stopped, StateData),
-    mod_muc:room_destroyed(StateData#state.host, StateData#state.room, self(),
-			   StateData#state.server_host),
+    try
+	?INFO_MSG("Stopping MUC room ~s@~s",
+		  [StateData#state.room, StateData#state.host]),
+	ReasonT = case Reason of
+		      shutdown ->
+			  <<"You are being removed from the room "
+			    "because of a system shutdown">>;
+		      _ -> <<"Room terminates">>
+		  end,
+	Packet = #presence{
+		    type = unavailable,
+		    sub_els = [#muc_user{items = [#muc_item{affiliation = none,
+							    reason = ReasonT,
+							    role = none}],
+					 status_codes = [332,110]}]},
+	maps:fold(
+	  fun(LJID, Info, _) ->
+		  Nick = Info#user.nick,
+		  case Reason of
+		      shutdown ->
+			  send_wrapped(jid:replace_resource(StateData#state.jid, Nick),
+				       Info#user.jid, Packet,
+				       ?NS_MUCSUB_NODES_PARTICIPANTS,
+				       StateData);
+		      _ -> ok
+		  end,
+		  tab_remove_online_user(LJID, StateData)
+	  end, [], get_users_and_subscribers(StateData)),
+	add_to_log(room_existence, stopped, StateData),
+	mod_muc:room_destroyed(StateData#state.host, StateData#state.room, self(),
+			       StateData#state.server_host)
+    catch ?EX_RULE(E, R, St) ->
+	    mod_muc:room_destroyed(StateData#state.host, StateData#state.room, self(),
+				   StateData#state.server_host),
+	    ?ERROR_MSG("Got exception on room termination: ~p", [{E, {R, ?EX_STACK(St)}}])
+    end,
     ok.
 
 %%%----------------------------------------------------------------------
