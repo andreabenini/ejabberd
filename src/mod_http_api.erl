@@ -137,39 +137,43 @@ depends(_Host, _Opts) ->
 %% basic auth
 %% ----------
 
-extract_auth(#request{auth = HTTPAuth, ip = {IP, _}}) ->
+extract_auth(#request{auth = HTTPAuth, ip = {IP, _}, opts = Opts}) ->
     Info = case HTTPAuth of
-            {SJID, Pass} ->
-                try jid:decode(SJID) of
+	       {SJID, Pass} ->
+		   try jid:decode(SJID) of
 		       #jid{luser = User, lserver = Server} ->
-                        case ejabberd_auth:check_password(User, <<"">>, Server, Pass) of
+			   case ejabberd_auth:check_password(User, <<"">>, Server, Pass) of
 			       true ->
 				   #{usr => {User, Server, <<"">>}, caller_server => Server};
 			       false ->
 				   {error, invalid_auth}
-                        end
-		catch _:{bad_jid, _} ->
-			{error, invalid_auth}
-                end;
-            {oauth, Token, _} ->
+			   end
+		   catch _:{bad_jid, _} ->
+		       {error, invalid_auth}
+		   end;
+	       {oauth, Token, _} ->
 		   case ejabberd_oauth:check_token(Token) of
 		       {ok, {U, S}, Scope} ->
 			   #{usr => {U, S, <<"">>}, oauth_scope => Scope, caller_server => S};
 		       {false, Reason} ->
 			   {error, Reason}
-                end;
-            _ ->
+		   end;
+	       invalid ->
+		   {error, invalid_auth};
+	       _ ->
 		   #{}
-        end,
+	   end,
     case Info of
 	Map when is_map(Map) ->
-	    Map#{caller_module => ?MODULE, ip => IP};
+	    Tag = proplists:get_value(tag, Opts, <<>>),
+	    Map#{caller_module => ?MODULE, ip => IP, tag => Tag};
 	_ ->
 	    ?DEBUG("Invalid auth data: ~p", [Info]),
 	    Info
     end;
-extract_auth(#request{ip = IP}) ->
-    #{ip => IP, caller_module => ?MODULE}.
+extract_auth(#request{ip = IP, opts = Opts}) ->
+    Tag = proplists:get_value(tag, Opts, <<>>),
+    #{ip => IP, caller_module => ?MODULE, tag => Tag}.
 
 %% ------------------
 %% command processing
@@ -353,7 +357,10 @@ format_args(Args, ArgsFormat) ->
 				     {Args, []}, ArgsFormat),
     case ArgsRemaining of
       [] -> R;
-      L when is_list(L) -> exit({additional_unused_args, L})
+      L when is_list(L) ->
+	  throw({invalid_parameter,
+		 io_lib:format("Request have unknown arguments: ~w",
+			       [[N || {N, _} <- L]])})
     end.
 
 format_arg({Elements},

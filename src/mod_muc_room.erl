@@ -340,7 +340,7 @@ normal_state({route, <<"">>, #iq{} = IQ}, StateData) ->
     ejabberd_router:route_error(IQ, Err),
     case StateData#state.just_created of
 	true -> {stop, normal, StateData};
-	false -> {next_state, normal_state, StateData}
+	_ -> {next_state, normal_state, StateData}
     end;
 normal_state({route, Nick, #presence{from = From} = Packet}, StateData) ->
     Activity = get_user_activity(From, StateData),
@@ -1960,8 +1960,8 @@ add_new_user(From, Nick, Packet, StateData) ->
 		  ResultState =
 		      case NewStateData#state.just_created of
 			  true ->
-			      NewStateData#state{just_created = false};
-			  false ->
+			      NewStateData#state{just_created = misc:now_to_usec(now())};
+			  _ ->
 			      Robots = maps:remove(From, StateData#state.robots),
 			      NewStateData#state{robots = Robots}
 		      end,
@@ -2149,15 +2149,15 @@ presence_broadcast_allowed(JID, StateData) ->
 -spec send_initial_presences_and_messages(
 	jid(), binary(), presence(), state(), state()) -> ok.
 send_initial_presences_and_messages(From, Nick, Presence, NewState, OldState) ->
-    send_self_presence(From, NewState),
+    advertise_entity_capabilities(From, NewState),
     send_existing_presences(From, NewState),
-    send_initial_presence(From, NewState, OldState),
+    send_self_presence(From, NewState, OldState),
     History = get_history(Nick, Presence, NewState),
     send_history(From, History, NewState),
     send_subject(From, OldState).
 
--spec send_self_presence(jid(), state()) -> ok.
-send_self_presence(JID, State) ->
+-spec advertise_entity_capabilities(jid(), state()) -> ok.
+advertise_entity_capabilities(JID, State) ->
     AvatarHash = (State#state.config)#config.vcard_xupdate,
     DiscoInfo = make_disco_info(JID, State),
     Extras = iq_disco_info_extras(<<"en">>, State, true),
@@ -2175,8 +2175,8 @@ send_self_presence(JID, State) ->
 				    id = p1_rand:get_string(),
 				    sub_els = Els2}).
 
--spec send_initial_presence(jid(), state(), state()) -> ok.
-send_initial_presence(NJID, StateData, OldStateData) ->
+-spec send_self_presence(jid(), state(), state()) -> ok.
+send_self_presence(NJID, StateData, OldStateData) ->
     send_new_presence(NJID, <<"">>, true, StateData, OldStateData).
 
 -spec send_update_presence(jid(), state(), state()) -> ok.
@@ -2475,7 +2475,7 @@ status_codes(IsInitialPresence, _IsSelfPresence = true, StateData) ->
 	true ->
 	    S1 = case StateData#state.just_created of
 		     true -> [201|S0];
-		     false -> S0
+		     _ -> S0
 		 end,
 	    S2 = case (StateData#state.config)#config.anonymous of
 		     true -> S1;
@@ -3513,7 +3513,7 @@ send_config_change_info(New, #state{config = Old} = StateData) ->
     if Codes /= [] ->
 	    maps:fold(
 	      fun(_LJID, #user{jid = JID}, _) ->
-		      send_self_presence(JID, StateData#state{config = New})
+		      advertise_entity_capabilities(JID, StateData#state{config = New})
 	      end, ok, StateData#state.users),
 	    Message = #message{type = groupchat,
 			       id = p1_rand:get_string(),
@@ -3983,7 +3983,7 @@ process_iq_vcard(From, #iq{type = set, lang = Lang, sub_els = [Pkt]},
       {ignore, state()}.
 process_iq_mucsub(_From, #iq{type = set, lang = Lang,
 			     sub_els = [#muc_subscribe{}]},
-		  #state{just_created = false, config = #config{allow_subscription = false}}) ->
+		  #state{just_created = Just, config = #config{allow_subscription = false}}) when Just /= true ->
     {error, xmpp:err_not_allowed(<<"Subscriptions are not allowed">>, Lang)};
 process_iq_mucsub(From,
 		  #iq{type = set, lang = Lang,
@@ -4365,7 +4365,7 @@ send_subscriptions_change_notifications(From, Nick, Type, State) ->
 					items = [#ps_item{
 					    id = p1_rand:get_string(),
 					    sub_els = [Payload]}]}}]},
-			    ejabberd_router:route(xmpp:set_from_to(Packet, From, JID));
+			    ejabberd_router:route(xmpp:set_from_to(Packet, State#state.jid, JID));
 			false ->
 			    ok
 		    end

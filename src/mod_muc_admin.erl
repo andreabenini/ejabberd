@@ -116,14 +116,14 @@ get_commands_spec() ->
 		       module = ?MODULE, function = muc_register_nick,
 		       args_desc = ["Nick", "User JID", "Server Host"],
 		       args_example = [<<"Tim">>, <<"tim@example.org">>, <<"example.org">>],
-		       args = [{nick, binary}, {jid, binary}, {serverhost, binary}],
+		       args = [{nick, binary}, {jid, binary}, {host, binary}],
 		       result = {res, rescode}},
      #ejabberd_commands{name = muc_unregister_nick, tags = [muc],
 		       desc = "Unregister the nick registered by that account in the MUC service",
 		       module = ?MODULE, function = muc_unregister_nick,
 		       args_desc = ["User JID", "MUC service"],
 		       args_example = [<<"tim@example.org">>, <<"example.org">>],
-		       args = [{jid, binary}, {serverhost, binary}],
+		       args = [{jid, binary}, {host, binary}],
 		       result = {res, rescode}},
 
      #ejabberd_commands{name = create_room, tags = [muc_room],
@@ -173,6 +173,8 @@ get_commands_spec() ->
 		       result = {res, rescode}},
      #ejabberd_commands{name = rooms_unused_list, tags = [muc],
 		       desc = "List the rooms that are unused for many days in host",
+		       longdesc = "The room recent history is used, so it's recommended "
+			    " to wait a few days after service start before running this.",
 		       module = ?MODULE, function = rooms_unused_list,
 		       args_desc = ["Server host", "Number of days"],
 		       args_example = ["example.com", 31],
@@ -182,6 +184,8 @@ get_commands_spec() ->
 		       result = {rooms, {list, {room, string}}}},
      #ejabberd_commands{name = rooms_unused_destroy, tags = [muc],
 		       desc = "Destroy the rooms that are unused for many days in host",
+		       longdesc = "The room recent history is used, so it's recommended "
+			    " to wait a few days after service start before running this.",
 		       module = ?MODULE, function = rooms_unused_destroy,
 		       args_desc = ["Server host", "Number of days"],
 		       args_example = ["example.com", 31],
@@ -736,7 +740,7 @@ muc_unused(Action, ServerHost, Last_allowed) ->
     Rooms_all = get_rooms(ServerHost),
 
     %% Decide which ones pass the requirements
-    Rooms_pass = decide_rooms(Rooms_all, Last_allowed),
+    Rooms_pass = decide_rooms(Rooms_all, ServerHost, Last_allowed),
 
     Num_rooms_all = length(Rooms_all),
     Num_rooms_pass = length(Rooms_pass),
@@ -767,11 +771,11 @@ get_room_state(Room_pid) ->
 %%---------------
 %% Decide
 
-decide_rooms(Rooms, Last_allowed) ->
-    Decide = fun(R) -> decide_room(R, Last_allowed) end,
+decide_rooms(Rooms, ServerHost, Last_allowed) ->
+    Decide = fun(R) -> decide_room(R, ServerHost, Last_allowed) end,
     lists:filter(Decide, Rooms).
 
-decide_room({_Room_name, _Host, Room_pid}, Last_allowed) ->
+decide_room({_Room_name, _Host, Room_pid}, ServerHost, Last_allowed) ->
     C = get_room_config(Room_pid),
     Persistent = C#config.persistent,
 
@@ -783,10 +787,15 @@ decide_room({_Room_name, _Host, Room_pid}, Last_allowed) ->
 
     History = (S#state.history)#lqueue.queue,
     Ts_now = calendar:universal_time(),
-    Ts_uptime = uptime_seconds(),
+    HistorySize = gen_mod:get_module_opt(ServerHost, mod_muc, history_size),
+    JustCreated = S#state.just_created,
     {Has_hist, Last} = case p1_queue:is_empty(History) of
+			   true when (HistorySize == 0) or (JustCreated == true) ->
+			       {false, 0};
 			   true ->
-			       {false, Ts_uptime};
+			       Ts_diff = (misc:now_to_usec(now())
+				    - S#state.just_created) div 1000000,
+			       {false, Ts_diff};
 			   false ->
 			       Last_message = get_queue_last(History),
 			       Ts_last = calendar:now_to_universal_time(
@@ -796,10 +805,9 @@ decide_room({_Room_name, _Host, Room_pid}, Last_allowed) ->
 				   - calendar:datetime_to_gregorian_seconds(Ts_last),
 			       {true, Ts_diff}
 		       end,
-
     case {Persistent, Just_created, Num_users, Has_hist, seconds_to_days(Last)} of
-	{_true, false, 0, _, Last_days}
-	when Last_days >= Last_allowed ->
+	{_true, JC, 0, _, Last_days}
+	when (Last_days >= Last_allowed) and (JC /= true) ->
 	    true;
 	_ ->
 	    false
@@ -1214,9 +1222,6 @@ make_opts(StateData) ->
 %%----------------------------
 %% Utils
 %%----------------------------
-
-uptime_seconds() ->
-    trunc(element(1, erlang:statistics(wall_clock))/1000).
 
 find_host(global) ->
     global;
