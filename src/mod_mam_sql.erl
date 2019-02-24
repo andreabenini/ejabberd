@@ -30,7 +30,8 @@
 
 %% API
 -export([init/2, remove_user/2, remove_room/3, delete_old_messages/3,
-	 extended_fields/0, store/8, write_prefs/4, get_prefs/2, select/6, export/1, remove_from_archive/3]).
+	 extended_fields/0, store/8, write_prefs/4, get_prefs/2, select/6, export/1, remove_from_archive/3,
+	 is_empty_for_user/2, is_empty_for_room/3]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
 -include("xmpp.hrl").
@@ -175,7 +176,7 @@ select(LServer, JidRequestor, #jid{luser = LUser} = JidArchive,
        MAMQuery, RSM, MsgType) ->
     User = case MsgType of
 	       chat -> LUser;
-	       {groupchat, _Role, _MUCState} -> jid:encode(JidArchive)
+	       _ -> jid:encode(JidArchive)
 	   end,
     {Query, CountQuery} = make_sql_query(User, LServer, MAMQuery, RSM),
     % TODO from XEP-0313 v0.2: "To conserve resources, a server MAY place a
@@ -263,6 +264,21 @@ export(_Server) ->
          (_Host, _R) ->
               []
       end}].
+
+is_empty_for_user(LUser, LServer) ->
+    case ejabberd_sql:sql_query(
+	   LServer,
+	   ?SQL("select @(1)d from archive"
+		" where username=%(LUser)s and %(LServer)H limit 1")) of
+	{selected, [{1}]} ->
+	    false;
+	_ ->
+	    true
+    end.
+
+is_empty_for_room(LServer, LName, LHost) ->
+    LUser = jid:encode({LName, LHost, <<>>}),
+    is_empty_for_user(LUser, LServer).
 
 %%%===================================================================
 %%% Internal functions

@@ -40,7 +40,9 @@
 	 muc_process_iq/2, muc_filter_message/3, message_is_archived/3,
 	 delete_old_messages/2, get_commands_spec/0, msg_to_el/4,
 	 get_room_config/4, set_room_option/3, offline_message/1, export/1,
-	 mod_options/1, remove_mam_for_user_with_peer/3, remove_mam_for_user/2]).
+	 mod_options/1, remove_mam_for_user_with_peer/3, remove_mam_for_user/2,
+	 is_empty_for_user/2, is_empty_for_room/3, check_create_room/4,
+	 process_iq/3, store_mam_message/7, make_id/0]).
 
 -include("xmpp.hrl").
 -include("logger.hrl").
@@ -72,6 +74,8 @@
 -callback use_cache(binary()) -> boolean().
 -callback cache_nodes(binary()) -> [node()].
 -callback remove_from_archive(binary(), binary(), jid() | none) -> ok | {error, any()}.
+-callback is_empty_for_user(binary(), binary()) -> boolean().
+-callback is_empty_for_room(binary(), binary(), binary()) -> boolean().
 
 -optional_callbacks([use_cache/1, cache_nodes/1]).
 
@@ -113,12 +117,12 @@ start(Host, Opts) ->
 			       disco_sm_features, 50),
 	    ejabberd_hooks:add(remove_user, Host, ?MODULE,
 			       remove_user, 50),
-	    ejabberd_hooks:add(remove_room, Host, ?MODULE,
-			       remove_room, 50),
 	    ejabberd_hooks:add(get_room_config, Host, ?MODULE,
 			       get_room_config, 50),
 	    ejabberd_hooks:add(set_room_option, Host, ?MODULE,
 			       set_room_option, 50),
+	    ejabberd_hooks:add(store_mam_message, Host, ?MODULE,
+			       store_mam_message, 100),
 	    case gen_mod:get_opt(assume_mam_usage, Opts) of
 		true ->
 		    ejabberd_hooks:add(message_is_archived, Host, ?MODULE,
@@ -126,7 +130,16 @@ start(Host, Opts) ->
 		false ->
 		    ok
 	    end,
-	    ejabberd_commands:register_commands(get_commands_spec());
+	    case gen_mod:get_opt(clear_archive_on_room_destroy, Opts) of
+		true ->
+		    ejabberd_hooks:add(remove_room, Host, ?MODULE,
+				       remove_room, 50);
+		false ->
+		    ejabberd_hooks:add(check_create_room, Host, ?MODULE,
+				       check_create_room, 50)
+	    end,
+	    ejabberd_commands:register_commands(get_commands_spec()),
+	    ok;
 	Err ->
 	    Err
     end.
@@ -180,18 +193,26 @@ stop(Host) ->
 			  disco_sm_features, 50),
     ejabberd_hooks:delete(remove_user, Host, ?MODULE,
 			  remove_user, 50),
-    ejabberd_hooks:delete(remove_room, Host, ?MODULE,
-			  remove_room, 50),
     ejabberd_hooks:delete(get_room_config, Host, ?MODULE,
 			  get_room_config, 50),
     ejabberd_hooks:delete(set_room_option, Host, ?MODULE,
 			  set_room_option, 50),
+    ejabberd_hooks:delete(store_mam_message, Host, ?MODULE,
+			  store_mam_message, 100),
     case gen_mod:get_module_opt(Host, ?MODULE, assume_mam_usage) of
 	true ->
 	    ejabberd_hooks:delete(message_is_archived, Host, ?MODULE,
 				  message_is_archived, 50);
 	false ->
 	    ok
+    end,
+    case gen_mod:get_module_opt(Host, ?MODULE, clear_archive_on_room_destroy) of
+	true ->
+	    ejabberd_hooks:delete(remove_room, Host, ?MODULE,
+				  remove_room, 50);
+	false ->
+	    ejabberd_hooks:delete(check_create_room, Host, ?MODULE,
+				  check_create_room, 50)
     end,
     case gen_mod:is_loaded_elsewhere(Host, ?MODULE) of
         false ->
@@ -417,6 +438,10 @@ muc_filter_message(#message{from = From} = Pkt,
 muc_filter_message(Acc, _MUCState, _FromNick) ->
     Acc.
 
+-spec make_id() -> binary().
+make_id() ->
+    p1_time_compat:system_time(micro_seconds).
+
 -spec get_stanza_id(stanza()) -> integer().
 get_stanza_id(#message{meta = #{stanza_id := ID}}) ->
     ID.
@@ -427,7 +452,7 @@ init_stanza_id(#message{meta = #{stanza_id := _ID}} = Pkt, _LServer) ->
 init_stanza_id(#message{meta = #{from_offline := true}} = Pkt, _LServer) ->
     Pkt;
 init_stanza_id(Pkt, LServer) ->
-    ID = p1_time_compat:system_time(micro_seconds),
+    ID = make_id(),
     Pkt1 = strip_my_stanza_id(Pkt, LServer),
     xmpp:put_meta(Pkt1, stanza_id, ID).
 
@@ -531,7 +556,7 @@ message_is_archived(false, #{lserver := LServer}, Pkt) ->
 delete_old_messages(TypeBin, Days) when TypeBin == <<"chat">>;
 					TypeBin == <<"groupchat">>;
 					TypeBin == <<"all">> ->
-    CurrentTime = p1_time_compat:system_time(micro_seconds),
+    CurrentTime = make_id(),
     Diff = Days * 24 * 60 * 60 * 1000000,
     TimeStamp = misc:usec_to_now(CurrentTime - Diff),
     Type = misc:binary_to_atom(TypeBin),
@@ -558,6 +583,24 @@ delete_old_messages(_TypeBin, _Days) ->
 export(LServer) ->
     Mod = gen_mod:db_mod(LServer, ?MODULE),
     Mod:export(LServer).
+
+-spec is_empty_for_user(binary(), binary()) -> boolean().
+is_empty_for_user(User, Server) ->
+    LUser = jid:nodeprep(User),
+    LServer = jid:nameprep(Server),
+    Mod = gen_mod:db_mod(LServer, ?MODULE),
+    Mod:is_empty_for_user(LUser, LServer).
+
+-spec is_empty_for_room(binary(), binary(), binary()) -> boolean().
+is_empty_for_room(LServer, Name, Host) ->
+    LName = jid:nodeprep(Name),
+    LHost = jid:nameprep(Host),
+    Mod = gen_mod:db_mod(LServer, ?MODULE),
+    Mod:is_empty_for_room(LServer, LName, LHost).
+
+-spec check_create_room(boolean(), binary(), binary(), binary()) -> boolean().
+check_create_room(Acc, ServerHost, RoomID, Host) ->
+    Acc and is_empty_for_room(ServerHost, RoomID, Host).
 
 %%%===================================================================
 %%% Internal functions
@@ -620,7 +663,7 @@ process_iq(LServer, #iq{from = #jid{luser = LUser}, lang = Lang,
     Ret = case MsgType of
 	      chat ->
 		  maybe_activate_mam(LUser, LServer);
-	      {groupchat, _Role, _MUCState} ->
+	      _ ->
 		  ok
 	  end,
     case Ret of
@@ -841,15 +884,9 @@ store_msg(Pkt, LUser, LServer, Peer, Dir) ->
 		    ok; % Already stored.
 		{true, _} ->
 		    case ejabberd_hooks:run_fold(store_mam_message, LServer, Pkt,
-						 [LUser, LServer, Peer, chat, Dir]) of
-			drop ->
-			    pass;
-			Pkt1 ->
-			    US = {LUser, LServer},
-			    ID = get_stanza_id(Pkt1),
-			    El = xmpp:encode(Pkt1),
-			    Mod = gen_mod:db_mod(LServer, ?MODULE),
-			    Mod:store(El, LServer, US, chat, Peer, <<"">>, Dir, ID)
+						 [LUser, LServer, Peer, <<"">>, chat, Dir]) of
+			#message{} -> ok;
+			_ -> pass
 		    end;
 		{false, _} ->
 		    pass
@@ -866,19 +903,22 @@ store_muc(MUCState, Pkt, RoomJID, Peer, Nick) ->
 	    {U, S, _} = jid:tolower(RoomJID),
 	    LServer = MUCState#state.server_host,
 	    case ejabberd_hooks:run_fold(store_mam_message, LServer, Pkt,
-					 [U, S, Peer, groupchat, recv]) of
-		drop ->
-		    pass;
-		Pkt1 ->
-		    US = {U, S},
-		    ID = get_stanza_id(Pkt1),
-		    El = xmpp:encode(Pkt1),
-		    Mod = gen_mod:db_mod(LServer, ?MODULE),
-		    Mod:store(El, LServer, US, groupchat, Peer, Nick, recv, ID)
+					 [U, S, Peer, Nick, groupchat, recv]) of
+		#message{} -> ok;
+		_ -> pass
 	    end;
 	false ->
 	    pass
     end.
+
+store_mam_message(Pkt, U, S, Peer, Nick, Type, Dir) ->
+    LServer = ejabberd_router:host_of_route(S),
+    US = {U, S},
+    ID = get_stanza_id(Pkt),
+    El = xmpp:encode(Pkt),
+    Mod = gen_mod:db_mod(LServer, ?MODULE),
+    Mod:store(El, LServer, US, Type, Peer, Nick, Dir, ID),
+    Pkt.
 
 write_prefs(LUser, LServer, Host, Default, Always, Never) ->
     Prefs = #archive_prefs{us = {LUser, LServer},
@@ -967,7 +1007,7 @@ select_and_send(LServer, Query, RSM, #iq{from = From, to = To} = IQ, MsgType) ->
     Ret = case MsgType of
 	      chat ->
 		  select(LServer, From, From, Query, RSM, MsgType);
-	      {groupchat, _Role, _MUCState} ->
+	      _ ->
 		  select(LServer, From, To, Query, RSM, MsgType)
 	  end,
     case Ret of
@@ -1036,7 +1076,11 @@ msg_to_el(#archive_msg{timestamp = TS, packet = El, nick = Nick,
     CodecOpts = ejabberd_config:codec_options(LServer),
     try xmpp:decode(El, ?NS_CLIENT, CodecOpts) of
 	Pkt1 ->
-	    Pkt2 = set_stanza_id(Pkt1, JidArchive, ID),
+	    Pkt2 = case MsgType of
+		       chat -> set_stanza_id(Pkt1, JidArchive, ID);
+		       {groupchat, _, _} -> set_stanza_id(Pkt1, JidArchive, ID);
+		       _ -> Pkt1
+		   end,
 	    Pkt3 = maybe_update_from_to(
 		     Pkt2, JidRequestor, JidArchive, Peer, MsgType, Nick),
 	    Delay = #delay{stamp = TS, from = jid:make(LServer)},
@@ -1071,7 +1115,7 @@ maybe_update_from_to(#message{sub_els = Els} = Pkt, JidRequestor, JidArchive,
     Pkt#message{from = jid:replace_resource(JidArchive, Nick),
 		to = undefined,
 		sub_els = Items ++ Els};
-maybe_update_from_to(Pkt, _JidRequestor, _JidArchive, _Peer, chat, _Nick) ->
+maybe_update_from_to(Pkt, _JidRequestor, _JidArchive, _Peer, _MsgType, _Nick) ->
     Pkt.
 
 -spec send([{binary(), integer(), xmlel()}],
@@ -1211,6 +1255,8 @@ mod_opt_type(default) ->
 	(roster) -> roster
     end;
 mod_opt_type(request_activates_archiving) ->
+    fun (B) when is_boolean(B) -> B end;
+mod_opt_type(clear_archive_on_room_destroy) ->
     fun (B) when is_boolean(B) -> B end.
 
 mod_options(Host) ->
@@ -1218,6 +1264,7 @@ mod_options(Host) ->
      {default, never},
      {request_activates_archiving, false},
      {compress_xml, false},
+     {clear_archive_on_room_destroy, true},
      {db_type, ejabberd_config:default_db(Host, ?MODULE)},
      {use_cache, ejabberd_config:use_cache(Host)},
      {cache_size, ejabberd_config:cache_size(Host)},
