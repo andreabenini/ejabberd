@@ -167,7 +167,7 @@ sql_call(Host, Msg) ->
           none -> {error, <<"Unknown Host">>};
           Pid ->
 		sync_send_event(Pid,{sql_cmd, Msg,
-				     p1_time_compat:monotonic_time(milli_seconds)},
+				     erlang:monotonic_time(millisecond)},
 				query_timeout(Host))
           end;
       _State -> nested_op(Msg)
@@ -176,7 +176,7 @@ sql_call(Host, Msg) ->
 keep_alive(Host, PID) ->
     case sync_send_event(PID,
 		    {sql_cmd, {sql_query, ?KEEPALIVE_QUERY},
-		     p1_time_compat:monotonic_time(milli_seconds)},
+		     erlang:monotonic_time(millisecond)},
 		    query_timeout(Host)) of
 	{selected,_,[[<<"1">>]]} ->
 	    ok;
@@ -450,7 +450,7 @@ print_state(State) -> State.
 
 run_sql_cmd(Command, From, State, Timestamp) ->
     QueryTimeout = query_timeout(State#state.host),
-    case p1_time_compat:monotonic_time(milli_seconds) - Timestamp of
+    case erlang:monotonic_time(millisecond) - Timestamp of
       Age when Age < QueryTimeout ->
 	  put(?NESTING_KEY, ?TOP_LEVEL_TXN),
 	  put(?STATE_KEY, State),
@@ -524,6 +524,7 @@ outer_transaction(F, NRestarts, _Reason) ->
     catch
 	?EX_RULE(throw, {aborted, Reason}, _) when NRestarts > 0 ->
 	    sql_query_internal([<<"rollback;">>]),
+            put(?NESTING_KEY, ?TOP_LEVEL_TXN),
 	    outer_transaction(F, NRestarts - 1, Reason);
 	?EX_RULE(throw, {aborted, Reason}, Stack) when NRestarts =:= 0 ->
 	    ?ERROR_MSG("SQL transaction restarts exceeded~n** "
@@ -610,6 +611,7 @@ sql_query_internal(#sql_query{} = Query) ->
     check_error(Res, Query);
 sql_query_internal(F) when is_function(F) ->
     case catch execute_fun(F) of
+        {aborted, Reason} -> {error, Reason};
         {'EXIT', Reason} -> {error, Reason};
         Res -> Res
     end;
@@ -965,6 +967,7 @@ get_db_version(State) ->
 log(Level, Format, Args) ->
     case Level of
       debug -> ?DEBUG(Format, Args);
+      info -> ?INFO_MSG(Format, Args);
       normal -> ?INFO_MSG(Format, Args);
       error -> ?ERROR_MSG(Format, Args)
     end.

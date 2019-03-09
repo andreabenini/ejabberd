@@ -3,7 +3,7 @@ defmodule Ejabberd.Mixfile do
 
   def project do
     [app: :ejabberd,
-     version: "18.12.1",
+     version: "19.2.0",
      description: description(),
      elixir: "~> 1.4",
      elixirc_paths: ["lib"],
@@ -27,7 +27,7 @@ defmodule Ejabberd.Mixfile do
     [mod: {:ejabberd_app, []},
      applications: [:kernel, :stdlib, :sasl, :ssl],
      included_applications: [:lager, :mnesia, :inets, :p1_utils, :cache_tab,
-                             :fast_tls, :stringprep, :fast_xml, :xmpp,
+                             :fast_tls, :stringprep, :fast_xml, :xmpp, :mqtree,
                              :stun, :fast_yaml, :esip, :jiffy, :p1_oauth2,
                              :eimp, :base64url, :jose, :pkix, :os_mon]
      ++ cond_apps()]
@@ -74,10 +74,11 @@ defmodule Ejabberd.Mixfile do
      {:cache_tab, "~> 1.0"},
      {:stringprep, "~> 1.0"},
      {:fast_yaml, "~> 1.0"},
-     {:fast_tls, "~> 1.0"},
+     {:fast_tls, "~> 1.1"},
      {:stun, "~> 1.0"},
      {:esip, "~> 1.0"},
      {:p1_mysql, "~> 1.0"},
+     {:mqtree, "~> 1.0"},
      {:p1_pgsql, "~> 1.1"},
      {:jiffy, "~> 0.14.7"},
      {:p1_oauth2, "~> 0.6.1"},
