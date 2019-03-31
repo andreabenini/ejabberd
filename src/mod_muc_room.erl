@@ -1689,7 +1689,12 @@ update_online_user(JID, #user{nick = Nick} = User, StateData) ->
     NewStateData.
 
 set_subscriber(JID, Nick, Nodes, StateData) ->
-    BareJID = jid:remove_resource(JID),
+    BareJID = case JID of
+		  #jid{} -> jid:remove_resource(JID);
+		  _ ->
+		      ?ERROR_MSG("Invalid subscriber JID in set_subscriber ~p", [JID]),
+		      jid:remove_resource(jid:make(JID))
+	      end,
     LBareJID = jid:tolower(BareJID),
     Subscribers = maps:put(LBareJID,
 			   #subscriber{jid = BareJID,
@@ -3674,14 +3679,20 @@ set_opts([{Opt, Val} | Opts], StateData) ->
 		  {Subscribers, Nicks} =
 		      lists:foldl(
 			fun({JID, Nick, Nodes}, {SubAcc, NickAcc}) ->
-				BareJID = jid:remove_resource(JID),
-				{maps:put(
-				   jid:tolower(BareJID),
-				   #subscriber{jid = BareJID,
-					       nick = Nick,
-					       nodes = Nodes},
-				   SubAcc),
-				 maps:put(Nick, [jid:tolower(BareJID)], NickAcc)}
+			    BareJID = case JID of
+					  #jid{} -> jid:remove_resource(JID);
+					  _ ->
+					      ?ERROR_MSG("Invalid subscriber JID in set_opts ~p", [JID]),
+					      jid:remove_resource(jid:make(JID))
+				      end,
+			    LBareJID = jid:tolower(BareJID),
+			    {maps:put(
+				LBareJID,
+				#subscriber{jid = BareJID,
+					    nick = Nick,
+					    nodes = Nodes},
+				SubAcc),
+			     maps:put(Nick, [LBareJID], NickAcc)}
 			end, {#{}, #{}}, Val),
 		  StateData#state{subscribers = Subscribers,
 				  subscriber_nicks = Nicks};
@@ -4046,7 +4057,8 @@ process_iq_mucsub(From, #iq{type = set, lang = Lang,
     end;
 process_iq_mucsub(From, #iq{type = set, sub_els = [#muc_unsubscribe{}]},
 		  StateData) ->
-    LBareJID = jid:tolower(jid:remove_resource(From)),
+    BareJID = jid:remove_resource(From),
+    LBareJID = jid:tolower(BareJID),
     try maps:get(LBareJID, StateData#state.subscribers) of
 	#subscriber{nick = Nick} ->
 	    Nicks = maps:remove(Nick, StateData#state.subscriber_nicks),
@@ -4054,7 +4066,7 @@ process_iq_mucsub(From, #iq{type = set, sub_els = [#muc_unsubscribe{}]},
 	    NewStateData = StateData#state{subscribers = Subscribers,
 					   subscriber_nicks = Nicks},
 	    store_room(NewStateData, [{del_subscription, LBareJID}]),
-	    send_subscriptions_change_notifications(LBareJID, Nick, unsubscribe, StateData),
+	    send_subscriptions_change_notifications(BareJID, Nick, unsubscribe, StateData),
 	    NewStateData2 = case close_room_if_temporary_and_empty(NewStateData) of
 		{stop, normal, _} -> stop;
 		{next_state, normal_state, SD} -> SD
@@ -4385,9 +4397,17 @@ send_wrapped(From, To, Packet, Node, State) ->
 		#subscriber{nodes = Nodes, jid = JID} ->
 		    case lists:member(Node, Nodes) of
 			true ->
-			    NewPacket = wrap(From, JID, Packet, Node),
+			    MamEnabled = (State#state.config)#config.mam,
+			    Id = case xmpp:get_subtag(Packet, #stanza_id{}) of
+				     #stanza_id{id = Id2} ->
+					 Id2;
+				     _ ->
+					 p1_rand:get_string()
+				 end,
+			    NewPacket = wrap(From, JID, Packet, Node, Id),
+			    NewPacket2 = xmpp:put_meta(NewPacket, in_muc_mam, MamEnabled),
 			    ejabberd_router:route(
-			      xmpp:set_from_to(NewPacket, State#state.jid, JID));
+			      xmpp:set_from_to(NewPacket2, State#state.jid, JID));
 			false ->
 			    ok
 		    end
@@ -4420,16 +4440,17 @@ send_wrapped(From, To, Packet, Node, State) ->
 	    ejabberd_router:route(xmpp:set_from_to(Packet, From, To))
     end.
 
--spec wrap(jid(), jid(), stanza(), binary()) -> message().
-wrap(From, To, Packet, Node) ->
+-spec wrap(jid(), jid(), stanza(), binary(), binary()) -> message().
+wrap(From, To, Packet, Node, Id) ->
     El = xmpp:set_from_to(Packet, From, To),
     #message{
-       sub_els = [#ps_event{
-		     items = #ps_items{
-				node = Node,
-				items = [#ps_item{
-					    id = p1_rand:get_string(),
-					    sub_els = [El]}]}}]}.
+	id = Id,
+	sub_els = [#ps_event{
+	    items = #ps_items{
+		node = Node,
+		items = [#ps_item{
+		    id = Id,
+		    sub_els = [El]}]}}]}.
 
 -spec send_wrapped_multiple(jid(), map(), stanza(), binary(), state()) -> ok.
 send_wrapped_multiple(From, Users, Packet, Node, State) ->

@@ -28,7 +28,7 @@
 
 -behaviour(gen_mod).
 
--export([start/2, stop/1, reload/3, depends/2, 
+-export([start/2, stop/1, reload/3, depends/2,
 	 muc_online_rooms/1, muc_online_rooms_by_regex/2,
 	 muc_register_nick/3, muc_unregister_nick/2,
 	 create_room_with_opts/4, create_room/3, destroy_room/2,
@@ -41,7 +41,7 @@
 	 set_room_affiliation/4, get_room_affiliations/2, get_room_affiliation/3,
 	 web_menu_main/2, web_page_main/2, web_menu_host/3,
 	 subscribe_room/4, unsubscribe_room/2, get_subscribers/2,
-	 web_page_host/3, mod_options/1, get_commands_spec/0]).
+	 web_page_host/3, mod_options/1, get_commands_spec/0, find_hosts/1]).
 
 -include("logger.hrl").
 -include("xmpp.hrl").
@@ -100,18 +100,18 @@ get_commands_spec() ->
 		       desc = "List existing rooms ('global' to get all vhosts) by regex",
                        policy = admin,
 		       module = ?MODULE, function = muc_online_rooms_by_regex,
-		       args_desc = ["Server domain where the MUC service is, or 'global' for all", 
+		       args_desc = ["Server domain where the MUC service is, or 'global' for all",
 			   				"Regex pattern for room name"],
 		       args_example = ["example.com", "^prefix"],
 		       result_desc = "List of rooms with summary",
-		       result_example = [{"room1@muc.example.com", "true", 10}, 
+		       result_example = [{"room1@muc.example.com", "true", 10},
 			   					 {"room2@muc.example.com", "false", 10}],
 		       args = [{host, binary}, {regex, binary}],
 		       result = {rooms, {list, {room, {tuple,
 							  [{jid, string},
 							   {public, string},
 							   {participants, integer}
-							  ]}}}}},			   
+							  ]}}}}},
      #ejabberd_commands{name = muc_register_nick, tags = [muc],
 		       desc = "Register a nick to a User JID in the MUC service of a server",
 		       module = ?MODULE, function = muc_register_nick,
@@ -590,9 +590,16 @@ prepare_room_info(Room_info) ->
      misc:atom_to_binary(Public),
      misc:atom_to_binary(Persistent),
      misc:atom_to_binary(Logging),
-     misc:atom_to_binary(Just_created),
+     justcreated_to_binary(Just_created),
      Title].
 
+justcreated_to_binary(J) when is_integer(J) ->
+    JNow = misc:usec_to_now(J),
+    {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:now_to_local_time(JNow),
+    str:format("~w-~.2.0w-~.2.0w ~.2.0w:~.2.0w:~.2.0w",
+	       [Year, Month, Day, Hour, Minute, Second]);
+justcreated_to_binary(J) when is_atom(J) ->
+    misc:atom_to_binary(J).
 
 %%----------------------------
 %% Create/Delete Room
@@ -814,13 +821,12 @@ decide_room(unused, {_Room_name, _Host, Room_pid}, ServerHost, Last_allowed) ->
     History = (S#state.history)#lqueue.queue,
     Ts_now = calendar:universal_time(),
     HistorySize = gen_mod:get_module_opt(ServerHost, mod_muc, history_size),
-    JustCreated = S#state.just_created,
     {Has_hist, Last} = case p1_queue:is_empty(History) of
-			   true when (HistorySize == 0) or (JustCreated == true) ->
+			   true when (HistorySize == 0) or (Just_created == true) ->
 			       {false, 0};
 			   true ->
 			       Ts_diff = (erlang:system_time(microsecond)
-				    - S#state.just_created) div 1000000,
+				    - Just_created) div 1000000,
 			       {false, Ts_diff};
 			   false ->
 			       Last_message = get_queue_last(History),

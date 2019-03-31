@@ -198,7 +198,7 @@ get_commands_spec() ->
 			result_example = [<<"example.com">>, <<"anon.example.com">>],
 			args = [],
 			result = {vhosts, {list, {vhost, string}}}},
-     #ejabberd_commands{name = reload_config, tags = [server],
+     #ejabberd_commands{name = reload_config, tags = [server, config],
 			desc = "Reload config file in memory",
 			module = ?MODULE, function = reload_config,
 			args = [],
@@ -478,7 +478,8 @@ update_module(ModuleNameString) ->
 %%%
 
 register(User, Host, Password) ->
-    case ejabberd_auth:try_register(User, Host, Password) of
+    {ok, IPRaw} = inet_parse:address(binary_to_list(<<"::ffff:127.0.0.1">>)),
+    case mod_register:try_register(User, Host, Password, IPRaw, <<"en">>) of
 	ok ->
 	    {ok, io_lib:format("User ~s@~s successfully registered", [User, Host])};
 	{error, exists} ->
