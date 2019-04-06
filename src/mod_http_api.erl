@@ -293,7 +293,7 @@ handle(Call, Auth, Args, Version) when is_atom(Call), is_list(Args) ->
 		    {401, iolist_to_binary(Msg)};
                   throw:{error, account_unprivileged} ->
 		      {403, 31, <<"Command need to be run with admin privilege.">>};
-		throw:{error, access_rules_unauthorized} ->
+		  throw:{error, access_rules_unauthorized} ->
 		    {403, 32, <<"AccessRules: Account does not have the right to perform the operation.">>};
 		  throw:{invalid_parameter, Msg} ->
 		    {400, iolist_to_binary(Msg)};
@@ -306,7 +306,10 @@ handle(Call, Auth, Args, Version) when is_atom(Call), is_list(Args) ->
 		  throw:Msg when is_list(Msg); is_binary(Msg) ->
 		    {400, iolist_to_binary(Msg)};
 		  ?EX_RULE(Class, Error, Stack) ->
-		    ?ERROR_MSG("REST API Error: ~p:~p ~p", [Class, Error, ?EX_STACK(Stack)]),
+		    ?ERROR_MSG("REST API Error: "
+		              "~s(~p) -> ~p:~p ~p",
+			       [Call, hide_sensitive_args(Args),
+				Class, Error, ?EX_STACK(Stack)]),
 		    {500, <<"internal_error">>}
 	    end;
         {error, Msg} ->
@@ -319,7 +322,7 @@ handle(Call, Auth, Args, Version) when is_atom(Call), is_list(Args) ->
 
 handle2(Call, Auth, Args, Version) when is_atom(Call), is_list(Args) ->
     {ArgsF, _ResultF} = ejabberd_commands:get_command_format(Call, Auth, Version),
-    ArgsFormatted = format_args(Args, ArgsF),
+    ArgsFormatted = format_args(Call, Args, ArgsF),
     case ejabberd_commands:execute_command2(Call, ArgsFormatted, Auth, Version) of
 	{error, Error} ->
 	    throw(Error);
@@ -327,28 +330,32 @@ handle2(Call, Auth, Args, Version) when is_atom(Call), is_list(Args) ->
 	    format_command_result(Call, Auth, Res, Version)
     end.
 
-get_elem_delete(A, L, F) ->
+get_elem_delete(Call, A, L, F) ->
     case proplists:get_all_values(A, L) of
       [Value] -> {Value, proplists:delete(A, L)};
       [_, _ | _] ->
-	  %% Crash reporting the error
-	  exit({duplicated_attribute, A, L});
+	  ?INFO_MSG("Command ~s call rejected, it has duplicate attribute ~w",
+		    [Call, A]),
+	  throw({invalid_parameter,
+		 io_lib:format("Request have duplicate argument: ~w", [A])});
       [] ->
 	  case F of
 	      {list, _} ->
 		  {[], L};
 	      _ ->
-		  %% Report the error and then force a crash
-		  exit({attribute_not_found, A, L})
+		  ?INFO_MSG("Command ~s call rejected, missing attribute ~w",
+			    [Call, A]),
+		  throw({invalid_parameter,
+			 io_lib:format("Request have missing argument: ~w", [A])})
 	  end
     end.
 
-format_args(Args, ArgsFormat) ->
+format_args(Call, Args, ArgsFormat) ->
     {ArgsRemaining, R} = lists:foldl(fun ({ArgName,
 					   ArgFormat},
 					  {Args1, Res}) ->
 					     {ArgValue, Args2} =
-						 get_elem_delete(ArgName,
+						 get_elem_delete(Call, ArgName,
 								 Args1, ArgFormat),
 					     Formatted = format_arg(ArgValue,
 								    ArgFormat),
@@ -358,9 +365,11 @@ format_args(Args, ArgsFormat) ->
     case ArgsRemaining of
       [] -> R;
       L when is_list(L) ->
+	  ExtraArgs = [N || {N, _} <- L],
+	  ?INFO_MSG("Command ~s call rejected, it has unknown arguments ~w",
+	      [Call, ExtraArgs]),
 	  throw({invalid_parameter,
-		 io_lib:format("Request have unknown arguments: ~w",
-			       [[N || {N, _} <- L]])})
+		 io_lib:format("Request have unknown arguments: ~w", [ExtraArgs])})
     end.
 
 format_arg({Elements},

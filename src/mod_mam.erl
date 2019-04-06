@@ -245,8 +245,11 @@ reload(Host, NewOpts, OldOpts) ->
 	    ok
     end.
 
-depends(_Host, _Opts) ->
-    [].
+depends(_Host, Opts) ->
+    case proplists:get_bool(user_mucsub_from_muc_archive, Opts) of
+	true -> [{mod_muc, hard}, {mod_muc_admin, hard}];
+	false -> []
+    end.
 
 -spec register_iq_handlers(binary()) -> ok.
 register_iq_handlers(Host) ->
@@ -1107,51 +1110,59 @@ select_with_mucsub(LServer, JidRequestor, JidArchive, Query, RSM) ->
 		true ->
 		    Mod:select_with_mucsub(LServer, JidRequestor, JidArchive, Query, RSM);
 		false ->
-		    case Mod:select(LServer, JidRequestor, JidArchive, Query, RSM, chat) of
-			{error, _} = Err ->
-			    Err;
-			{Entries, All, Count} ->
-			    {Dir, Max} = case RSM of
-					     #rsm_set{max = M, before = V} when is_binary(V) ->
-						 {desc, M};
-					     #rsm_set{max = M} ->
-						 {asc, M};
-					     _ ->
-						 {asc, undefined}
-					 end,
-			    SubRooms = case mod_muc_admin:find_hosts(LServer) of
-					   [First|_] ->
-					       mod_muc:get_subscribed_rooms(First, JidRequestor);
-					   _ ->
-					       []
-				       end,
-			    SubRoomJids = [Jid || #muc_subscription{jid = Jid} <- SubRooms],
-			    {E2, A2, C2} = lists:foldl(
-				fun(MucJid, {E0, A0, C0}) ->
-				    case select(LServer, JidRequestor, MucJid, Query, RSM,
-						{groupchat, member, #state{config = #config{mam = true}}}) of
-					{error, _} ->
-					    {E0, A0, C0};
-					{E, A, C} ->
-					    {lists:keymerge(2, E0, wrap_as_mucsub(E, JidRequestor)),
-					     A0 andalso A, C0 + C}
-				    end
-				end, {Entries, All, Count}, SubRoomJids),
-			    case {Dir, Max} of
-				{_, undefined} ->
-				    {E2, A2, C2};
-				{desc, _} ->
-				    Start = case length(E2) of
-						Len when Len < Max -> 1;
-						Len -> Len - Max + 1
-					    end,
-				    Sub = lists:sublist(E2, Start, Max),
-				    {Sub, if Sub == E2 -> A2; true -> false end, C2};
-				_ ->
-				    Sub = lists:sublist(E2, 1, Max),
-				    {Sub, if Sub == E2 -> A2; true -> false end, C2}
-			    end
-		    end
+		    select_with_mucsub_fallback(LServer, JidRequestor, JidArchive, Query, RSM)
+	    end
+    end.
+
+select_with_mucsub_fallback(LServer, JidRequestor, JidArchive, Query, RSM) ->
+    Mod = gen_mod:db_mod(LServer, ?MODULE),
+    case Mod:select(LServer, JidRequestor, JidArchive, Query, RSM, chat) of
+	{error, _} = Err ->
+	    Err;
+	{Entries, All, Count} ->
+	    {Dir, Max} = case RSM of
+			     #rsm_set{max = M, before = V} when is_binary(V) ->
+				 {desc, M};
+			     #rsm_set{max = M} ->
+				 {asc, M};
+			     _ ->
+				 {asc, undefined}
+			 end,
+	    SubRooms = case mod_muc_admin:find_hosts(LServer) of
+			   [First|_] ->
+			       case mod_muc:get_subscribed_rooms(First, JidRequestor) of
+				   {ok, L} -> L;
+				   {error, _} -> []
+			       end;
+			   _ ->
+			       []
+		       end,
+	    SubRoomJids = [Jid || {Jid, _} <- SubRooms],
+	    {E2, A2, C2} =
+		lists:foldl(
+		  fun(MucJid, {E0, A0, C0}) ->
+			  case select(LServer, JidRequestor, MucJid, Query, RSM,
+				      {groupchat, member, #state{config = #config{mam = true}}}) of
+			      {error, _} ->
+				  {E0, A0, C0};
+			      {E, A, C} ->
+				  {lists:keymerge(2, E0, wrap_as_mucsub(E, JidRequestor)),
+				   A0 andalso A, C0 + C}
+			  end
+		  end, {Entries, All, Count}, SubRoomJids),
+	    case {Dir, Max} of
+		{_, undefined} ->
+		    {E2, A2, C2};
+		{desc, _} ->
+		    Start = case length(E2) of
+				Len when Len < Max -> 1;
+				Len -> Len - Max + 1
+			    end,
+		    Sub = lists:sublist(E2, Start, Max),
+		    {Sub, if Sub == E2 -> A2; true -> false end, C2};
+		_ ->
+		    Sub = lists:sublist(E2, 1, Max),
+		    {Sub, if Sub == E2 -> A2; true -> false end, C2}
 	    end
     end.
 
