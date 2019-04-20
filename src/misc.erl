@@ -484,4 +484,4 @@ get_dir(Type) ->
 -spec unique_timestamp() -> erlang:timestamp().
 unique_timestamp() ->
     {MS, S, _} = erlang:timestamp(),
-    {MS, S, erlang:unique_integer([positive, monotonic])}.
+    {MS, S, erlang:unique_integer([positive, monotonic]) rem 1000000}.

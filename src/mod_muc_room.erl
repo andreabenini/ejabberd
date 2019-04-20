@@ -322,7 +322,8 @@ normal_state({route, <<"">>,
 		end,
 		case NewStateData of
 		    stop ->
-			{stop, normal, StateData};
+			Conf = StateData#state.config,
+			{stop, normal, StateData#state{config = Conf#config{persistent = false}}};
 		    _ when NewStateData#state.just_created ->
 			close_room_if_temporary_and_empty(NewStateData);
 		    _ ->
@@ -498,7 +499,8 @@ handle_event({destroy, Reason}, _StateName,
     ?INFO_MSG("Destroyed MUC room ~s with reason: ~p",
 	      [jid:encode(StateData#state.jid), Reason]),
     add_to_log(room_existence, destroyed, StateData),
-    {stop, shutdown, StateData};
+    Conf = StateData#state.config,
+    {stop, shutdown, StateData#state{config = Conf#config{persistent = false}}};
 handle_event(destroy, StateName, StateData) ->
     ?INFO_MSG("Destroyed MUC room ~s",
 	      [jid:encode(StateData#state.jid)]),
@@ -698,10 +700,10 @@ handle_info(config_reloaded, StateName, StateData) ->
 handle_info(_Info, StateName, StateData) ->
     {next_state, StateName, StateData}.
 
-terminate(Reason, _StateName, StateData) ->
+terminate(Reason, _StateName,
+	  #state{server_host = LServer, host = Host, room = Room} = StateData) ->
     try
-	?INFO_MSG("Stopping MUC room ~s@~s",
-		  [StateData#state.room, StateData#state.host]),
+	?INFO_MSG("Stopping MUC room ~s@~s", [Room, Host]),
 	ReasonT = case Reason of
 		      shutdown ->
 			  <<"You are being removed from the room "
@@ -728,12 +730,16 @@ terminate(Reason, _StateName, StateData) ->
 		  tab_remove_online_user(LJID, StateData)
 	  end, [], get_users_and_subscribers(StateData)),
 	add_to_log(room_existence, stopped, StateData),
-	mod_muc:room_destroyed(StateData#state.host, StateData#state.room, self(),
-			       StateData#state.server_host)
+	case (StateData#state.config)#config.persistent of
+	    false ->
+		ejabberd_hooks:run(room_destroyed, LServer, [LServer, Room, Host]);
+	    _ ->
+		ok
+	end,
+	mod_muc:room_destroyed(Host, Room, self(), LServer)
     catch ?EX_RULE(E, R, St) ->
-	    mod_muc:room_destroyed(StateData#state.host, StateData#state.room, self(),
-				   StateData#state.server_host),
-	    ?ERROR_MSG("Got exception on room termination: ~p", [{E, {R, ?EX_STACK(St)}}])
+	mod_muc:room_destroyed(Host, Room, self(), LServer),
+	?ERROR_MSG("Got exception on room termination: ~p", [{E, {R, ?EX_STACK(St)}}])
     end,
     ok.
 
@@ -1688,7 +1694,8 @@ update_online_user(JID, #user{nick = Nick} = User, StateData) ->
     end,
     NewStateData.
 
-set_subscriber(JID, Nick, Nodes, StateData) ->
+set_subscriber(JID, Nick, Nodes,
+	       #state{room = Room, host = Host, server_host = ServerHost} = StateData) ->
     BareJID = case JID of
 		  #jid{} -> jid:remove_resource(JID);
 		  _ ->
@@ -1707,7 +1714,8 @@ set_subscriber(JID, Nick, Nodes, StateData) ->
     store_room(NewStateData, [{add_subscription, BareJID, Nick, Nodes}]),
     case not maps:is_key(LBareJID, StateData#state.subscribers) of
 	true ->
-	    send_subscriptions_change_notifications(BareJID, Nick, subscribe, NewStateData);
+	    send_subscriptions_change_notifications(BareJID, Nick, subscribe, NewStateData),
+	    ejabberd_hooks:run(muc_subscribed, ServerHost, [ServerHost, Room, Host, BareJID]);
 	_ ->
 	    ok
     end,
@@ -4056,7 +4064,7 @@ process_iq_mucsub(From, #iq{type = set, lang = Lang,
 	    {error, xmpp:err_forbidden(Txt, Lang)}
     end;
 process_iq_mucsub(From, #iq{type = set, sub_els = [#muc_unsubscribe{}]},
-		  StateData) ->
+		  #state{room = Room, host = Host, server_host = ServerHost} = StateData) ->
     BareJID = jid:remove_resource(From),
     LBareJID = jid:tolower(BareJID),
     try maps:get(LBareJID, StateData#state.subscribers) of
@@ -4067,6 +4075,7 @@ process_iq_mucsub(From, #iq{type = set, sub_els = [#muc_unsubscribe{}]},
 					   subscriber_nicks = Nicks},
 	    store_room(NewStateData, [{del_subscription, LBareJID}]),
 	    send_subscriptions_change_notifications(BareJID, Nick, unsubscribe, StateData),
+	    ejabberd_hooks:run(muc_unsubscribed, ServerHost, [ServerHost, Room, Host, BareJID]),
 	    NewStateData2 = case close_room_if_temporary_and_empty(NewStateData) of
 		{stop, normal, _} -> stop;
 		{next_state, normal_state, SD} -> SD
