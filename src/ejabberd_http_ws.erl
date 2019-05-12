@@ -24,7 +24,6 @@
 %%%----------------------------------------------------------------------
 -module(ejabberd_http_ws).
 -author('ecestari@process-one.net').
--behaviour(ejabberd_config).
 -behaviour(xmpp_socket).
 -behaviour(p1_fsm).
 
@@ -33,7 +32,7 @@
 	 terminate/3, send_xml/2, setopts/2, sockname/1,
 	 peername/1, controlling_process/2, get_owner/1,
 	 reset_stream/1, close/1, change_shaper/2,
-	 socket_handoff/3, get_transport/1, opt_type/1]).
+	 socket_handoff/3, get_transport/1]).
 
 -include("logger.hrl").
 
@@ -202,15 +201,15 @@ handle_sync_event({send_xml, Packet}, _From, StateName,
     case Packet2 of
         {xmlstreamstart, Name, Attrs3} ->
             B = fxml:element_to_binary(#xmlel{name = Name, attrs = Attrs3}),
-            WsPid ! {send, <<(binary:part(B, 0, byte_size(B)-2))/binary, ">">>};
+            WsPid ! {text, <<(binary:part(B, 0, byte_size(B)-2))/binary, ">">>};
         {xmlstreamend, Name} ->
-            WsPid ! {send, <<"</", Name/binary, ">">>};
+            WsPid ! {text, <<"</", Name/binary, ">">>};
         {xmlstreamelement, El} ->
-            WsPid ! {send, fxml:element_to_binary(El)};
+            WsPid ! {text, fxml:element_to_binary(El)};
         {xmlstreamraw, Bin} ->
-            WsPid ! {send, Bin};
+            WsPid ! {text, Bin};
         {xmlstreamcdata, Bin2} ->
-            WsPid ! {send, Bin2};
+            WsPid ! {text, Bin2};
         skip ->
             ok
     end,
@@ -225,7 +224,7 @@ handle_sync_event(close, _From, StateName, #state{ws = {_, WsPid}, rfc_compilant
   when StateName /= stream_end_sent ->
     Close = #xmlel{name = <<"close">>,
                    attrs = [{<<"xmlns">>, <<"urn:ietf:params:xml:ns:xmpp-framing">>}]},
-    WsPid ! {send, fxml:element_to_binary(Close)},
+    WsPid ! {text, fxml:element_to_binary(Close)},
     {stop, normal, StateData};
 handle_sync_event(close, _From, _StateName, StateData) ->
     {stop, normal, StateData}.
@@ -367,12 +366,3 @@ parsed_items(List) ->
     after 0 ->
             lists:reverse(List)
     end.
-
-opt_type(websocket_ping_interval) ->
-    fun (I) when is_integer(I), I >= 0 -> I end;
-opt_type(websocket_timeout) ->
-    fun (I) when is_integer(I), I > 0 -> I end;
-opt_type(websocket_origin) ->
-    fun (O) -> O end;
-opt_type(_) ->
-    [websocket_ping_interval, websocket_timeout, websocket_origin].

@@ -654,31 +654,46 @@ load_permanent_rooms(Host, ServerHost, Access,
 		     HistorySize, RoomShaper, QueueType) ->
     RMod = gen_mod:ram_db_mod(ServerHost, ?MODULE),
     lists:foreach(
-      fun(R) ->
-		{Room, Host} = R#muc_room.name_host,
-	      case RMod:find_online_room(ServerHost, Room, Host) of
-		  error ->
-			{ok, Pid} = mod_muc_room:start(Host,
-				ServerHost, Access, Room,
-				HistorySize, RoomShaper,
-				R#muc_room.opts, QueueType),
-		      RMod:register_online_room(ServerHost, Room, Host, Pid);
-		  {ok, _} ->
-		      ok
-		end
-	end,
-	get_rooms(ServerHost, Host)).
+	fun(R) ->
+	    {Room, Host} = R#muc_room.name_host,
+	    case proplists:get_bool(persistent, R#muc_room.opts) of
+		true ->
+		    case RMod:find_online_room(ServerHost, Room, Host) of
+			error ->
+			    {ok, Pid} = mod_muc_room:start(Host,
+							   ServerHost, Access, Room,
+							   HistorySize, RoomShaper,
+							   R#muc_room.opts, QueueType),
+			    RMod:register_online_room(ServerHost, Room, Host, Pid);
+			{ok, _} ->
+			    ok
+		    end;
+		_ ->
+		    forget_room(ServerHost, Host, Room)
+	    end
+	end, get_rooms(ServerHost, Host)).
 
 start_new_room(Host, ServerHost, Access, Room,
 	    HistorySize, RoomShaper, From,
 	    Nick, DefRoomOpts, QueueType) ->
-    case restore_room(ServerHost, Host, Room) of
+    Opts = case restore_room(ServerHost, Host, Room) of
+	       error ->
+		   error;
+	       Opts0 ->
+		   case proplists:get_bool(persistent, Opts0) of
+		       true ->
+			   Opts0;
+		       _ ->
+			   error
+		   end
+	   end,
+    case Opts of
 	error ->
 	    ?DEBUG("MUC: open new room '~s'~n", [Room]),
 	    mod_muc_room:start(Host, ServerHost, Access, Room,
 		HistorySize, RoomShaper,
 		From, Nick, DefRoomOpts, QueueType);
-	Opts ->
+	_ ->
 	    ?DEBUG("MUC: restore room '~s'~n", [Room]),
 	    mod_muc_room:start(Host, ServerHost, Access, Room,
 		HistorySize, RoomShaper, Opts, QueueType)
@@ -725,23 +740,31 @@ iq_disco_items(_ServerHost, _Host, _From, Lang, _MaxRoomsDiscoItems, _Node, _RSM
 -spec get_room_disco_item({binary(), binary(), pid()},
 			  term()) -> {ok, disco_item()} |
 				     {error, timeout | notfound}.
-get_room_disco_item({Name, Host, Pid}, Query) ->
-	    RoomJID = jid:make(Name, Host),
-	    try p1_fsm:sync_send_all_state_event(Pid, Query, 100) of
-		{item, Desc} ->
-		    {ok, #disco_item{jid = RoomJID, name = Desc}};
-		false ->
-		    {error, notfound}
-	    catch _:{timeout, {p1_fsm, _, _}} ->
-		    {error, timeout};
-		  _:{_, {p1_fsm, _, _}} ->
-		    {error, notfound}
+get_room_disco_item({Name, Host, Pid},
+		    {get_disco_item, Filter, JID, Lang}) ->
+    RoomJID = jid:make(Name, Host),
+    Timeout = 100,
+    Time = erlang:monotonic_time(millisecond),
+    Query1 = {get_disco_item, Filter, JID, Lang, Time+Timeout},
+    try p1_fsm:sync_send_all_state_event(Pid, Query1, Timeout) of
+	{item, Desc} ->
+	    {ok, #disco_item{jid = RoomJID, name = Desc}};
+	false ->
+	    {error, notfound}
+    catch _:{timeout, {p1_fsm, _, _}} ->
+	    {error, timeout};
+	  _:{_, {p1_fsm, _, _}} ->
+	    {error, notfound}
     end.
 
 -spec get_subscribed_rooms(binary(), jid()) -> {ok, [{jid(), [binary()]}]} | {error, any()}.
 get_subscribed_rooms(Host, User) ->
     ServerHost = ejabberd_router:host_of_route(Host),
     get_subscribed_rooms(ServerHost, Host, User).
+
+-record(subscriber, {jid :: jid(),
+		     nick = <<>> :: binary(),
+		     nodes = [] :: [binary()]}).
 
 -spec get_subscribed_rooms(binary(), binary(), jid()) ->
 			   {ok, [{jid(), [binary()]}]} | {error, any()}.
@@ -753,7 +776,15 @@ get_subscribed_rooms(ServerHost, Host, From) ->
 	false ->
 	    Rooms = get_online_rooms(ServerHost, Host),
 	    {ok, lists:flatmap(
-		   fun({Name, _, Pid}) ->
+		   fun({Name, _, Pid}) when Pid == self() ->
+		       USR = jid:split(BareFrom),
+		       case erlang:get(muc_subscribers) of
+			   #{USR := #subscriber{nodes = Nodes}} ->
+			       [{jid:make(Name, Host), Nodes}];
+			   _ ->
+			       []
+		       end;
+		       ({Name, _, Pid}) ->
 			   case p1_fsm:sync_send_all_state_event(
 				  Pid, {is_subscribed, BareFrom}) of
 			       {true, Nodes} ->

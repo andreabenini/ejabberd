@@ -397,10 +397,11 @@ process(Handlers, Request) ->
             %% requested path is "/test/foo/bar", the local path is
             %% ["foo", "bar"]
             LocalPath = lists:nthtail(length(HandlerPathPrefix), Request#request.path),
-	    R = try
-		    HandlerModule:socket_handoff(
-		      LocalPath, Request, HandlerOpts)
-		catch error:undef ->
+	    R = case erlang:function_exported(HandlerModule, socket_handoff, 3) of
+		    true ->
+			HandlerModule:socket_handoff(
+			  LocalPath, Request, HandlerOpts);
+		    false ->
 			HandlerModule:process(LocalPath, Request)
 		end,
             ejabberd_hooks:run(http_request_debug, [{LocalPath, Request}]),
@@ -962,6 +963,38 @@ transform_listen_option({request_handlers, Hs}, Opts) ->
 transform_listen_option(Opt, Opts) ->
     [Opt|Opts].
 
+prepare_request_module(mod_http_bind) ->
+    mod_bosh;
+prepare_request_module(Mod) when is_atom(Mod) ->
+    case code:ensure_loaded(Mod) of
+	{module, Mod} ->
+	    Mod;
+	Err ->
+	    ?ERROR_MSG(
+	       "Failed to load request handler ~s, "
+	       "did you mean ~s? Hint: "
+	       "make sure there is no typo and file ~s.beam "
+	       "exists inside either ~s or ~s directory",
+	       [Mod,
+		misc:best_match(Mod, ejabberd_config:get_modules()),
+		Mod,
+		filename:dirname(code:which(?MODULE)),
+		ext_mod:modules_dir()]),
+	    erlang:error(Err)
+    end.
+
+emit_option_replacement(Option, Path, Handler) ->
+    ?WARNING_MSG(
+       "Listening option '~s' is deprecated, enable it via request handlers, e.g.:~n"
+       "listen:~n"
+       "  ...~n"
+       "  -~n"
+       "    module: ~s~n"
+       "    request_handlers:~n"
+       "      ...~n"
+       "      \"~s\": ~s~n",
+       [Option, ?MODULE, Path, Handler]).
+
 -spec opt_type(atom()) -> fun((any()) -> any()) | [atom()].
 opt_type(trusted_proxies) ->
     fun (all) -> all;
@@ -983,15 +1016,30 @@ listen_opt_type(certfile = Opt) ->
 	    File
     end;
 listen_opt_type(captcha) ->
-    fun(B) when is_boolean(B) -> B end;
+    fun(B) when is_boolean(B) ->
+	    emit_option_replacement(captcha, "/captcha", ejabberd_captcha),
+	    B
+    end;
 listen_opt_type(register) ->
-    fun(B) when is_boolean(B) -> B end;
+    fun(B) when is_boolean(B) ->
+	    emit_option_replacement(register, "/register", mod_register_web),
+	    B
+    end;
 listen_opt_type(web_admin) ->
-    fun(B) when is_boolean(B) -> B end;
+    fun(B) when is_boolean(B) ->
+	    emit_option_replacement(web_admin, "/admin", ejabberd_web_admin),
+	    B
+    end;
 listen_opt_type(http_bind) ->
-    fun(B) when is_boolean(B) -> B end;
+    fun(B) when is_boolean(B) ->
+	    emit_option_replacement(http_bind, "/bosh", mod_bosh),
+	    B
+    end;
 listen_opt_type(xmlrpc) ->
-    fun(B) when is_boolean(B) -> B end;
+    fun(B) when is_boolean(B) ->
+	    emit_option_replacement(xmlrpc, "/", ejabberd_xmlrpc),
+	    B
+    end;
 listen_opt_type(tag) ->
     fun(B) when is_binary(B) -> B end;
 listen_opt_type(request_handlers) ->
@@ -1003,11 +1051,7 @@ listen_opt_type(request_handlers) ->
 	    Hs2 = [{str:tokens(
 		      iolist_to_binary(Path), <<"/">>),
 		    Mod} || {Path, Mod} <- Hs1],
-	    [{Path,
-	      case Mod of
-		  mod_http_bind -> mod_bosh;
-		  _ -> Mod
-	      end} || {Path, Mod} <- Hs2]
+	    [{Path, prepare_request_module(Mod)} || {Path, Mod} <- Hs2]
     end;
 listen_opt_type(default_host) ->
     fun iolist_to_binary/1;

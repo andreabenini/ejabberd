@@ -44,7 +44,7 @@
 %% Deprecated functions
 -export([get_opt/3, get_opt/4, get_module_opt/4, get_module_opt/5,
 	 get_opt_host/3, get_opt_hosts/3, db_type/2, db_type/3,
-	 ram_db_type/2, ram_db_type/3]).
+	 ram_db_type/2, ram_db_type/3, update_module_opts/3]).
 -deprecated([{get_opt, 3},
 	     {get_opt, 4},
 	     {get_opt_host, 3},
@@ -305,6 +305,20 @@ store_options(Host, Module, Opts, Order) ->
 	       #ejabberd_module{module_host = {Module, Host},
 				opts = Opts, order = Order}).
 
+-spec update_module_opts(binary(), module(), opts()) -> ok | {ok, pid()} | error.
+update_module_opts(Host, Module, NewValues) ->
+    case ets:lookup(ejabberd_modules, {Module, Host}) of
+	[#ejabberd_module{opts = Opts, order = Order}] ->
+	    NewOpts = lists:foldl(
+		fun({K, _} = KV, Acc) ->
+		    lists:keystore(K, 1, Acc, KV)
+		end, Opts, NewValues),
+	    reload_module(Host, Module, NewOpts, Opts, Order);
+	Other ->
+	    ?WARNING_MSG("Unable to update module opts: (~p, ~p) -> ~p",
+			  [Host, Module, Other])
+    end.
+
 maybe_halt_ejabberd() ->
     case is_app_running(ejabberd) of
 	false ->
@@ -364,8 +378,13 @@ stop_module_keep_config(Host, Module) ->
     end.
 
 wait_for_process(Process) ->
-    MonitorReference = erlang:monitor(process, Process),
-    wait_for_stop(Process, MonitorReference).
+    try erlang:monitor(process, Process) of
+	MonitorReference ->
+	    wait_for_stop(Process, MonitorReference)
+    catch
+	_:_ ->
+	    ok
+    end.
 
 wait_for_stop(Process, MonitorReference) ->
     receive
@@ -563,8 +582,10 @@ validate_opts(Host, Module, Opts0) ->
 	    module_error(ErrTxt);
 	  _:{unknown_option, Opt, KnownOpts} ->
 	    ErrTxt = io_lib:format("Unknown option '~s' of module '~s',"
-				   " available options are: ~s",
+				   " did you mean '~s'?"
+				   " Available options are: ~s",
 				   [Opt, Module,
+				    misc:best_match(Opt, KnownOpts),
 				    misc:join_atoms(KnownOpts, <<", ">>)]),
 	    module_error(ErrTxt)
     end.
@@ -719,11 +740,15 @@ format_module_error(Module, Fun, Arity, Opts, Class, Reason, St) ->
     IsCallbackExported = erlang:function_exported(Module, Fun, Arity),
     case {Class, Reason} of
 	{error, undef} when not IsLoaded ->
-	    io_lib:format("Failed to ~s unknown module ~s: "
+	    io_lib:format("Failed to ~s unknown module ~s, "
+			  "did you mean ~s? Hint: "
 			  "make sure there is no typo and ~s.beam "
 			  "exists inside either ~s or ~s "
 			  "directory",
-			  [Fun, Module, Module,
+			  [Fun, Module,
+			   misc:best_match(
+			     Module, ejabberd_config:get_modules()),
+			   Module,
 			   filename:dirname(code:which(?MODULE)),
 			   ext_mod:modules_dir()]);
 	{error, undef} when not IsCallbackExported ->

@@ -37,12 +37,12 @@
 %%%----------------------------------------------------------------------
 
 -module(ejabberd_websocket).
-
+-behaviour(ejabberd_config).
 -protocol({rfc, 6455}).
 
 -author('ecestari@process-one.net').
 
--export([check/2, socket_handoff/5]).
+-export([socket_handoff/5, opt_type/1]).
 
 -include("logger.hrl").
 
@@ -62,29 +62,39 @@
                           ?AC_ALLOW_HEADERS, ?AC_MAX_AGE]).
 -define(HEADER, [?CT_XML, ?AC_ALLOW_ORIGIN, ?AC_ALLOW_HEADERS]).
 
-check(_Path, Headers) ->
-    RequiredHeaders = [{'Upgrade', <<"websocket">>},
-                       {'Connection', ignore}, {'Host', ignore},
-                       {<<"Sec-Websocket-Key">>, ignore},
-                       {<<"Sec-Websocket-Version">>, <<"13">>},
-                       {<<"Origin">>, get_origin()}],
+is_valid_websocket_upgrade(_Path, Headers) ->
+    HeadersToValidate = [{'Upgrade', <<"websocket">>},
+                         {'Connection', ignore},
+                         {'Host', ignore},
+                         {<<"Sec-Websocket-Key">>, ignore},
+                         {<<"Sec-Websocket-Version">>, <<"13">>}],
+    Res = lists:all(
+        fun({Tag, Val}) ->
+            case lists:keyfind(Tag, 1, Headers) of
+                false ->
+                    false;
+                {_, _} when Val == ignore ->
+                    true;
+                {_, HVal} ->
+                    str:to_lower(HVal) == Val
+            end
+        end, HeadersToValidate),
 
-    F = fun ({Tag, Val}) ->
-		case lists:keyfind(Tag, 1, Headers) of
-		  false -> true; % header not found, keep in list
-		  {_, HVal} ->
-		      case Val of
-			ignore -> false; % ignore value -> ok, remove from list
-			_ ->
-			    % expected value -> ok, remove from list (false)
-			    % value is different, keep in list (true)
-			    str:to_lower(HVal) /= Val
-                      end
-                end
-        end,
-    case lists:filter(F, RequiredHeaders) of
-      [] -> true;
-      _MissingHeaders -> false
+    case {Res, lists:keyfind(<<"Origin">>, 1, Headers), get_origin()} of
+        {false, _, _} ->
+            false;
+        {true, _, []} ->
+            true;
+        {true, {_, HVal}, Origins} ->
+            HValLow = str:to_lower(HVal),
+            case lists:any(fun(V) -> V == HValLow end, Origins) of
+                true ->
+                    true;
+                _ ->
+                    invalid_origin
+            end;
+        {true, false, _} ->
+            true
     end.
 
 socket_handoff(LocalPath, #request{method = 'GET', ip = IP, q = Q, path = Path,
@@ -92,7 +102,7 @@ socket_handoff(LocalPath, #request{method = 'GET', ip = IP, q = Q, path = Path,
 				   socket = Socket, sockmod = SockMod,
 				   data = Buf, opts = HOpts},
                _Opts, HandlerModule, InfoMsgFun) ->
-    case check(LocalPath, Headers) of
+    case is_valid_websocket_upgrade(LocalPath, Headers) of
         true ->
             WS = #ws{socket = Socket,
                      sockmod = SockMod,
@@ -107,8 +117,11 @@ socket_handoff(LocalPath, #request{method = 'GET', ip = IP, q = Q, path = Path,
                      http_opts = HOpts},
 
             connect(WS, HandlerModule);
-        _ ->
-            {200, ?HEADER, InfoMsgFun()}
+        false ->
+            {200, ?HEADER, InfoMsgFun()};
+        invalid_origin ->
+            {403, ?HEADER, #xmlel{name = <<"h1">>,
+                                  children = [{xmlcdata, <<"403 Bad Request - Invalid origin">>}]}}
     end;
 socket_handoff(_, #request{method = 'OPTIONS'}, _, _, _) ->
     {200, ?OPTIONS_HEADER, []};
@@ -190,6 +203,9 @@ ws_loop(FrameInfo, Socket, WsHandleLoopPid, SocketMode) ->
         {tcp_closed, _Socket} ->
             ?DEBUG("tcp connection was closed, exit", []),
             websocket_close(Socket, WsHandleLoopPid, SocketMode, 0);
+	{tcp_error, Socket, Reason} ->
+	    ?DEBUG("tcp connection error: ~s", [inet:format_error(Reason)]),
+	    websocket_close(Socket, WsHandleLoopPid, SocketMode, 0);
         {'DOWN', Ref, process, WsHandleLoopPid, Reason} ->
             Code = case Reason of
                        normal ->
@@ -202,8 +218,12 @@ ws_loop(FrameInfo, Socket, WsHandleLoopPid, SocketMode) ->
                    end,
             erlang:demonitor(Ref),
             websocket_close(Socket, WsHandleLoopPid, SocketMode, Code);
-        {send, Data} ->
+        {text, Data} ->
             SocketMode:send(Socket, encode_frame(Data, 1)),
+            ws_loop(FrameInfo, Socket, WsHandleLoopPid,
+                    SocketMode);
+	{data, Data} ->
+	    SocketMode:send(Socket, encode_frame(Data, 2)),
             ws_loop(FrameInfo, Socket, WsHandleLoopPid,
                     SocketMode);
         {ping, Data} ->
@@ -409,4 +429,27 @@ websocket_close(Socket, WsHandleLoopPid, SocketMode, _CloseCode) ->
     SocketMode:close(Socket).
 
 get_origin() ->
-    ejabberd_config:get_option({websocket_origin, ejabberd_config:get_myname()}, ignore).
+    ejabberd_config:get_option(websocket_origin, []).
+
+opt_type(websocket_ping_interval) ->
+    fun (I) when is_integer(I), I >= 0 -> I end;
+opt_type(websocket_timeout) ->
+    fun (I) when is_integer(I), I > 0 -> I end;
+opt_type(websocket_origin) ->
+    fun Verify(V) when is_binary(V) ->
+        Verify([V]);
+        Verify([]) ->
+            [];
+        Verify([<<"null">> | R]) ->
+            [<<"null">> | Verify(R)];
+        Verify([null | R]) ->
+            [<<"null">> | Verify(R)];
+        Verify([V | R]) when is_binary(V) ->
+	    URIs = [_|_] = lists:filtermap(
+			     fun(<<>>) -> false;
+				(URI) -> {true, misc:try_url(URI)}
+			     end, re:split(V, "\\s+")),
+	    [str:join(URIs, <<" ">>) | Verify(R)]
+    end;
+opt_type(_) ->
+    [websocket_ping_interval, websocket_timeout, websocket_origin].

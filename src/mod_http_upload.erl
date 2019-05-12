@@ -508,9 +508,12 @@ process(_LocalPath, #request{method = Method, host = Host, ip = IP}) ->
 -spec get_proc_name(binary(), atom()) -> atom().
 get_proc_name(ServerHost, ModuleName) ->
     PutURL = gen_mod:get_module_opt(ServerHost, ?MODULE, put_url),
-    {ok, {_Scheme, _UserInfo, Host, _Port, Path, _Query}} =
+    %% Once we depend on OTP >= 20.0, we can use binaries with http_uri.
+    {ok, {_Scheme, _UserInfo, Host0, _Port, Path0, _Query}} =
 	http_uri:parse(binary_to_list(expand_host(PutURL, ServerHost))),
-    ProcPrefix = list_to_binary(string:strip(Host ++ Path, right, $/)),
+    Host = jid:nameprep(iolist_to_binary(Host0)),
+    Path = str:strip(iolist_to_binary(Path0), right, $/),
+    ProcPrefix = <<Host/binary, Path/binary>>,
     gen_mod:get_module_proc(ProcPrefix, ModuleName).
 
 -spec expand_home(binary()) -> binary().
@@ -762,7 +765,8 @@ iq_disco_info(Host, Lang, Name, AddInfo) ->
 %% HTTP request handling.
 
 -spec parse_http_request(#request{}) -> {atom(), slot()}.
-parse_http_request(#request{host = Host, path = Path}) ->
+parse_http_request(#request{host = Host0, path = Path}) ->
+    Host = jid:nameprep(Host0),
     PrefixLength = length(Path) - 3,
     {ProcURL, Slot} = if PrefixLength > 0 ->
 			      Prefix = lists:sublist(Path, PrefixLength),
@@ -975,9 +979,7 @@ remove_user(User, Server) ->
     end,
     ok.
 
--spec del_tree(file:filename_all()) -> ok | {error, term()}.
-del_tree(Dir) when is_binary(Dir) ->
-    del_tree(binary_to_list(Dir));
+-spec del_tree(file:filename_all()) -> ok | {error, file:posix()}.
 del_tree(Dir) ->
     try
 	{ok, Entries} = file:list_dir(Dir),
@@ -988,11 +990,9 @@ del_tree(Dir) ->
 				  false ->
 				      ok = file:delete(Path)
 			      end
-		      end, [Dir ++ "/" ++ Entry || Entry <- Entries]),
+		      end, [filename:join(Dir, Entry) || Entry <- Entries]),
 	ok = file:del_dir(Dir)
     catch
 	_:{badmatch, {error, Error}} ->
-	    {error, Error};
-	_:Error ->
 	    {error, Error}
     end.

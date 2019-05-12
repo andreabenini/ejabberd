@@ -50,6 +50,7 @@
 	 set_master/1,
 	 backup_mnesia/1, restore_mnesia/1,
 	 dump_mnesia/1, dump_table/2, load_mnesia/1,
+	 mnesia_info/0, mnesia_table_info/1,
 	 install_fallback_mnesia/1,
 	 dump_to_textfile/1, dump_to_textfile/2,
 	 mnesia_change_nodename/4,
@@ -357,6 +358,16 @@ get_commands_spec() ->
 			args_desc = ["Full path to the text file"],
 			args_example = ["/var/lib/ejabberd/database.txt"],
 			args = [{file, string}], result = {res, restuple}},
+     #ejabberd_commands{name = mnesia_info, tags = [mnesia],
+			desc = "Dump info on global Mnesia state",
+			module = ?MODULE, function = mnesia_info,
+			args = [], result = {res, string}},
+     #ejabberd_commands{name = mnesia_table_info, tags = [mnesia],
+			desc = "Dump info on Mnesia table state",
+			module = ?MODULE, function = mnesia_table_info,
+			args_desc = ["Mnesia table name"],
+			args_example = ["roster"],
+			args = [{table, string}], result = {res, string}},
      #ejabberd_commands{name = install_fallback, tags = [mnesia],
 			desc = "Install the database from a fallback file",
 			module = ?MODULE, function = install_fallback_mnesia,
@@ -478,16 +489,23 @@ update_module(ModuleNameString) ->
 %%%
 
 register(User, Host, Password) ->
-    {ok, IPRaw} = inet_parse:address(binary_to_list(<<"::ffff:127.0.0.1">>)),
-    case mod_register:try_register(User, Host, Password, IPRaw, <<"en">>) of
+    Ret = case gen_mod:is_loaded(Host, mod_register) of
+	      true ->
+		  {ok, IPRaw} = inet_parse:address("::ffff:127.0.0.1"),
+		  mod_register:try_register(User, Host, Password, IPRaw);
+	      false ->
+		  ejabberd_auth:try_register(User, Host, Password)
+	  end,
+    case Ret of
 	ok ->
 	    {ok, io_lib:format("User ~s@~s successfully registered", [User, Host])};
 	{error, exists} ->
 	    Msg = io_lib:format("User ~s@~s already registered", [User, Host]),
 	    {error, conflict, 10090, Msg};
 	{error, Reason} ->
-	    String = io_lib:format("Can't register user ~s@~s at node ~p: ~p",
-				   [User, Host, node(), Reason]),
+	    String = io_lib:format("Can't register user ~s@~s at node ~p: ~s",
+				   [User, Host, node(),
+				    mod_register:format_error(Reason)]),
 	    {error, cannot_register, 10001, String}
     end.
 
@@ -708,6 +726,13 @@ load_mnesia(Path) ->
 				   [filename:absname(Path), node(), Reason]),
 	    {cannot_load, String}
     end.
+
+mnesia_info() ->
+    lists:flatten(io_lib:format("~p", [mnesia:system_info(all)])).
+
+mnesia_table_info(Table) ->
+    ATable = list_to_atom(Table),
+    lists:flatten(io_lib:format("~p", [mnesia:table_info(ATable, all)])).
 
 install_fallback_mnesia(Path) ->
     case mnesia:install_fallback(Path) of
