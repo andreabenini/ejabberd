@@ -29,7 +29,7 @@ defmodule Ejabberd.Mixfile do
      included_applications: [:lager, :mnesia, :inets, :p1_utils, :cache_tab,
                              :fast_tls, :stringprep, :fast_xml, :xmpp, :mqtree,
                              :stun, :fast_yaml, :esip, :jiffy, :p1_oauth2,
-                             :eimp, :base64url, :jose, :pkix, :os_mon]
+                             :eimp, :base64url, :jose, :pkix, :os_mon, :yconf]
      ++ cond_apps()]
   end
 
@@ -55,10 +55,7 @@ defmodule Ejabberd.Mixfile do
     includes = ["include"] ++ deps_include(["fast_xml", "xmpp", "p1_utils"])
     [:debug_info, {:d, :ELIXIR_ENABLED}] ++ cond_options() ++ Enum.map(includes, fn(path) -> {:i, path} end) ++
     if_version_above('20', [{:d, :DEPRECATED_GET_STACKTRACE}]) ++
-    if_function_exported(:crypto, :strong_rand_bytes, 1, [{:d, :STRONG_RAND_BYTES}]) ++
-    if_function_exported(:rand, :uniform, 1, [{:d, :RAND_UNIFORM}]) ++
-    if_function_exported(:gb_sets, :iterator_from, 2, [{:d, :GB_SETS_ITERATOR_FROM}]) ++
-    if_function_exported(:public_key, :short_name_hash, 1, [{:d, :SHORT_NAME_HASH}])
+    if_function_exported(:erl_error, :format_exception, 6, [{:d, :HAVE_ERL_ERROR}])
   end
 
   defp cond_options do
@@ -77,7 +74,7 @@ defmodule Ejabberd.Mixfile do
      {:xmpp, "~> 1.3.0"},
      {:cache_tab, "~> 1.0"},
      {:stringprep, "~> 1.0"},
-     {:fast_yaml, "~> 1.0"},
+     {:fast_yaml, "~> 1.0", override: true},
      {:fast_tls, "~> 1.1"},
      {:stun, "~> 1.0"},
      {:esip, "~> 1.0"},
@@ -91,6 +88,7 @@ defmodule Ejabberd.Mixfile do
      {:ex_doc, ">= 0.0.0", only: :dev},
      {:eimp, "~> 1.0"},
      {:base64url, "~> 0.0.1"},
+     {:yconf, github: "processone/yconf", commit: "f9c235faf828f52bb01881b172646960d5a8d523", manager: :rebar},
      {:jose, "~> 1.8"}]
     ++ cond_deps()
   end

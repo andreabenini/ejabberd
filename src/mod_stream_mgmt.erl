@@ -28,7 +28,7 @@
 %% gen_mod API
 -export([start/2, stop/1, reload/3, depends/2, mod_opt_type/1, mod_options/1]).
 %% hooks
--export([c2s_stream_init/2, c2s_stream_started/2, c2s_stream_features/2,
+-export([c2s_stream_started/2, c2s_stream_features/2,
 	 c2s_authenticated_packet/2, c2s_unauthenticated_packet/2,
 	 c2s_unbinded_packet/2, c2s_closed/2, c2s_terminated/2,
 	 c2s_handle_send/3, c2s_handle_info/2, c2s_handle_call/3,
@@ -39,6 +39,7 @@
 -include("xmpp.hrl").
 -include("logger.hrl").
 -include("p1_queue.hrl").
+-include("translate.hrl").
 
 -define(STREAM_MGMT_CACHE, stream_mgmt_cache).
 
@@ -49,13 +50,17 @@
 	is_record(Pkt, sm_r)).
 
 -type state() :: ejabberd_c2s:state().
+-type queue() :: p1_queue:queue({non_neg_integer(), erlang:timestamp(), xmpp_element() | xmlel()}).
+-type error_reason() :: session_not_found | session_timed_out |
+			session_is_dead | session_has_exited |
+			session_was_killed | session_copy_timed_out |
+			invalid_previd.
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 start(Host, Opts) ->
     init_cache(Opts),
-    ejabberd_hooks:add(c2s_init, ?MODULE, c2s_stream_init, 50),
     ejabberd_hooks:add(c2s_stream_started, Host, ?MODULE,
 		       c2s_stream_started, 50),
     ejabberd_hooks:add(c2s_post_auth_features, Host, ?MODULE,
@@ -74,12 +79,6 @@ start(Host, Opts) ->
     ejabberd_hooks:add(c2s_terminated, Host, ?MODULE, c2s_terminated, 50).
 
 stop(Host) ->
-    case gen_mod:is_loaded_elsewhere(Host, ?MODULE) of
-	true ->
-	    ok;
-	false ->
-	    ejabberd_hooks:delete(c2s_init, ?MODULE, c2s_stream_init, 50)
-    end,
     ejabberd_hooks:delete(c2s_stream_started, Host, ?MODULE,
 			  c2s_stream_started, 50),
     ejabberd_hooks:delete(c2s_post_auth_features, Host, ?MODULE,
@@ -99,26 +98,11 @@ stop(Host) ->
 
 reload(_Host, NewOpts, _OldOpts) ->
     init_cache(NewOpts),
-    ?WARNING_MSG("module ~s is reloaded, but new configuration will take "
+    ?WARNING_MSG("Module ~s is reloaded, but new configuration will take "
 		 "effect for newly created client connections only", [?MODULE]).
 
 depends(_Host, _Opts) ->
     [].
-
-c2s_stream_init({ok, State}, Opts) ->
-    MgmtOpts = lists:filter(
-		 fun({stream_management, _}) -> true;
-		    ({max_ack_queue, _}) -> true;
-		    ({resume_timeout, _}) -> true;
-		    ({max_resume_timeout, _}) -> true;
-		    ({ack_timeout, _}) -> true;
-		    ({resend_on_timeout, _}) -> true;
-		    ({queue_type, _}) -> true;
-		    (_) -> false
-		 end, Opts),
-    {ok, State#{mgmt_options => MgmtOpts}};
-c2s_stream_init(Acc, _Opts) ->
-    Acc.
 
 c2s_stream_started(#{lserver := LServer} = State, _StreamStart) ->
     State1 = maps:remove(mgmt_options, State),
@@ -153,7 +137,7 @@ c2s_unauthenticated_packet(#{lang := Lang} = State, Pkt) when ?is_sm_packet(Pkt)
     %% says: "Stream management errors SHOULD be considered recoverable", so we
     %% won't bail out.
     Err = #sm_failed{reason = 'not-authorized',
-		     text = xmpp:mk_text(<<"Unauthorized">>, Lang),
+		     text = xmpp:mk_text(?T("Unauthorized"), Lang),
 		     xmlns = ?NS_STREAM_MGMT_3},
     {stop, send(State, Err)};
 c2s_unauthenticated_packet(State, _Pkt) ->
@@ -217,7 +201,7 @@ c2s_handle_send(#{mgmt_state := MgmtState, mod := Mod,
 			#{mgmt_max_queue := exceeded} = State2 ->
 			    State3 = State2#{mgmt_resend => false},
 			    Err = xmpp:serr_policy_violation(
-				    <<"Too many unacked stanzas">>, Lang),
+				    ?T("Too many unacked stanzas"), Lang),
 			    send(State3, Err);
 			State2 when SendResult == ok ->
 			    send_rack(State2);
@@ -246,7 +230,7 @@ c2s_handle_call(#{sid := {Time, _}, mod := Mod, mgmt_queue := Queue} = State,
     Mod:reply(From, {resume, State1}),
     {stop, State#{mgmt_state => resumed}};
 c2s_handle_call(#{mod := Mod} = State, {resume_session, _}, From) ->
-    Mod:reply(From, {error, <<"Previous session not found">>}),
+    Mod:reply(From, {error, session_not_found}),
     {stop, State};
 c2s_handle_call(State, _Call, _From) ->
     State.
@@ -262,7 +246,7 @@ c2s_handle_info(#{mgmt_state := pending, lang := Lang,
 		{timeout, TRef, pending_timeout}) ->
     ?DEBUG("Timed out waiting for resumption of stream for ~s",
 	   [jid:encode(JID)]),
-    Txt = <<"Timed out waiting for stream resumption">>,
+    Txt = ?T("Timed out waiting for stream resumption"),
     Err = xmpp:serr_connection_timeout(Txt, Lang),
     Mod:stop(State#{mgmt_state => timeout,
 		    stop_reason => {stream, {out, Err}}});
@@ -272,7 +256,7 @@ c2s_handle_info(#{jid := JID} = State, {_Ref, {resume, OldState}}) ->
     ?DEBUG("Received old session state for ~s after failed resumption",
 	   [jid:encode(JID)]),
     route_unacked_stanzas(OldState#{mgmt_resend => false}),
-    State;
+    {stop, State};
 c2s_handle_info(State, _) ->
     State.
 
@@ -283,10 +267,10 @@ c2s_closed(#{mgmt_state := active} = State, _Reason) ->
 c2s_closed(State, _Reason) ->
     State.
 
-c2s_terminated(#{mgmt_state := resumed, jid := JID} = State, _Reason) ->
+c2s_terminated(#{mgmt_state := resumed, sid := SID, jid := JID} = State, _Reason) ->
     ?DEBUG("Closing former stream of resumed session for ~s",
 	   [jid:encode(JID)]),
-    bounce_message_queue(),
+    ejabberd_c2s:bounce_message_queue(SID, JID),
     {stop, State};
 c2s_terminated(#{mgmt_state := MgmtState, mgmt_stanzas_in := In,
 		 sid := {Time, _}, jid := JID} = State, _Reason) ->
@@ -315,7 +299,7 @@ set_resume_timeout(State, Timeout) ->
     State1 = restart_pending_timer(State, Timeout),
     State1#{mgmt_timeout => Timeout}.
 
--spec queue_find(fun((stanza()) -> boolean()), p1_queue:queue())
+-spec queue_find(fun((stanza()) -> boolean()), queue())
       -> stanza() | none.
 queue_find(Pred, Queue) ->
     case p1_queue:out(Queue) of
@@ -342,7 +326,7 @@ negotiate_stream_mgmt(Pkt, #{lang := Lang} = State) ->
 	_ when is_record(Pkt, sm_a);
 	       is_record(Pkt, sm_r);
 	       is_record(Pkt, sm_resume) ->
-	    Txt = <<"Stream management is not enabled">>,
+	    Txt = ?T("Stream management is not enabled"),
 	    Err = #sm_failed{reason = 'unexpected-request',
 			     text = xmpp:mk_text(Txt, Lang),
 			     xmlns = Xmlns},
@@ -360,13 +344,13 @@ perform_stream_mgmt(Pkt, #{mgmt_xmlns := Xmlns, lang := Lang} = State) ->
 		    handle_a(State, Pkt);
 		_ when is_record(Pkt, sm_enable);
 		       is_record(Pkt, sm_resume) ->
-		    Txt = <<"Stream management is already enabled">>,
+		    Txt = ?T("Stream management is already enabled"),
 		    send(State, #sm_failed{reason = 'unexpected-request',
 					   text = xmpp:mk_text(Txt, Lang),
 					   xmlns = Xmlns})
 	    end;
 	_ ->
-	    Txt = <<"Unsupported version">>,
+	    Txt = ?T("Unsupported version"),
 	    send(State, #sm_failed{reason = 'unexpected-request',
 				   text = xmpp:mk_text(Txt, Lang),
 				   xmlns = Xmlns})
@@ -421,11 +405,11 @@ handle_resume(#{user := User, lserver := LServer,
 		{ok, InheritedState, H};
 	    {error, Err, InH} ->
 		{error, #sm_failed{reason = 'item-not-found',
-				   text = xmpp:mk_text(Err, Lang),
+				   text = xmpp:mk_text(format_error(Err), Lang),
 				   h = InH, xmlns = Xmlns}, Err};
 	    {error, Err} ->
 		{error, #sm_failed{reason = 'item-not-found',
-				   text = xmpp:mk_text(Err, Lang),
+				   text = xmpp:mk_text(format_error(Err), Lang),
 				   xmlns = Xmlns}, Err}
 	end,
     case R of
@@ -442,9 +426,8 @@ handle_resume(#{user := User, lserver := LServer,
 	    ?INFO_MSG("(~s) Resumed session for ~s",
 		      [xmpp_socket:pp(Socket), jid:encode(JID)]),
 	    {ok, State5};
-	{error, El, Msg} ->
-	    ?WARNING_MSG("Cannot resume session for ~s@~s: ~s",
-			 [User, LServer, Msg]),
+	{error, El, Reason} ->
+	    log_resumption_error(User, LServer, Reason),
 	    {error, send(State, El)}
     end.
 
@@ -470,14 +453,14 @@ check_h_attribute(#{mgmt_stanzas_out := NumStanzasOut, jid := JID,
 		 [jid:encode(JID), H, NumStanzasOut]),
     State1 = State#{mgmt_resend => false},
     Err = xmpp:serr_undefined_condition(
-	    <<"Client acknowledged more stanzas than sent by server">>, Lang),
+	    ?T("Client acknowledged more stanzas than sent by server"), Lang),
     send(State1, Err);
 check_h_attribute(#{mgmt_stanzas_out := NumStanzasOut, jid := JID} = State, H) ->
     ?DEBUG("~s acknowledged ~B of ~B stanzas",
 	   [jid:encode(JID), H, NumStanzasOut]),
     mgmt_queue_drop(State, H).
 
--spec update_num_stanzas_in(state(), xmpp_element()) -> state().
+-spec update_num_stanzas_in(state(), xmpp_element() | xmlel()) -> state().
 update_num_stanzas_in(#{mgmt_state := MgmtState,
 			mgmt_stanzas_in := NumStanzasIn} = State, El)
   when MgmtState == active; MgmtState == pending ->
@@ -595,7 +578,7 @@ route_unacked_stanzas(#{mgmt_state := MgmtState,
       fun({_, _Time, #presence{from = From}}) ->
 	      ?DEBUG("Dropping presence stanza from ~s", [jid:encode(From)]);
 	 ({_, _Time, #iq{} = El}) ->
-	      Txt = <<"User session terminated">>,
+	      Txt = ?T("User session terminated"),
 	      ejabberd_router:route_error(
 		El, xmpp:err_service_unavailable(Txt, Lang));
 	 ({_, _Time, #message{from = From, meta = #{carbon_copy := true}}}) ->
@@ -617,7 +600,7 @@ route_unacked_stanzas(#{mgmt_state := MgmtState,
 		      NewEl = add_resent_delay_info(State, Msg, Time),
 		      ejabberd_router:route(NewEl);
 		  false ->
-		      Txt = <<"User session terminated">>,
+		      Txt = ?T("User session terminated"),
 		      ejabberd_router:route_error(
 			Msg, xmpp:err_service_unavailable(Txt, Lang))
 	      end;
@@ -630,8 +613,8 @@ route_unacked_stanzas(_State) ->
     ok.
 
 -spec inherit_session_state(state(), binary()) -> {ok, state()} |
-						  {error, binary()} |
-						  {error, binary(), non_neg_integer()}.
+						  {error, error_reason()} |
+						  {error, error_reason(), non_neg_integer()}.
 inherit_session_state(#{user := U, server := S,
 			mgmt_queue_type := QueueType} = State, ResumeID) ->
     case misc:base64_to_term(ResumeID) of
@@ -640,9 +623,9 @@ inherit_session_state(#{user := U, server := S,
 		none ->
 		    case pop_stanzas_in({U, S, R}, Time) of
 			error ->
-			    {error, <<"Previous session PID not found">>};
+			    {error, session_not_found};
 			{ok, H} ->
-			    {error, <<"Previous session timed out">>, H}
+			    {error, session_timed_out, H}
 		    end;
 		OldPID ->
 		    OldSID = {Time, OldPID},
@@ -670,23 +653,23 @@ inherit_session_state(#{user := U, server := S,
 			{error, Msg} ->
 			    {error, Msg}
 		    catch exit:{noproc, _} ->
-			    {error, <<"Previous session PID is dead">>};
+			    {error, session_is_dead};
 			  exit:{normal, _} ->
-			    {error, <<"Previous session PID has exited">>};
+			    {error, session_has_exited};
 			  exit:{killed, _} ->
-			    {error, <<"Previous session PID has been killed">>};
+			    {error, session_was_killed};
 			  exit:{timeout, _} ->
 			    ejabberd_sm:close_session(OldSID, U, S, R),
 			    ejabberd_c2s:stop(OldPID),
-			    {error, <<"Session state copying timed out">>}
+			    {error, session_copy_timed_out}
 		    end
 	    end;
 	_ ->
-	    {error, <<"Invalid 'previd' value">>}
+	    {error, invalid_previd}
     end.
 
 -spec resume_session({erlang:timestamp(), pid()}, state()) -> {resume, state()} |
-							      {error, binary()}.
+							      {error, error_reason()}.
 resume_session({Time, Pid}, _State) ->
     ejabberd_c2s:call(Pid, {resume_session, Time}, timer:seconds(15)).
 
@@ -723,15 +706,6 @@ cancel_ack_timer(#{mgmt_ack_timer := TRef} = State) ->
 cancel_ack_timer(State) ->
     State.
 
--spec bounce_message_queue() -> ok.
-bounce_message_queue() ->
-    receive {route, Pkt} ->
-	    ejabberd_router:route(Pkt),
-	    bounce_message_queue()
-    after 0 ->
-	    ok
-    end.
-
 -spec need_to_enqueue(state(), xmlel() | stanza()) -> {boolean(), state()}.
 need_to_enqueue(State, Pkt) when ?is_stanza(Pkt) ->
     {not xmpp:get_meta(Pkt, mgmt_is_resent, false), State};
@@ -743,14 +717,43 @@ need_to_enqueue(State, _) ->
     {false, State}.
 
 %%%===================================================================
+%%% Formatters and Logging
+%%%===================================================================
+-spec format_error(error_reason()) -> binary().
+format_error(session_not_found) ->
+    ?T("Previous session not found");
+format_error(session_timed_out) ->
+    ?T("Previous session timed out");
+format_error(session_is_dead) ->
+    ?T("Previous session PID is dead");
+format_error(session_has_exited) ->
+    ?T("Previous session PID has exited");
+format_error(session_was_killed) ->
+    ?T("Previous session PID has been killed");
+format_error(session_copy_timed_out) ->
+    ?T("Session state copying timed out");
+format_error(invalid_previd) ->
+    ?T("Invalid 'previd' value").
+
+-spec log_resumption_error(binary(), binary(), error_reason()) -> ok.
+log_resumption_error(User, Server, Reason)
+  when Reason == invalid_previd ->
+    ?WARNING_MSG("Cannot resume session for ~s@~s: ~s",
+		 [User, Server, format_error(Reason)]);
+log_resumption_error(User, Server, Reason) ->
+    ?INFO_MSG("Cannot resume session for ~s@~s: ~s",
+	      [User, Server, format_error(Reason)]).
+
+%%%===================================================================
 %%% Cache-like storage for last handled stanzas
 %%%===================================================================
 init_cache(Opts) ->
     ets_cache:new(?STREAM_MGMT_CACHE, cache_opts(Opts)).
 
 cache_opts(Opts) ->
-    [{max_size, gen_mod:get_opt(cache_size, Opts)},
-     {life_time, infinity}].
+    [{max_size, mod_stream_mgmt_opt:cache_size(Opts)},
+     {life_time, mod_stream_mgmt_opt:cache_life_time(Opts)},
+     {type, ordered_set}].
 
 -spec store_stanzas_in(ljid(), erlang:timestamp(), non_neg_integer()) -> boolean().
 store_stanzas_in(LJID, Time, Num) ->
@@ -761,8 +764,8 @@ store_stanzas_in(LJID, Time, Num) ->
 pop_stanzas_in(LJID, Time) ->
     case ets_cache:lookup(?STREAM_MGMT_CACHE, {LJID, Time}) of
 	{ok, Val} ->
-	    ets_cache:delete(?STREAM_MGMT_CACHE, {LJID, Time},
-			     ejabberd_cluster:get_nodes()),
+	    ets_cache:match_delete(?STREAM_MGMT_CACHE, {LJID, '_'},
+				   ejabberd_cluster:get_nodes()),
 	    {ok, Val};
 	error ->
 	    error
@@ -772,61 +775,52 @@ pop_stanzas_in(LJID, Time) ->
 %%% Configuration processing
 %%%===================================================================
 get_max_ack_queue(Host) ->
-    gen_mod:get_module_opt(Host, ?MODULE, max_ack_queue).
+    mod_stream_mgmt_opt:max_ack_queue(Host).
 
 get_configured_resume_timeout(Host) ->
-    gen_mod:get_module_opt(Host, ?MODULE, resume_timeout).
+    mod_stream_mgmt_opt:resume_timeout(Host).
 
 get_max_resume_timeout(Host, ResumeTimeout) ->
-    case gen_mod:get_module_opt(Host, ?MODULE, max_resume_timeout) of
+    case mod_stream_mgmt_opt:max_resume_timeout(Host) of
 	undefined -> ResumeTimeout;
 	Max when Max >= ResumeTimeout -> Max;
 	_ -> ResumeTimeout
     end.
 
 get_ack_timeout(Host) ->
-    case gen_mod:get_module_opt(Host, ?MODULE, ack_timeout) of
-	infinity -> infinity;
-	T -> timer:seconds(T)
-    end.
+    mod_stream_mgmt_opt:ack_timeout(Host).
 
 get_resend_on_timeout(Host) ->
-    gen_mod:get_module_opt(Host, ?MODULE, resend_on_timeout).
+    mod_stream_mgmt_opt:resend_on_timeout(Host).
 
 get_queue_type(Host) ->
-    gen_mod:get_module_opt(Host, ?MODULE, queue_type).
+    mod_stream_mgmt_opt:queue_type(Host).
 
 mod_opt_type(max_ack_queue) ->
-    fun(I) when is_integer(I), I > 0 -> I;
-       (infinity) -> infinity
-    end;
+    econf:pos_int(infinity);
 mod_opt_type(resume_timeout) ->
-    fun(I) when is_integer(I), I >= 0 -> I end;
+    econf:non_neg_int();
 mod_opt_type(max_resume_timeout) ->
-    fun(I) when is_integer(I), I >= 0 -> I;
-       (undefined) -> undefined
-    end;
+    econf:non_neg_int();
 mod_opt_type(ack_timeout) ->
-    fun(I) when is_integer(I), I > 0 -> I;
-       (infinity) -> infinity
-    end;
+    econf:timeout(second, infinity);
 mod_opt_type(resend_on_timeout) ->
-    fun(B) when is_boolean(B) -> B;
-       (if_offline) -> if_offline
-    end;
+    econf:either(
+      if_offline,
+      econf:bool());
 mod_opt_type(cache_size) ->
-    fun(I) when is_integer(I), I>0 -> I;
-       (unlimited) -> infinity;
-       (infinity) -> infinity
-    end;
+    econf:pos_int(infinity);
+mod_opt_type(cache_life_time) ->
+    econf:timeout(second, infinity);
 mod_opt_type(queue_type) ->
-    fun(ram) -> ram; (file) -> file end.
+    econf:queue_type().
 
 mod_options(Host) ->
     [{max_ack_queue, 5000},
      {resume_timeout, 300},
      {max_resume_timeout, undefined},
-     {ack_timeout, 60},
-     {cache_size, ejabberd_config:cache_size(Host)},
+     {ack_timeout, timer:seconds(60)},
+     {cache_size, ejabberd_option:cache_size(Host)},
+     {cache_life_time, timer:hours(48)},
      {resend_on_timeout, false},
-     {queue_type, ejabberd_config:default_queue_type(Host)}].
+     {queue_type, ejabberd_option:queue_type(Host)}].

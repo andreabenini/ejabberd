@@ -37,8 +37,7 @@
 	 get_local_features/5, get_local_services/5,
 	 process_sm_iq_items/1, process_sm_iq_info/1,
 	 get_sm_identity/5, get_sm_features/5, get_sm_items/5,
-	 get_info/5, transform_module_options/1, mod_opt_type/1,
-	 mod_options/1, depends/2]).
+	 get_info/5, mod_opt_type/1, mod_options/1, depends/2]).
 
 -include("logger.hrl").
 -include("translate.hrl").
@@ -63,7 +62,7 @@ start(Host, Opts) ->
     catch ets:new(disco_extra_domains,
 		  [named_table, ordered_set, public,
 		   {heir, erlang:group_leader(), none}]),
-    ExtraDomains = gen_mod:get_opt(extra_domains, Opts),
+    ExtraDomains = mod_disco_opt:extra_domains(Opts),
     lists:foreach(fun (Domain) ->
 			  register_extra_domain(Host, Domain)
 		  end,
@@ -112,19 +111,16 @@ stop(Host) ->
     ok.
 
 reload(Host, NewOpts, OldOpts) ->
-    case gen_mod:is_equal_opt(extra_domains, NewOpts, OldOpts) of
-	{false, NewDomains, OldDomains} ->
-	    lists:foreach(
-	      fun(Domain) ->
-		      register_extra_domain(Host, Domain)
-	      end, NewDomains -- OldDomains),
-	    lists:foreach(
-	      fun(Domain) ->
-		      unregister_extra_domain(Host, Domain)
-	      end, OldDomains -- NewDomains);
-	true ->
-	    ok
-    end.
+    NewDomains = mod_disco_opt:extra_domains(NewOpts),
+    OldDomains = mod_disco_opt:extra_domains(OldOpts),
+    lists:foreach(
+      fun(Domain) ->
+	      register_extra_domain(Host, Domain)
+      end, NewDomains -- OldDomains),
+    lists:foreach(
+      fun(Domain) ->
+	      unregister_extra_domain(Host, Domain)
+      end, OldDomains -- NewDomains).
 
 -spec register_extra_domain(binary(), binary()) -> true.
 register_extra_domain(Host, Domain) ->
@@ -136,7 +132,7 @@ unregister_extra_domain(Host, Domain) ->
 
 -spec process_local_iq_items(iq()) -> iq().
 process_local_iq_items(#iq{type = set, lang = Lang} = IQ) ->
-    Txt = <<"Value 'set' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
 process_local_iq_items(#iq{type = get, lang = Lang,
 			   from = From, to = To,
@@ -152,7 +148,7 @@ process_local_iq_items(#iq{type = get, lang = Lang,
 
 -spec process_local_iq_info(iq()) -> iq().
 process_local_iq_info(#iq{type = set, lang = Lang} = IQ) ->
-    Txt = <<"Value 'set' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
 process_local_iq_info(#iq{type = get, lang = Lang,
 			  from = From, to = To,
@@ -177,7 +173,7 @@ process_local_iq_info(#iq{type = get, lang = Lang,
 			 binary(), binary()) ->	[identity()].
 get_local_identity(Acc, _From, To, <<"">>, _Lang) ->
     Host = To#jid.lserver,
-    Name = gen_mod:get_module_opt(Host, ?MODULE, name),
+    Name = mod_disco_opt:name(Host),
     Acc ++ [#identity{category = <<"server">>,
 		      type = <<"im">>,
 		      name = Name}];
@@ -203,7 +199,7 @@ get_local_features(Acc, _From, _To, _Node, Lang) ->
     case Acc of
       {result, _Features} -> Acc;
       empty ->
-	    Txt = <<"No features available">>,
+	    Txt = ?T("No features available"),
 	    {error, xmpp:err_item_not_found(Txt, Lang)}
     end.
 
@@ -231,14 +227,14 @@ get_local_services({result, _} = Acc, _From, _To, _Node,
 		   _Lang) ->
     Acc;
 get_local_services(empty, _From, _To, _Node, Lang) ->
-    {error, xmpp:err_item_not_found(<<"No services available">>, Lang)}.
+    {error, xmpp:err_item_not_found(?T("No services available"), Lang)}.
 
 -spec get_vh_services(binary()) -> [binary()].
 get_vh_services(Host) ->
     Hosts = lists:sort(fun (H1, H2) ->
 			       byte_size(H1) >= byte_size(H2)
 		       end,
-		       ejabberd_config:get_myhosts()),
+		       ejabberd_option:hosts()),
     lists:filter(fun (H) ->
 			 case lists:dropwhile(fun (VH) ->
 						      not
@@ -258,7 +254,7 @@ get_vh_services(Host) ->
 
 -spec process_sm_iq_items(iq()) -> iq().
 process_sm_iq_items(#iq{type = set, lang = Lang} = IQ) ->
-    Txt = <<"Value 'set' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
 process_sm_iq_items(#iq{type = get, lang = Lang,
 			from = From, to = To,
@@ -275,7 +271,7 @@ process_sm_iq_items(#iq{type = get, lang = Lang,
 		    xmpp:make_error(IQ, Error)
 	    end;
 	false ->
-	    Txt = <<"Not subscribed">>,
+	    Txt = ?T("Not subscribed"),
 	    xmpp:make_error(IQ, xmpp:err_subscription_required(Txt, Lang))
     end.
 
@@ -304,13 +300,13 @@ get_sm_items(empty, From, To, _Node, Lang) ->
     case {LFrom, LSFrom} of
       {LTo, LSTo} -> {error, xmpp:err_item_not_found()};
       _ ->
-	    Txt = <<"Query to another users is forbidden">>,
+	    Txt = ?T("Query to another users is forbidden"),
 	    {error, xmpp:err_not_allowed(Txt, Lang)}
     end.
 
 -spec process_sm_iq_info(iq()) -> iq().
 process_sm_iq_info(#iq{type = set, lang = Lang} = IQ) ->
-    Txt = <<"Value 'set' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
 process_sm_iq_info(#iq{type = get, lang = Lang,
 		       from = From, to = To,
@@ -334,7 +330,7 @@ process_sm_iq_info(#iq{type = get, lang = Lang,
 		    xmpp:make_error(IQ, Error)
 	    end;
 	false ->
-	    Txt = <<"Not subscribed">>,
+	    Txt = ?T("Not subscribed"),
 	    xmpp:make_error(IQ, xmpp:err_subscription_required(Txt, Lang))
     end.
 
@@ -361,7 +357,7 @@ get_sm_features(empty, From, To, Node, Lang) ->
 		_ -> {error, xmpp:err_item_not_found()}
 	    end;
 	_ ->
-	    Txt = <<"Query to another users is forbidden">>,
+	    Txt = ?T("Query to another users is forbidden"),
 	    {error, xmpp:err_not_allowed(Txt, Lang)}
     end;
 get_sm_features({result, Features}, _From, _To, <<"">>, _Lang) ->
@@ -373,23 +369,6 @@ get_user_resources(User, Server) ->
     Rs = ejabberd_sm:get_user_resources(User, Server),
     [#disco_item{jid = jid:make(User, Server, Resource), name = User}
      || Resource <- lists:sort(Rs)].
-
--spec transform_module_options(gen_mod:opts()) -> gen_mod:opts().
-transform_module_options(Opts) ->
-    lists:map(
-      fun({server_info, Infos}) ->
-              NewInfos = lists:map(
-                           fun({Modules, Name, URLs}) ->
-                                   [[{modules, Modules},
-                                     {name, Name},
-                                     {urls, URLs}]];
-                              (Opt) ->
-                                   Opt
-                           end, Infos),
-              {server_info, NewInfos};
-         (Opt) ->
-              Opt
-      end, Opts).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -411,7 +390,7 @@ get_info(Acc, _, _, _Node, _) -> Acc.
 
 -spec get_fields(binary(), module()) -> [xdata_field()].
 get_fields(Host, Module) ->
-    Fields = gen_mod:get_module_opt(Host, ?MODULE, server_info),
+    Fields = mod_disco_opt:server_info(Host),
     Fields1 = lists:filter(fun ({Modules, _, _}) ->
 				   case Modules of
 				       all -> true;
@@ -429,19 +408,29 @@ depends(_Host, _Opts) ->
     [].
 
 mod_opt_type(extra_domains) ->
-    fun (Hs) -> [iolist_to_binary(H) || H <- Hs] end;
-mod_opt_type(name) -> fun iolist_to_binary/1;
+    econf:list(econf:binary());
+mod_opt_type(name) ->
+    econf:binary();
 mod_opt_type(server_info) ->
-    fun (L) ->
-	    lists:map(fun (Opts) ->
-			      Mods = proplists:get_value(modules, Opts, all),
-			      Name = proplists:get_value(name, Opts, <<>>),
-			      URLs = proplists:get_value(urls, Opts, []),
-			      {Mods, Name, URLs}
-		      end,
-		      L)
-    end.
+    econf:list(
+      econf:and_then(
+	econf:options(
+	  #{name => econf:binary(),
+	    urls => econf:list(econf:binary()),
+	    modules =>
+		econf:either(
+		  all,
+		  econf:list(econf:beam()))}),
+	fun(Opts) ->
+		Mods = proplists:get_value(modules, Opts, all),
+		Name = proplists:get_value(name, Opts, <<>>),
+		URLs = proplists:get_value(urls, Opts, []),
+		{Mods, Name, URLs}
+	end)).
 
+-spec mod_options(binary()) -> [{server_info,
+				 [{all | [module()], binary(), [binary()]}]} |
+				{atom(), any()}].
 mod_options(_Host) ->
     [{extra_domains, []},
      {server_info, []},

@@ -41,11 +41,13 @@
 	 vcard_iq_set/1, mod_opt_type/1, set_vcard/3, make_vcard_search/4]).
 -export([init/1, handle_call/3, handle_cast/2,
 	 handle_info/2, terminate/2, code_change/3]).
+-export([route/1]).
 
 -include("logger.hrl").
 -include("xmpp.hrl").
 -include("mod_vcard.hrl").
 -include("translate.hrl").
+-include("ejabberd_stacktrace.hrl").
 
 -define(VCARD_CACHE, vcard_cache).
 
@@ -82,7 +84,7 @@ stop(Host) ->
 %%====================================================================
 init([Host, Opts]) ->
     process_flag(trap_exit, true),
-    Mod = gen_mod:db_mod(Host, Opts, ?MODULE),
+    Mod = gen_mod:db_mod(Opts, ?MODULE),
     Mod:init(Host, Opts),
     init_cache(Mod, Host, Opts),
     ejabberd_hooks:add(remove_user, Host, ?MODULE,
@@ -94,8 +96,8 @@ init([Host, Opts]) ->
     ejabberd_hooks:add(disco_sm_features, Host, ?MODULE,
 		       get_sm_features, 50),
     ejabberd_hooks:add(vcard_iq_set, Host, ?MODULE, vcard_iq_set, 50),
-    MyHosts = gen_mod:get_opt_hosts(Host, Opts),
-    Search = gen_mod:get_opt(search, Opts),
+    MyHosts = gen_mod:get_opt_hosts(Opts),
+    Search = mod_vcard_opt:search(Opts),
     if Search ->
 	    lists:foreach(
 	      fun(MyHost) ->
@@ -117,11 +119,12 @@ init([Host, Opts]) ->
 			process_local_iq_info),
 		      case Mod:is_search_supported(Host) of
 			  false ->
-			      ?WARNING_MSG("vcard search functionality is "
+			      ?WARNING_MSG("vCard search functionality is "
 					   "not implemented for ~s backend",
-					   [gen_mod:get_opt(db_type, Opts)]);
+					   [mod_vcard_opt:db_type(Opts)]);
 			  true ->
-			      ejabberd_router:register_route(MyHost, Host)
+			      ejabberd_router:register_route(
+				MyHost, Host, {apply, ?MODULE, route})
 		      end
 	      end, MyHosts);
        true ->
@@ -133,17 +136,20 @@ handle_call(_Call, _From, State) ->
     {noreply, State}.
 
 handle_cast(Cast, State) ->
-    ?WARNING_MSG("unexpected cast: ~p", [Cast]),
+    ?WARNING_MSG("Unexpected cast: ~p", [Cast]),
     {noreply, State}.
 
 handle_info({route, Packet}, State) ->
-    case catch do_route(Packet) of
-	{'EXIT', Reason} -> ?ERROR_MSG("~p", [Reason]);
-	_ -> ok
+    try route(Packet)
+    catch ?EX_RULE(Class, Reason, St) ->
+	    StackTrace = ?EX_STACK(St),
+	    ?ERROR_MSG("Failed to route packet:~n~s~n** ~s",
+		       [xmpp:pp(Packet),
+			misc:format_exception(2, Class, Reason, StackTrace)])
     end,
     {noreply, State};
 handle_info(Info, State) ->
-    ?WARNING_MSG("unexpected info: ~p", [Info]),
+    ?WARNING_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{hosts = MyHosts, server_host = Host}) ->
@@ -169,9 +175,10 @@ terminate(_Reason, #state{hosts = MyHosts, server_host = Host}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-do_route(#iq{} = IQ) ->
+-spec route(stanza()) -> ok.
+route(#iq{} = IQ) ->
     ejabberd_router:process_iq(IQ);
-do_route(_) ->
+route(_) ->
     ok.
 
 -spec get_sm_features({error, stanza_error()} | empty | {result, [binary()]},
@@ -193,7 +200,7 @@ get_sm_features(Acc, _From, _To, Node, _Lang) ->
 
 -spec process_local_iq(iq()) -> iq().
 process_local_iq(#iq{type = set, lang = Lang} = IQ) ->
-    Txt = <<"Value 'set' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
 process_local_iq(#iq{type = get, lang = Lang} = IQ) ->
     xmpp:make_iq_result(
@@ -205,7 +212,7 @@ process_local_iq(#iq{type = get, lang = Lang} = IQ) ->
 -spec process_sm_iq(iq()) -> iq().
 process_sm_iq(#iq{type = set, lang = Lang, from = From} = IQ) ->
     #jid{lserver = LServer} = From,
-    case lists:member(LServer, ejabberd_config:get_myhosts()) of
+    case lists:member(LServer, ejabberd_option:hosts()) of
 	true ->
 	    case ejabberd_hooks:run_fold(vcard_iq_set, LServer, IQ, []) of
 		drop -> ignore;
@@ -213,14 +220,14 @@ process_sm_iq(#iq{type = set, lang = Lang, from = From} = IQ) ->
 		_ -> xmpp:make_iq_result(IQ)
 	    end;
 	false ->
-	    Txt = <<"The query is only allowed from local users">>,
+	    Txt = ?T("The query is only allowed from local users"),
 	    xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang))
     end;
 process_sm_iq(#iq{type = get, from = From, to = To, lang = Lang} = IQ) ->
     #jid{luser = LUser, lserver = LServer} = To,
     case get_vcard(LUser, LServer) of
 	error ->
-	    Txt = <<"Database failure">>,
+	    Txt = ?T("Database failure"),
 	    xmpp:make_error(IQ, xmpp:err_internal_server_error(Txt, Lang));
 	[] ->
 	    xmpp:make_iq_result(IQ, #vcard_temp{});
@@ -230,7 +237,7 @@ process_sm_iq(#iq{type = get, from = From, to = To, lang = Lang} = IQ) ->
 
 -spec process_vcard(iq()) -> iq().
 process_vcard(#iq{type = set, lang = Lang} = IQ) ->
-    Txt = <<"Value 'set' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
 process_vcard(#iq{type = get, lang = Lang} = IQ) ->
     xmpp:make_iq_result(
@@ -249,7 +256,7 @@ process_search(#iq{type = set, to = To, lang = Lang,
     ResultXData = search_result(Lang, To, ServerHost, Fs),
     xmpp:make_iq_result(IQ, #search{xdata = ResultXData});
 process_search(#iq{type = set, lang = Lang} = IQ) ->
-    Txt = <<"Incorrect data form">>,
+    Txt = ?T("Incorrect data form"),
     xmpp:make_error(IQ, xmpp:err_bad_request(Txt, Lang)).
 
 -spec disco_items({error, stanza_error()} | {result, [disco_item()]} | empty,
@@ -258,7 +265,7 @@ process_search(#iq{type = set, lang = Lang} = IQ) ->
 disco_items(empty, _From, _To, <<"">>, _Lang) ->
     {result, []};
 disco_items(empty, _From, _To, _Node, Lang) ->
-    {error, xmpp:err_item_not_found(<<"No services available">>, Lang)};
+    {error, xmpp:err_item_not_found(?T("No services available"), Lang)};
 disco_items(Acc, _From, _To, _Node, _Lang) ->
     Acc.
 
@@ -275,7 +282,7 @@ disco_features(Acc, _From, _To, <<"">>, _Lang) ->
     {result, [?NS_DISCO_INFO, ?NS_DISCO_ITEMS,
 	      ?NS_VCARD, ?NS_SEARCH | Features]};
 disco_features(empty, _From, _To, _Node, Lang) ->
-    Txt = <<"No features available">>,
+    Txt = ?T("No features available"),
     {error, xmpp:err_item_not_found(Txt, Lang)};
 disco_features(Acc, _From, _To, _Node, _Lang) ->
     Acc.
@@ -284,7 +291,7 @@ disco_features(Acc, _From, _To, _Node, _Lang) ->
 		     binary(),  binary()) -> [identity()].
 disco_identity(Acc, _From, To, <<"">>, Lang) ->
     Host = ejabberd_router:host_of_route(To#jid.lserver),
-    Name = gen_mod:get_module_opt(Host, ?MODULE, name),
+    Name = mod_vcard_opt:name(Host),
     [#identity{category = <<"directory">>,
 	       type = <<"user">>,
 	       name = translate:translate(Lang, Name)}|Acc];
@@ -380,7 +387,7 @@ vcard_iq_set(#iq{from = From, lang = Lang, sub_els = [VCard]} = IQ) ->
     case set_vcard(User, LServer, VCard) of
 	{error, badarg} ->
 	    %% Should not be here?
-	    Txt = <<"Nodeprep has failed">>,
+	    Txt = ?T("Nodeprep has failed"),
 	    {stop, xmpp:err_internal_server_error(Txt, Lang)};
 	ok ->
 	    IQ
@@ -422,7 +429,7 @@ mk_field(Var, Val) ->
 
 -spec mk_search_form(jid(), binary(), binary()) -> search().
 mk_search_form(JID, ServerHost, Lang) ->
-    Title = <<(translate:translate(Lang, <<"Search users in ">>))/binary,
+    Title = <<(translate:translate(Lang, ?T("Search users in ")))/binary,
 	      (jid:encode(JID))/binary>>,
     Mod = gen_mod:db_mod(ServerHost, ?MODULE),
     SearchFields = Mod:search_fields(ServerHost),
@@ -433,17 +440,17 @@ mk_search_form(JID, ServerHost, Lang) ->
 	       fields = Fs},
     #search{instructions =
 		translate:translate(
-		  Lang, <<"You need an x:data capable client to search">>),
+		  Lang, ?T("You need an x:data capable client to search")),
 	    xdata = X}.
 
 make_instructions(Mod, Lang) ->
     Fill = translate:translate(
 	     Lang,
-	     <<"Fill in the form to search for any matching "
-	       "Jabber User">>),
+	     ?T("Fill in the form to search for any matching "
+		"Jabber User")),
     Add = translate:translate(
 	    Lang,
-	    <<" (Add * to the end of field to match substring)">>),
+	    ?T(" (Add * to the end of field to match substring)")),
     case Mod of
 	mod_vcard_mnesia -> Fill;
 	_ -> str:concat(Fill, Add)
@@ -456,7 +463,7 @@ search_result(Lang, JID, ServerHost, XFields) ->
 		   {Label, Var} <- Mod:search_reported(ServerHost)],
     #xdata{type = result,
 	   title = <<(translate:translate(Lang,
-					  <<"Search Results for ">>))/binary,
+					  ?T("Search Results for ")))/binary,
 		     (jid:encode(JID))/binary>>,
 	   reported = Reported,
 	   items = lists:map(fun (Item) -> item_to_field(Item) end,
@@ -470,8 +477,8 @@ item_to_field(Items) ->
 search(LServer, XFields) ->
     Data = [{Var, Vals} || #xdata_field{var = Var, values = Vals} <- XFields],
     Mod = gen_mod:db_mod(LServer, ?MODULE),
-    AllowReturnAll = gen_mod:get_module_opt(LServer, ?MODULE, allow_return_all),
-    MaxMatch = gen_mod:get_module_opt(LServer, ?MODULE, matches),
+    AllowReturnAll = mod_vcard_opt:allow_return_all(LServer),
+    MaxMatch = mod_vcard_opt:matches(LServer),
     Mod:search(LServer, Data, AllowReturnAll, MaxMatch).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -495,19 +502,16 @@ init_cache(Mod, Host, Opts) ->
 
 -spec cache_opts(binary(), gen_mod:opts()) -> [proplists:property()].
 cache_opts(_Host, Opts) ->
-    MaxSize = gen_mod:get_opt(cache_size, Opts),
-    CacheMissed = gen_mod:get_opt(cache_missed, Opts),
-    LifeTime = case gen_mod:get_opt(cache_life_time, Opts) of
-		   infinity -> infinity;
-		   I -> timer:seconds(I)
-	       end,
+    MaxSize = mod_vcard_opt:cache_size(Opts),
+    CacheMissed = mod_vcard_opt:cache_missed(Opts),
+    LifeTime = mod_vcard_opt:cache_life_time(Opts),
     [{max_size, MaxSize}, {cache_missed, CacheMissed}, {life_time, LifeTime}].
 
 -spec use_cache(module(), binary()) -> boolean().
 use_cache(Mod, Host) ->
     case erlang:function_exported(Mod, use_cache, 1) of
 	true -> Mod:use_cache(Host);
-	false -> gen_mod:get_module_opt(Host, ?MODULE, use_cache)
+	false -> mod_vcard_opt:use_cache(Host)
     end.
 
 -spec cache_nodes(module(), binary()) -> [node()].
@@ -536,33 +540,37 @@ depends(_Host, _Opts) ->
     [].
 
 mod_opt_type(allow_return_all) ->
-    fun (B) when is_boolean(B) -> B end;
-mod_opt_type(db_type) -> fun(T) -> ejabberd_config:v_db(?MODULE, T) end;
-mod_opt_type(name) -> fun iolist_to_binary/1;
-mod_opt_type(host) -> fun ejabberd_config:v_host/1;
-mod_opt_type(hosts) -> fun ejabberd_config:v_hosts/1;
+    econf:bool();
+mod_opt_type(name) ->
+    econf:binary();
 mod_opt_type(matches) ->
-    fun (infinity) -> infinity;
-	(I) when is_integer(I), I > 0 -> I
-    end;
+    econf:pos_int(infinity);
 mod_opt_type(search) ->
-    fun (B) when is_boolean(B) -> B end;
-mod_opt_type(O) when O == cache_life_time; O == cache_size ->
-    fun (I) when is_integer(I), I > 0 -> I;
-        (infinity) -> infinity
-    end;
-mod_opt_type(O) when O == use_cache; O == cache_missed ->
-    fun (B) when is_boolean(B) -> B end.
+    econf:bool();
+mod_opt_type(host) ->
+    econf:host();
+mod_opt_type(hosts) ->
+    econf:hosts();
+mod_opt_type(db_type) ->
+    econf:db_type(?MODULE);
+mod_opt_type(use_cache) ->
+    econf:bool();
+mod_opt_type(cache_size) ->
+    econf:pos_int(infinity);
+mod_opt_type(cache_missed) ->
+    econf:bool();
+mod_opt_type(cache_life_time) ->
+    econf:timeout(second, infinity).
 
 mod_options(Host) ->
     [{allow_return_all, false},
-     {host, <<"vjud.@HOST@">>},
+     {host, <<"vjud.", Host/binary>>},
      {hosts, []},
      {matches, 30},
      {search, false},
      {name, ?T("vCard User Search")},
      {db_type, ejabberd_config:default_db(Host, ?MODULE)},
-     {use_cache, ejabberd_config:use_cache(Host)},
-     {cache_size, ejabberd_config:cache_size(Host)},
-     {cache_missed, ejabberd_config:cache_missed(Host)},
-     {cache_life_time, ejabberd_config:cache_life_time(Host)}].
+     {use_cache, ejabberd_option:use_cache(Host)},
+     {cache_size, ejabberd_option:cache_size(Host)},
+     {cache_missed, ejabberd_option:cache_missed(Host)},
+     {cache_life_time, ejabberd_option:cache_life_time(Host)}].

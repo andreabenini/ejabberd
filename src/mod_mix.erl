@@ -43,10 +43,11 @@
 -include("xmpp.hrl").
 -include("logger.hrl").
 -include("translate.hrl").
+-include("ejabberd_stacktrace.hrl").
 
 -callback init(binary(), gen_mod:opts()) -> ok | {error, db_failure}.
 -callback set_channel(binary(), binary(), binary(),
-		      binary(), boolean(), binary()) ->
+		      jid:jid(), boolean(), binary()) ->
     ok | {error, db_failure}.
 -callback get_channels(binary(), binary()) ->
     {ok, [binary()]} | {error, db_failure}.
@@ -77,15 +78,20 @@ reload(Host, NewOpts, OldOpts) ->
 depends(_Host, _Opts) ->
     [{mod_mam, hard}].
 
-mod_opt_type(access_create) -> fun acl:access_rules_validator/1;
-mod_opt_type(name) -> fun iolist_to_binary/1;
-mod_opt_type(host) -> fun ejabberd_config:v_host/1;
-mod_opt_type(hosts) -> fun ejabberd_config:v_hosts/1;
-mod_opt_type(db_type) -> fun(T) -> ejabberd_config:v_db(?MODULE, T) end.
+mod_opt_type(access_create) ->
+    econf:acl();
+mod_opt_type(name) ->
+    econf:binary();
+mod_opt_type(host) ->
+    econf:host();
+mod_opt_type(hosts) ->
+    econf:hosts();
+mod_opt_type(db_type) ->
+    econf:db_type(?MODULE).
 
 mod_options(Host) ->
     [{access_create, all},
-     {host, <<"mix.@HOST@">>},
+     {host, <<"mix.", Host/binary>>},
      {hosts, []},
      {name, ?T("Channels")},
      {db_type, ejabberd_config:default_db(Host, ?MODULE)}].
@@ -97,7 +103,7 @@ route(#message{type = groupchat, id = ID, lang = Lang,
 	       to = #jid{luser = <<_, _/binary>>}} = Msg) ->
     case ID of
 	<<>> ->
-	    Txt = <<"Attribute 'id' is mandatory for MIX messages">>,
+	    Txt = ?T("Attribute 'id' is mandatory for MIX messages"),
 	    Err = xmpp:err_bad_request(Txt, Lang),
 	    ejabberd_router:route_error(Msg, Err);
 	_ ->
@@ -108,7 +114,7 @@ route(Pkt) ->
 
 -spec process_disco_info(iq()) -> iq().
 process_disco_info(#iq{type = set, lang = Lang} = IQ) ->
-    Txt = <<"Value 'set' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
 process_disco_info(#iq{type = get, to = #jid{luser = <<>>} = To,
 		       from = _From, lang = Lang,
@@ -116,7 +122,7 @@ process_disco_info(#iq{type = get, to = #jid{luser = <<>>} = To,
     ServerHost = ejabberd_router:host_of_route(To#jid.lserver),
     X = ejabberd_hooks:run_fold(disco_info, ServerHost, [],
 				[ServerHost, ?MODULE, <<"">>, Lang]),
-    Name = gen_mod:get_module_opt(ServerHost, ?MODULE, name),
+    Name = mod_mix_opt:name(ServerHost),
     Identity = #identity{category = <<"conference">>,
 			 type = <<"text">>,
 			 name = translate:translate(Lang, Name)},
@@ -155,7 +161,7 @@ process_disco_info(IQ) ->
 
 -spec process_disco_items(iq()) -> iq().
 process_disco_items(#iq{type = set, lang = Lang} = IQ) ->
-    Txt = <<"Value 'set' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
 process_disco_items(#iq{type = get, to = #jid{luser = <<>>} = To,
 			sub_els = [#disco_items{node = <<>>}]} = IQ) ->
@@ -247,9 +253,9 @@ process_mam_query(IQ) ->
 %%%===================================================================
 init([Host, Opts]) ->
     process_flag(trap_exit, true),
-    Mod = gen_mod:db_mod(Host, Opts, ?MODULE),
-    MyHosts = gen_mod:get_opt_hosts(Host, Opts),
-    case Mod:init(Host, [{hosts, MyHosts}|Opts]) of
+    Mod = gen_mod:db_mod(Opts, ?MODULE),
+    MyHosts = gen_mod:get_opt_hosts(Opts),
+    case Mod:init(Host, gen_mod:set_opt(hosts, MyHosts, Opts)) of
 	ok ->
 	    lists:foreach(
 	      fun(MyHost) ->
@@ -270,6 +276,15 @@ handle_cast(Request, State) ->
     ?WARNING_MSG("Unexpected cast: ~p", [Request]),
     {noreply, State}.
 
+handle_info({route, Packet}, State) ->
+    try route(Packet)
+    catch ?EX_RULE(Class, Reason, St) ->
+	    StackTrace = ?EX_STACK(St),
+	    ?ERROR_MSG("Failed to route packet:~n~s~n** ~s",
+		       [xmpp:pp(Packet),
+			misc:format_exception(2, Class, Reason, StackTrace)])
+    end,
+    {noreply, State};
 handle_info(Info, State) ->
     ?WARNING_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.
@@ -530,7 +545,7 @@ known_nodes() ->
     [?NS_MIX_NODES_MESSAGES,
      ?NS_MIX_NODES_PARTICIPANTS].
 
--spec filter_nodes(binary()) -> [binary()].
+-spec filter_nodes([binary()]) -> [binary()].
 filter_nodes(Nodes) ->
     lists:filter(
       fun(Node) ->
@@ -591,32 +606,32 @@ make_id(JID, Key) ->
 %%%===================================================================
 -spec db_error(stanza()) -> stanza_error().
 db_error(Pkt) ->
-    Txt = <<"Database failure">>,
+    Txt = ?T("Database failure"),
     xmpp:err_internal_server_error(Txt, xmpp:get_lang(Pkt)).
 
 -spec channel_exists_error(stanza()) -> stanza_error().
 channel_exists_error(Pkt) ->
-    Txt = <<"Channel already exists">>,
+    Txt = ?T("Channel already exists"),
     xmpp:err_conflict(Txt, xmpp:get_lang(Pkt)).
 
 -spec no_channel_error(stanza()) -> stanza_error().
 no_channel_error(Pkt) ->
-    Txt = <<"Channel does not exist">>,
+    Txt = ?T("Channel does not exist"),
     xmpp:err_item_not_found(Txt, xmpp:get_lang(Pkt)).
 
 -spec not_joined_error(stanza()) -> stanza_error().
 not_joined_error(Pkt) ->
-    Txt = <<"You are not joined to the channel">>,
+    Txt = ?T("You are not joined to the channel"),
     xmpp:err_forbidden(Txt, xmpp:get_lang(Pkt)).
 
 -spec unsupported_error(stanza()) -> stanza_error().
 unsupported_error(Pkt) ->
-    Txt = <<"No module is handling this query">>,
+    Txt = ?T("No module is handling this query"),
     xmpp:err_service_unavailable(Txt, xmpp:get_lang(Pkt)).
 
 -spec ownership_error(stanza()) -> stanza_error().
 ownership_error(Pkt) ->
-    Txt = <<"Owner privileges required">>,
+    Txt = ?T("Owner privileges required"),
     xmpp:err_forbidden(Txt, xmpp:get_lang(Pkt)).
 
 %%%===================================================================

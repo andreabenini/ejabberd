@@ -1,7 +1,7 @@
 %%%-------------------------------------------------------------------
 %%% File    : mod_sip_registrar.erl
 %%% Author  : Evgeny Khramtsov <ekhramtsov@process-one.net>
-%%% Purpose : 
+%%% Purpose :
 %%% Created : 23 Apr 2014 by Evgeny Khramtsov <ekhramtsov@process-one.net>
 %%%
 %%%
@@ -80,7 +80,7 @@ request(#sip{hdrs = Hdrs} = Req, SIPSock) ->
         [<<"*">>] when Expires == 0 ->
             case unregister_session(US, CallID, CSeq) of
 		{ok, ContactsWithExpires} ->
-		    ?INFO_MSG("unregister SIP session for user ~s@~s from ~s",
+		    ?INFO_MSG("Unregister SIP session for user ~s@~s from ~s",
 			      [LUser, LServer, inet_parse:ntoa(PeerIP)]),
 		    Cs = prepare_contacts_to_send(ContactsWithExpires),
 		    mod_sip:make_response(
@@ -223,7 +223,7 @@ handle_info({'DOWN', MRef, process, _Pid, _Reason}, State) ->
     end,
     {noreply, State};
 handle_info(_Info, State) ->
-    ?ERROR_MSG("got unexpected info: ~p", [_Info]),
+    ?ERROR_MSG("Unexpected info: ~p", [_Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -493,11 +493,9 @@ need_ob_hdrs(Contacts, _IsOutboundSupported = true) ->
 get_flow_timeout(LServer, #sip_socket{type = Type}) ->
     case Type of
 	udp ->
-	    gen_mod:get_module_opt(
-	      LServer, mod_sip, flow_timeout_udp);
+	    mod_sip_opt:flow_timeout_udp(LServer);
 	_ ->
-	    gen_mod:get_module_opt(
-	      LServer, mod_sip, flow_timeout_tcp)
+	    mod_sip_opt:flow_timeout_tcp(LServer)
     end.
 
 update_table() ->
@@ -569,13 +567,8 @@ process_ping(SIPSocket) ->
 	      mnesia:dirty_delete_object(Session),
 	      Timeout = get_flow_timeout(LServer, SIPSocket),
 	      NewTRef = set_timer(Session, Timeout),
-	      case mnesia:dirty_write(
-		     Session#sip_session{flow_tref = NewTRef}) of
-		  ok ->
-		      pong;
-		  _Err ->
-		      pang
-	      end;
+	      mnesia:dirty_write(Session#sip_session{flow_tref = NewTRef}),
+	      pong;
 	 (_, Acc) ->
 	      Acc
       end, ErrResponse, Sessions).

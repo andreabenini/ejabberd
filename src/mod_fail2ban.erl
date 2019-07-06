@@ -43,6 +43,7 @@
 -include("ejabberd_commands.hrl").
 -include("logger.hrl").
 -include("xmpp.hrl").
+-include("translate.hrl").
 
 -define(CLEAN_INTERVAL, timer:minutes(10)).
 
@@ -61,10 +62,8 @@ c2s_auth_result(#{ip := {Addr, _}, lserver := LServer} = State, {false, _}, _Use
 	true ->
 	    State;
 	false ->
-	    BanLifetime = gen_mod:get_module_opt(
-			    LServer, ?MODULE, c2s_auth_ban_lifetime),
-	    MaxFailures = gen_mod:get_module_opt(
-			    LServer, ?MODULE, c2s_max_auth_failures),
+	    BanLifetime = mod_fail2ban_opt:c2s_auth_ban_lifetime(LServer),
+	    MaxFailures = mod_fail2ban_opt:c2s_max_auth_failures(LServer),
 	    UnbanTS = erlang:system_time(second) + BanLifetime,
 	    Attempts = case ets:lookup(failed_auth, Addr) of
 		[{Addr, N, _, _}] ->
@@ -141,11 +140,11 @@ handle_call(_Request, _From, State) ->
     {reply, Reply, State}.
 
 handle_cast(_Msg, State) ->
-    ?ERROR_MSG("got unexpected cast = ~p", [_Msg]),
+    ?ERROR_MSG("Unexpected cast = ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(clean, State) ->
-    ?DEBUG("cleaning ~p ETS table", [failed_auth]),
+    ?DEBUG("Cleaning ~p ETS table", [failed_auth]),
     Now = erlang:system_time(second),
     ets:select_delete(
       failed_auth,
@@ -153,7 +152,7 @@ handle_info(clean, State) ->
     erlang:send_after(?CLEAN_INTERVAL, self(), clean),
     {noreply, State};
 handle_info(_Info, State) ->
-    ?ERROR_MSG("got unexpected info = ~p", [_Info]),
+    ?ERROR_MSG("Unexpected info = ~p", [_Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{host = Host}) ->
@@ -186,28 +185,27 @@ get_commands_spec() ->
 			result_desc = "Amount of unbanned entries, or negative in case of error.",
 			result = {unbanned, integer}}].
 
--spec unban(string()) -> integer().
+-spec unban(binary()) -> integer().
 unban(S) ->
-    case acl:parse_ip_netmask(S) of
-	{ok, Net, Mask} ->
+    case misc:parse_ip_mask(S) of
+	{ok, {Net, Mask}} ->
 	    unban(Net, Mask);
 	error ->
 	    ?WARNING_MSG("Invalid network address when trying to unban: ~p", [S]),
 	    -1
     end.
 
+-spec unban(inet:ip_address(), 0..128) -> non_neg_integer().
 unban(Net, Mask) ->
     ets:foldl(
 	fun({Addr, _, _, _}, Acc)  ->
-	    case acl:ip_matches_mask(Addr, Net, Mask) of
+	    case misc:match_ip_mask(Addr, Net, Mask) of
 		true ->
 		    ets:delete(failed_auth, Addr),
 		    Acc+1;
 		false -> Acc
 	    end
-	end,
-	0,
-	failed_auth).
+	end, 0, failed_auth).
 
 %%%===================================================================
 %%% Internal functions
@@ -218,9 +216,9 @@ log_and_disconnect(#{ip := {Addr, _}, lang := Lang} = State, Attempts, UnbanTS) 
     IP = misc:ip_to_list(Addr),
     UnbanDate = format_date(
 		  calendar:now_to_universal_time(seconds_to_now(UnbanTS))),
-    Format = <<"Too many (~p) failed authentications "
-	       "from this IP address (~s). The address "
-	       "will be unblocked at ~s UTC">>,
+    Format = ?T("Too many (~p) failed authentications "
+		"from this IP address (~s). The address "
+		"will be unblocked at ~s UTC"),
     Args = [Attempts, IP, UnbanDate],
     ?WARNING_MSG("Connection attempt from blacklisted IP ~s: ~s",
 		 [IP, io_lib:fwrite(Format, Args)]),
@@ -228,7 +226,7 @@ log_and_disconnect(#{ip := {Addr, _}, lang := Lang} = State, Attempts, UnbanTS) 
     {stop, ejabberd_c2s:send(State, Err)}.
 
 is_whitelisted(Host, Addr) ->
-    Access = gen_mod:get_module_opt(Host, ?MODULE, access),
+    Access = mod_fail2ban_opt:access(Host),
     acl:match_rule(Host, Access, Addr) == allow.
 
 seconds_to_now(Secs) ->
@@ -239,11 +237,11 @@ format_date({{Year, Month, Day}, {Hour, Minute, Second}}) ->
 		  [Hour, Minute, Second, Day, Month, Year]).
 
 mod_opt_type(access) ->
-    fun acl:access_rules_validator/1;
+    econf:acl();
 mod_opt_type(c2s_auth_ban_lifetime) ->
-    fun (T) when is_integer(T), T > 0 -> T end;
+    econf:pos_int();
 mod_opt_type(c2s_max_auth_failures) ->
-    fun (I) when is_integer(I), I > 0 -> I end.
+    econf:pos_int().
 
 mod_options(_Host) ->
     [{access, none},

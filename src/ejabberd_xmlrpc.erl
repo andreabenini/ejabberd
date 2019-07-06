@@ -36,7 +36,7 @@
 -author('badlop@process-one.net').
 
 -export([start/3, start_link/3, handler/2, process/2, accept/1,
-	 transform_listen_option/2, listen_opt_type/1, listen_options/0]).
+	 listen_options/0]).
 
 -include("logger.hrl").
 -include("ejabberd_http.hrl").
@@ -188,11 +188,13 @@
 %% Listener interface
 %% -----------------------------
 
-start(gen_tcp = _SockMod, Socket, Opts) ->
-    ejabberd_http:start(gen_tcp, Socket, [{xmlrpc, true}|Opts]).
+start(SockMod, Socket, Opts) ->
+    Opts1 = [{request_handlers, [{[], ?MODULE}]}|Opts],
+    ejabberd_http:start(SockMod, Socket, Opts1).
 
-start_link(gen_tcp = _SockMod, Socket, Opts) ->
-    ejabberd_http:start_link(gen_tcp, Socket, [{xmlrpc, true}|Opts]).
+start_link(SockMod, Socket, Opts) ->
+    Opts1 = [{request_handlers, [{[], ?MODULE}]}|Opts],
+    ejabberd_http:start_link(SockMod, Socket, Opts1).
 
 accept(Pid) ->
     ejabberd_http:accept(Pid).
@@ -201,7 +203,7 @@ accept(Pid) ->
 %% HTTP interface
 %% -----------------------------
 process(_, #request{method = 'POST', data = Data, opts = Opts, ip = {IP, _}}) ->
-    AccessCommands = proplists:get_value(access_commands, Opts),
+    AccessCommands = proplists:get_value(access_commands, Opts, []),
     GetAuth = true,
     State = #state{access_commands = AccessCommands, get_auth = GetAuth, ip = IP},
     case fxml_stream:parse_element(Data) of
@@ -218,7 +220,7 @@ process(_, #request{method = 'POST', data = Data, opts = Opts, ip = {IP, _}}) ->
 		     #xmlel{name = <<"h1">>, attrs = [],
 			    children = [{xmlcdata, <<"Malformed Request">>}]}};
 		{ok, RPC} ->
-		    ?DEBUG("got XML-RPC request: ~p", [RPC]),
+		    ?DEBUG("Got XML-RPC request: ~p", [RPC]),
 		    {false, Result} = handler(State, RPC),
 		    XML = fxml:element_to_binary(fxmlrpc:encode(Result)),
 		    {200, [{<<"Content-Type">>, <<"text/xml">>}],
@@ -233,7 +235,8 @@ process(_, _) ->
 %% -----------------------------
 %% Access verification
 %% -----------------------------
-
+-spec extract_auth([{user | server | token | password, binary()}]) ->
+			  map() | {error, not_found | expired | invalid_auth}.
 extract_auth(AuthList) ->
     ?DEBUG("AUTHLIST ~p", [AuthList]),
     try get_attrs([user, server, token], AuthList) of
@@ -306,10 +309,6 @@ handler(#state{get_auth = true, auth = noauth, ip = IP} = State,
 	    build_fault_response(-118,
 				 "Invalid oauth token",
 				 []);
-	{error, Value} ->
-	    build_fault_response(-118,
-				 "Invalid authentication data: ~p",
-				 [Value]);
         Auth ->
             handler(State#state{get_auth = false, auth = Auth#{ip => IP, caller_module => ?MODULE}},
                     {call, Method, Arguments})
@@ -341,15 +340,10 @@ handler(_State,
 handler(State, {call, Command, []}) ->
     handler(State, {call, Command, [{struct, []}]});
 handler(State,
-	{call, Command, [{struct, AttrL}]} = Payload) ->
-    case ejabberd_commands:get_command_format(Command, State#state.auth) of
-      {error, command_unknown} ->
-	  build_fault_response(-112, "Unknown call: ~p",
-			       [Payload]);
-      {ArgsF, ResultF} ->
-	  try_do_command(State#state.access_commands,
-			 State#state.auth, Command, AttrL, ArgsF, ResultF)
-    end;
+	{call, Command, [{struct, AttrL}]}) ->
+    {ArgsF, ArgsR, ResultF} = ejabberd_commands:get_command_format(Command, State#state.auth),
+    try_do_command(State#state.access_commands,
+		   State#state.auth, Command, AttrL, ArgsF, ArgsR, ResultF);
 %% If no other guard matches
 handler(_State, Payload) ->
     build_fault_response(-112, "Unknown call: ~p",
@@ -360,9 +354,9 @@ handler(_State, Payload) ->
 %% -----------------------------
 
 try_do_command(AccessCommands, Auth, Command, AttrL,
-	       ArgsF, ResultF) ->
+	       ArgsF, ArgsR, ResultF) ->
     try do_command(AccessCommands, Auth, Command, AttrL,
-		   ArgsF, ResultF)
+		   ArgsF, ArgsR, ResultF)
     of
       {command_result, ResultFormatted} ->
 	  {false, {response, [ResultFormatted]}}
@@ -397,19 +391,24 @@ build_fault_response(Code, ParseString, ParseArgs) ->
     ?WARNING_MSG(FaultString, []),
     {false, {response, {fault, Code, list_to_binary(FaultString)}}}.
 
-do_command(AccessCommands, Auth, Command, AttrL, ArgsF,
+do_command(AccessCommands, Auth, Command, AttrL, ArgsF, ArgsR,
 	   ResultF) ->
-    ArgsFormatted = format_args(AttrL, ArgsF),
-    Auth2 = case AccessCommands of
-		V when is_list(V) ->
-		    Auth#{extra_permissions => AccessCommands};
-		_ ->
-		    Auth
-	    end,
-    Result =
-	ejabberd_commands:execute_command2(Command, ArgsFormatted, Auth2),
+    ArgsFormatted = format_args(rename_old_args(AttrL, ArgsR), ArgsF),
+    Auth2 = Auth#{extra_permissions => AccessCommands},
+    Result = ejabberd_commands:execute_command2(Command, ArgsFormatted, Auth2),
     ResultFormatted = format_result(Result, ResultF),
     {command_result, ResultFormatted}.
+
+rename_old_args(Args, []) ->
+    Args;
+rename_old_args(Args, [{OldName, NewName} | ArgsR]) ->
+    Args2 = case lists:keytake(OldName, 1, Args) of
+	{value, {OldName, Value}, ArgsTail} ->
+	    [{NewName, Value} | ArgsTail];
+	false ->
+	    Args
+    end,
+    rename_old_args(Args2, ArgsR).
 
 %%-----------------------------
 %% Format arguments
@@ -487,7 +486,7 @@ format_arg(Arg, string) when is_binary(Arg) -> binary_to_list(Arg);
 format_arg(undefined, binary) -> <<>>;
 format_arg(undefined, string) -> "";
 format_arg(Arg, Format) ->
-    ?ERROR_MSG("don't know how to format Arg ~p for format ~p", [Arg, Format]),
+    ?ERROR_MSG("Don't know how to format Arg ~p for format ~p", [Arg, Format]),
     exit({invalid_arg_type, Arg, Format}).
 
 process_unicode_codepoints(Str) ->
@@ -555,32 +554,5 @@ make_status(false) -> 1;
 make_status(error) -> 1;
 make_status(_) -> 1.
 
-transform_listen_option({access_commands, ACOpts}, Opts) ->
-    NewACOpts = lists:map(
-                  fun({AName, ACmds, AOpts}) ->
-                          {AName, [{commands, ACmds}, {options, AOpts}]};
-                     (Opt) ->
-                          Opt
-                  end, ACOpts),
-    [{access_commands, NewACOpts}|Opts];
-transform_listen_option(Opt, Opts) ->
-    [Opt|Opts].
-
-listen_opt_type(access_commands) ->
-    fun(Opts) ->
-	    lists:map(
-	      fun({Ac, AcOpts}) ->
-		      Commands = case proplists:get_value(
-					commands, lists:flatten(AcOpts), all) of
-				     Cmd when is_atom(Cmd) -> Cmd;
-				     Cmds when is_list(Cmds) ->
-					 true = lists:all(fun is_atom/1, Cmds),
-					 Cmds
-				 end,
-		      {<<"ejabberd_xmlrpc compatibility shim">>,
-		       {[?MODULE], [{access, Ac}], Commands}}
-	      end, lists:flatten(Opts))
-    end.
-
 listen_options() ->
-    [{access_commands, []}].
+    [].

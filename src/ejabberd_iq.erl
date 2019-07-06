@@ -1,7 +1,7 @@
 %%%-------------------------------------------------------------------
 %%% File    : ejabberd_iq.erl
 %%% Author  : Evgeny Khramtsov <ekhramtsov@process-one.net>
-%%% Purpose : 
+%%% Purpose :
 %%% Created : 10 Nov 2017 by Evgeny Khramtsov <ekhramtsov@process-one.net>
 %%%
 %%%
@@ -70,7 +70,7 @@ dispatch(_) ->
 %%% gen_server callbacks
 %%%===================================================================
 init([]) ->
-    ets:new(?MODULE, [named_table, ordered_set, public]),
+    _ = ets:new(?MODULE, [named_table, ordered_set, public]),
     {ok, #state{}}.
 
 handle_call(Request, From, State) ->
@@ -80,7 +80,7 @@ handle_cast({restart_timer, Expire}, State) ->
     State1 = State#state{expire = min(Expire, State#state.expire)},
     noreply(State1);
 handle_cast(Msg, State) ->
-    ?WARNING_MSG("unexpected cast: ~p", [Msg]),
+    ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
     noreply(State).
 
 handle_info({route, IQ, Key}, State) ->
@@ -96,7 +96,7 @@ handle_info(timeout, State) ->
     Expire = clean(ets:first(?MODULE)),
     noreply(State#state{expire = Expire});
 handle_info(Info, State) ->
-    ?WARNING_MSG("unexpected info: ~p", [Info]),
+    ?WARNING_MSG("Unexpected info: ~p", [Info]),
     noreply(State).
 
 terminate(_Reason, _State) ->
@@ -166,7 +166,7 @@ decode_id(_) ->
 
 -spec calc_checksum(binary()) -> binary().
 calc_checksum(Data) ->
-    Key = ejabberd_config:get_option(shared_key),
+    Key = ejabberd_config:get_shared_key(),
     base64:encode(crypto:hash(sha, <<Data/binary, Key/binary>>)).
 
 -spec callback(atom() | pid(), #iq{} | timeout, term()) -> any().

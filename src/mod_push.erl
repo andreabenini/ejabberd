@@ -52,6 +52,7 @@
 -include("ejabberd_commands.hrl").
 -include("logger.hrl").
 -include("xmpp.hrl").
+-include("translate.hrl").
 
 -define(PUSH_CACHE, push_cache).
 
@@ -92,7 +93,7 @@
 %%--------------------------------------------------------------------
 -spec start(binary(), gen_mod:opts()) -> ok.
 start(Host, Opts) ->
-    Mod = gen_mod:db_mod(Host, Opts, ?MODULE),
+    Mod = gen_mod:db_mod(Opts, ?MODULE),
     Mod:init(Host, Opts),
     init_cache(Mod, Host, Opts),
     register_iq_handlers(Host),
@@ -112,8 +113,8 @@ stop(Host) ->
 
 -spec reload(binary(), gen_mod:opts(), gen_mod:opts()) -> ok.
 reload(Host, NewOpts, OldOpts) ->
-    NewMod = gen_mod:db_mod(Host, NewOpts, ?MODULE),
-    OldMod = gen_mod:db_mod(Host, OldOpts, ?MODULE),
+    NewMod = gen_mod:db_mod(NewOpts, ?MODULE),
+    OldMod = gen_mod:db_mod(OldOpts, ?MODULE),
     if NewMod /= OldMod ->
 	    NewMod:init(Host, NewOpts);
        true ->
@@ -124,31 +125,33 @@ reload(Host, NewOpts, OldOpts) ->
 depends(_Host, _Opts) ->
     [].
 
--spec mod_opt_type(atom()) -> fun((term()) -> term()) | [atom()].
+-spec mod_opt_type(atom()) -> econf:validator().
 mod_opt_type(include_sender) ->
-    fun (B) when is_boolean(B) -> B end;
+    econf:bool();
 mod_opt_type(include_body) ->
-    fun (B) when is_boolean(B) -> B;
-        (S) -> iolist_to_binary(S)
-    end;
+    econf:either(
+      econf:bool(),
+      econf:binary());
 mod_opt_type(db_type) ->
-    fun(T) -> ejabberd_config:v_db(?MODULE, T) end;
-mod_opt_type(O) when O == cache_life_time; O == cache_size ->
-    fun(I) when is_integer(I), I > 0 -> I;
-       (infinity) -> infinity
-    end;
-mod_opt_type(O) when O == use_cache; O == cache_missed ->
-    fun (B) when is_boolean(B) -> B end.
+    econf:db_type(?MODULE);
+mod_opt_type(use_cache) ->
+    econf:bool();
+mod_opt_type(cache_size) ->
+    econf:pos_int(infinity);
+mod_opt_type(cache_missed) ->
+    econf:bool();
+mod_opt_type(cache_life_time) ->
+    econf:timeout(second, infinity).
 
 -spec mod_options(binary()) -> [{atom(), any()}].
 mod_options(Host) ->
     [{include_sender, false},
      {include_body, <<"New message">>},
      {db_type, ejabberd_config:default_db(Host, ?MODULE)},
-     {use_cache, ejabberd_config:use_cache(Host)},
-     {cache_size, ejabberd_config:cache_size(Host)},
-     {cache_missed, ejabberd_config:cache_missed(Host)},
-     {cache_life_time, ejabberd_config:cache_life_time(Host)}].
+     {use_cache, ejabberd_option:use_cache(Host)},
+     {cache_size, ejabberd_option:cache_size(Host)},
+     {cache_missed, ejabberd_option:cache_missed(Host)},
+     {cache_life_time, ejabberd_option:cache_life_time(Host)}].
 
 %%--------------------------------------------------------------------
 %% ejabberd command callback.
@@ -169,11 +172,11 @@ delete_old_sessions(Days) ->
     DBTypes = lists:usort(
 		lists:map(
 		  fun(Host) ->
-			  case gen_mod:get_module_opt(Host, ?MODULE, db_type) of
+			  case mod_push_opt:db_type(Host) of
 			      sql -> {sql, Host};
 			      Other -> {Other, global}
 			  end
-		  end, ejabberd_config:get_myhosts())),
+		  end, ejabberd_option:hosts())),
     Results = lists:map(
 		fun({DBType, Host}) ->
 			Mod = gen_mod:db_mod(DBType, ?MODULE),
@@ -259,10 +262,10 @@ unregister_iq_handlers(Host) ->
 
 -spec process_iq(iq()) -> iq().
 process_iq(#iq{type = get, lang = Lang} = IQ) ->
-    Txt = <<"Value 'get' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'get' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
 process_iq(#iq{lang = Lang, sub_els = [#push_enable{node = <<>>}]} = IQ) ->
-    Txt = <<"Enabling push without 'node' attribute is not supported">>,
+    Txt = ?T("Enabling push without 'node' attribute is not supported"),
     xmpp:make_error(IQ, xmpp:err_feature_not_implemented(Txt, Lang));
 process_iq(#iq{from = #jid{lserver = LServer} = JID,
 	       to = #jid{lserver = LServer},
@@ -274,10 +277,10 @@ process_iq(#iq{from = #jid{lserver = LServer} = JID,
 	ok ->
 	    xmpp:make_iq_result(IQ);
 	{error, db_failure} ->
-	    Txt = <<"Database failure">>,
+	    Txt = ?T("Database failure"),
 	    xmpp:make_error(IQ, xmpp:err_internal_server_error(Txt, Lang));
 	{error, notfound} ->
-	    Txt = <<"User session not found">>,
+	    Txt = ?T("User session not found"),
 	    xmpp:make_error(IQ, xmpp:err_item_not_found(Txt, Lang))
     end;
 process_iq(#iq{from = #jid{lserver = LServer} = JID,
@@ -289,10 +292,10 @@ process_iq(#iq{from = #jid{lserver = LServer} = JID,
 	ok ->
 	    xmpp:make_iq_result(IQ);
 	{error, db_failure} ->
-	    Txt = <<"Database failure">>,
+	    Txt = ?T("Database failure"),
 	    xmpp:make_error(IQ, xmpp:err_internal_server_error(Txt, Lang));
 	{error, notfound} ->
-	    Txt = <<"Push record not found">>,
+	    Txt = ?T("Push record not found"),
 	    xmpp:make_error(IQ, xmpp:err_item_not_found(Txt, Lang))
     end;
 process_iq(IQ) ->
@@ -622,8 +625,8 @@ drop_online_sessions(LUser, LServer, Clients) ->
 -spec make_summary(binary(), xmpp_element() | xmlel() | none, direction())
       -> xdata() | undefined.
 make_summary(Host, #message{from = From} = Pkt, recv) ->
-    case {gen_mod:get_module_opt(Host, ?MODULE, include_sender),
-	  gen_mod:get_module_opt(Host, ?MODULE, include_body)} of
+    case {mod_push_opt:include_sender(Host),
+	  mod_push_opt:include_body(Host)} of
 	{false, false} ->
 	    undefined;
 	{IncludeSender, IncludeBody} ->
@@ -714,19 +717,16 @@ init_cache(Mod, Host, Opts) ->
 
 -spec cache_opts(gen_mod:opts()) -> [proplists:property()].
 cache_opts(Opts) ->
-    MaxSize = gen_mod:get_opt(cache_size, Opts),
-    CacheMissed = gen_mod:get_opt(cache_missed, Opts),
-    LifeTime = case gen_mod:get_opt(cache_life_time, Opts) of
-		   infinity -> infinity;
-		   I -> timer:seconds(I)
-	       end,
+    MaxSize = mod_push_opt:cache_size(Opts),
+    CacheMissed = mod_push_opt:cache_missed(Opts),
+    LifeTime = mod_push_opt:cache_life_time(Opts),
     [{max_size, MaxSize}, {cache_missed, CacheMissed}, {life_time, LifeTime}].
 
 -spec use_cache(module(), binary()) -> boolean().
 use_cache(Mod, Host) ->
     case erlang:function_exported(Mod, use_cache, 1) of
 	true -> Mod:use_cache(Host);
-	false -> gen_mod:get_module_opt(Host, ?MODULE, use_cache)
+	false -> mod_push_opt:use_cache(Host)
     end.
 
 -spec cache_nodes(module(), binary()) -> [node()].

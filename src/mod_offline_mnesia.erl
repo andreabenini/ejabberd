@@ -156,15 +156,16 @@ count_messages(LUser, LServer) ->
     F = fun () ->
 		count_mnesia_records(US)
 	end,
-    case catch mnesia:async_dirty(F) of
-	I when is_integer(I) -> I;
-	_ -> 0
-    end.
+    {cache, case mnesia:async_dirty(F) of
+		I when is_integer(I) -> I;
+		_ -> 0
+	    end}.
 
 import(#offline_msg{} = Msg) ->
     mnesia:dirty_write(Msg).
 
-need_transform(#offline_msg{us = {U, S}}) when is_list(U) orelse is_list(S) ->
+need_transform({offline_msg, {U, S}, _, _, _, _, _})
+  when is_list(U) orelse is_list(S) ->
     ?INFO_MSG("Mnesia table 'offline_msg' will be converted to binary", []),
     true;
 need_transform(_) ->

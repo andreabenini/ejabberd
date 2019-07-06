@@ -24,7 +24,6 @@
 
 -module(ejabberd_sm_sql).
 
--compile([{parse_transform, ejabberd_sql_pt}]).
 
 -behaviour(ejabberd_sm).
 
@@ -54,7 +53,7 @@ init() ->
 		  {updated, _} ->
 		      ok;
 		  Err ->
-		      ?ERROR_MSG("failed to clean 'sm' table: ~p", [Err]),
+		      ?ERROR_MSG("Failed to clean 'sm' table: ~p", [Err]),
 		      {error, db_failure}
 	      end;
 	 (_, Err) ->

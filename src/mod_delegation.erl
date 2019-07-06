@@ -25,7 +25,7 @@
 
 -author('amuhar3@gmail.com').
 
--protocol({xep, 0355, '0.3'}).
+-protocol({xep, 0355, '0.4.1'}).
 
 -behaviour(gen_server).
 -behaviour(gen_mod).
@@ -42,6 +42,7 @@
 
 -include("logger.hrl").
 -include("xmpp.hrl").
+-include("translate.hrl").
 
 -type disco_acc() :: {error, stanza_error()} | {result, [binary()]} | empty.
 -record(state, {server_host = <<"">> :: binary(),
@@ -61,15 +62,24 @@ reload(_Host, _NewOpts, _OldOpts) ->
     ok.
 
 mod_opt_type(namespaces) ->
-    fun(L) ->
-	    lists:map(
-	      fun({NS, Opts}) ->
-		      Attrs = proplists:get_value(filtering, Opts, []),
-		      Access = proplists:get_value(access, Opts, none),
-		      {NS, Attrs, Access}
-	      end, L)
-    end.
+    econf:and_then(
+      econf:map(
+	econf:binary(),
+	econf:options(
+	  #{filtering => econf:list(econf:binary()),
+	    access => econf:acl()})),
+      fun(L) ->
+	      lists:map(
+		fun({NS, Opts}) ->
+			Attrs = proplists:get_value(filtering, Opts, []),
+			Access = proplists:get_value(access, Opts, none),
+			{NS, Attrs, Access}
+		end, L)
+      end).
 
+-spec mod_options(binary()) -> [{namespaces,
+				 [{binary(), [binary()], acl:acl()}]} |
+				{atom(), term()}].
 mod_options(_Host) ->
     [{namespaces, []}].
 
@@ -87,7 +97,7 @@ component_connected(Host) ->
       fun(ServerHost) ->
 	      Proc = gen_mod:get_module_proc(ServerHost, ?MODULE),
 	      gen_server:cast(Proc, {component_connected, Host})
-      end, ejabberd_config:get_myhosts()).
+      end, ejabberd_option:hosts()).
 
 -spec component_disconnected(binary(), binary()) -> ok.
 component_disconnected(Host, _Reason) ->
@@ -95,7 +105,7 @@ component_disconnected(Host, _Reason) ->
       fun(ServerHost) ->
 	      Proc = gen_mod:get_module_proc(ServerHost, ?MODULE),
 	      gen_server:cast(Proc, {component_disconnected, Host})
-      end, ejabberd_config:get_myhosts()).
+      end, ejabberd_option:hosts()).
 
 -spec ejabberd_local(iq()) -> iq().
 ejabberd_local(IQ) ->
@@ -149,8 +159,7 @@ handle_call(_Request, _From, State) ->
 handle_cast({component_connected, Host}, State) ->
     ServerHost = State#state.server_host,
     To = jid:make(Host),
-    NSAttrsAccessList = gen_mod:get_module_opt(
-			  ServerHost, ?MODULE, namespaces),
+    NSAttrsAccessList = mod_delegation_opt:namespaces(ServerHost),
     lists:foreach(
       fun({NS, _Attrs, Access}) ->
 	      case acl:match_rule(ServerHost, Access, To) of
@@ -196,7 +205,7 @@ handle_info({iq_reply, ResIQ, #iq{} = IQ}, State) ->
     process_iq_result(IQ, ResIQ),
     {noreply, State};
 handle_info(Info, State) ->
-    ?WARNING_MSG("unexpected info: ~p", [Info]),
+    ?WARNING_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, State) ->
@@ -251,7 +260,7 @@ process_iq(#iq{to = To, lang = Lang, sub_els = [SubEl]} = IQ, Type) ->
 	      IQ, gen_mod:get_module_proc(LServer, ?MODULE)),
 	    ignore;
 	error ->
-	    Txt = <<"Failed to map delegated namespace to external component">>,
+	    Txt = ?T("Failed to map delegated namespace to external component"),
 	    xmpp:make_error(IQ, xmpp:err_internal_server_error(Txt, Lang))
     end.
 
@@ -259,7 +268,7 @@ process_iq(#iq{to = To, lang = Lang, sub_els = [SubEl]} = IQ, Type) ->
 process_iq_result(#iq{from = From, to = To, id = ID, lang = Lang} = IQ,
 		  #iq{type = result} = ResIQ) ->
     try
-	CodecOpts = ejabberd_config:codec_options(To#jid.lserver),
+	CodecOpts = ejabberd_config:codec_options(),
 	#delegation{forwarded = #forwarded{sub_els = [SubEl]}} =
 	    xmpp:get_subtag(ResIQ, #delegation{}),
 	case xmpp:decode(SubEl, ?NS_CLIENT, CodecOpts) of
@@ -268,9 +277,9 @@ process_iq_result(#iq{from = From, to = To, id = ID, lang = Lang} = IQ,
 		ejabberd_router:route(Reply)
 	end
     catch _:_ ->
-	    ?ERROR_MSG("got iq-result with invalid delegated "
+	    ?ERROR_MSG("Got iq-result with invalid delegated "
 		       "payload:~n~s", [xmpp:pp(ResIQ)]),
-	    Txt = <<"External component failure">>,
+	    Txt = ?T("External component failure"),
 	    Err = xmpp:err_internal_server_error(Txt, Lang),
 	    ejabberd_router:route_error(IQ, Err)
     end;
@@ -278,7 +287,7 @@ process_iq_result(#iq{from = From, to = To}, #iq{type = error} = ResIQ) ->
     Err = xmpp:set_from_to(ResIQ, To, From),
     ejabberd_router:route(Err);
 process_iq_result(#iq{lang = Lang} = IQ, timeout) ->
-    Txt = <<"External component timeout">>,
+    Txt = ?T("External component timeout"),
     Err = xmpp:err_internal_server_error(Txt, Lang),
     ejabberd_router:route_error(IQ, Err).
 

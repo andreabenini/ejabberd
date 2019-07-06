@@ -49,6 +49,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include("xmpp.hrl").
 -include("ejabberd_stacktrace.hrl").
+-include("translate.hrl").
 
 -record(state, {}).
 
@@ -72,8 +73,9 @@ start_link() ->
 route(Packet) ->
     try do_route(Packet)
     catch ?EX_RULE(E, R, St) ->
-	    ?ERROR_MSG("failed to route packet:~n~s~nReason = ~p",
-		       [xmpp:pp(Packet), {E, {R, ?EX_STACK(St)}}])
+	    StackTrace = ?EX_STACK(St),
+	    ?ERROR_MSG("Failed to route packet:~n~s~nReason = ~p",
+		       [xmpp:pp(Packet), {E, {R, StackTrace}}])
     end.
 
 -spec route_iq(iq(), function()) -> ok.
@@ -91,7 +93,7 @@ bounce_resource_packet(#message{to = #jid{lresource = <<"">>}, type = headline})
     ok;
 bounce_resource_packet(Packet) ->
     Lang = xmpp:get_lang(Packet),
-    Txt = <<"No available resource found">>,
+    Txt = ?T("No available resource found"),
     Err = xmpp:err_item_not_found(Txt, Lang),
     ejabberd_router:route_error(Packet, Err),
     stop.
@@ -106,7 +108,7 @@ get_features(Host) ->
 
 init([]) ->
     process_flag(trap_exit, true),
-    lists:foreach(fun host_up/1, ejabberd_config:get_myhosts()),
+    lists:foreach(fun host_up/1, ejabberd_option:hosts()),
     ejabberd_hooks:add(host_up, ?MODULE, host_up, 10),
     ejabberd_hooks:add(host_down, ?MODULE, host_down, 100),
     gen_iq_handler:start(?MODULE),
@@ -122,11 +124,11 @@ handle_info({route, Packet}, State) ->
     route(Packet),
     {noreply, State};
 handle_info(Info, State) ->
-    ?WARNING_MSG("unexpected info: ~p", [Info]),
+    ?WARNING_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    lists:foreach(fun host_down/1, ejabberd_config:get_myhosts()),
+    lists:foreach(fun host_down/1, ejabberd_option:hosts()),
     ejabberd_hooks:delete(host_up, ?MODULE, host_up, 10),
     ejabberd_hooks:delete(host_down, ?MODULE, host_down, 100),
     ok.
@@ -139,7 +141,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 -spec do_route(stanza()) -> any().
 do_route(Packet) ->
-    ?DEBUG("local route:~n~s", [xmpp:pp(Packet)]),
+    ?DEBUG("Local route:~n~s", [xmpp:pp(Packet)]),
     Type = xmpp:get_type(Packet),
     To = xmpp:get_to(Packet),
     if To#jid.luser /= <<"">> ->

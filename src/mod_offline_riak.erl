@@ -88,7 +88,7 @@ read_message_headers(LUser, LServer) ->
 		     end, Rs),
 	    lists:keysort(1, Hdrs);
 	_Err ->
-	    []
+	    error
     end.
 
 read_message(_LUser, _LServer, I) ->
@@ -124,9 +124,9 @@ count_messages(LUser, LServer) ->
     case ejabberd_riak:count_by_index(
            offline_msg, <<"us">>, {LUser, LServer}) of
         {ok, Res} ->
-            Res;
+            {cache, Res};
         _ ->
-            0
+            {nocache, 0}
     end.
 
 import(#offline_msg{us = US, timestamp = TS} = M) ->

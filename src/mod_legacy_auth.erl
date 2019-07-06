@@ -30,6 +30,7 @@
 -export([c2s_unauthenticated_packet/2, c2s_stream_features/2]).
 
 -include("xmpp.hrl").
+-include("translate.hrl").
 
 -type c2s_state() :: ejabberd_c2s:state().
 
@@ -104,7 +105,7 @@ authenticate(State,
 		 sub_els = [#legacy_auth{username = U,
 					 resource = R}]} = IQ)
   when U == undefined; R == undefined; U == <<"">>; R == <<"">> ->
-    Txt = <<"Both the username and the resource are required">>,
+    Txt = ?T("Both the username and the resource are required"),
     Err = xmpp:make_error(IQ, xmpp:err_not_acceptable(Txt, Lang)),
     ejabberd_c2s:send(State, Err);
 authenticate(#{stream_id := StreamID, server := Server,
@@ -119,9 +120,8 @@ authenticate(#{stream_id := StreamID, server := Server,
     DGen = fun (PW) -> str:sha(<<StreamID/binary, PW/binary>>) end,
     JID = jid:make(U, Server, R),
     case JID /= error andalso
-	acl:access_matches(Access,
-			   #{usr => jid:split(JID), ip => IP},
-			   JID#jid.lserver) == allow of
+	acl:match_rule(JID#jid.lserver, Access,
+		       #{usr => jid:split(JID), ip => IP}) == allow of
 	true ->
 	    case ejabberd_auth:check_password_with_authmodule(
 		   U, U, JID#jid.lserver, P, D, DGen) of
@@ -139,7 +139,7 @@ authenticate(#{stream_id := StreamID, server := Server,
 	    Err = xmpp:make_error(IQ, xmpp:err_jid_malformed()),
 	    process_auth_failure(State, U, Err, 'jid-malformed');
 	false ->
-	    Txt = <<"Access denied by service policy">>,
+	    Txt = ?T("Access denied by service policy"),
 	    Err = xmpp:make_error(IQ, xmpp:err_forbidden(Txt, Lang)),
 	    process_auth_failure(State, U, Err, 'forbidden')
     end.

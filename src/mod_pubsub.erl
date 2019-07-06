@@ -44,6 +44,7 @@
 -include("pubsub.hrl").
 -include("mod_roster.hrl").
 -include("translate.hrl").
+-include("ejabberd_stacktrace.hrl").
 
 -define(STDTREE, <<"tree">>).
 -define(STDNODE, <<"flat">>).
@@ -91,6 +92,8 @@
 -export([start/2, stop/1, init/1,
     handle_call/3, handle_cast/2, handle_info/2,
     terminate/2, code_change/3, depends/2, mod_opt_type/1, mod_options/1]).
+
+-export([route/1]).
 
 %%====================================================================
 %% API
@@ -239,28 +242,27 @@ stop(Host) ->
 
 init([ServerHost, Opts]) ->
     process_flag(trap_exit, true),
-    ?DEBUG("pubsub init ~p ~p", [ServerHost, Opts]),
-    Hosts = gen_mod:get_opt_hosts(ServerHost, Opts),
-    Access = gen_mod:get_opt(access_createnode, Opts),
-    PepOffline = gen_mod:get_opt(ignore_pep_from_offline, Opts),
-    LastItemCache = gen_mod:get_opt(last_item_cache, Opts),
-    MaxItemsNode = gen_mod:get_opt(max_items_node, Opts),
-    MaxSubsNode = gen_mod:get_opt(max_subscriptions_node, Opts),
+    ?DEBUG("Pubsub init ~p ~p", [ServerHost, Opts]),
+    Hosts = gen_mod:get_opt_hosts(Opts),
+    Access = mod_pubsub_opt:access_createnode(Opts),
+    PepOffline = mod_pubsub_opt:ignore_pep_from_offline(Opts),
+    LastItemCache = mod_pubsub_opt:last_item_cache(Opts),
+    MaxItemsNode = mod_pubsub_opt:max_items_node(Opts),
+    MaxSubsNode = mod_pubsub_opt:max_subscriptions_node(Opts),
     ejabberd_mnesia:create(?MODULE, pubsub_last_item,
 			   [{ram_copies, [node()]},
 			    {attributes, record_info(fields, pubsub_last_item)}]),
+    DBMod = gen_mod:db_mod(Opts, ?MODULE),
     AllPlugins =
 	lists:flatmap(
 	  fun(Host) ->
-		  ejabberd_router:register_route(Host, ServerHost),
-		  case gen_mod:get_module_opt(ServerHost, ?MODULE, db_type) of
-		      mnesia -> pubsub_index:init(Host, ServerHost, Opts);
-		      _ -> ok
-		  end,
+		  DBMod:init(Host, ServerHost, Opts),
+		  ejabberd_router:register_route(
+		    Host, ServerHost, {apply, ?MODULE, route}),
 		  {Plugins, NodeTree, PepMapping} = init_plugins(Host, ServerHost, Opts),
 		  DefaultModule = plugin(Host, hd(Plugins)),
 		  DefaultNodeCfg = merge_config(
-				     [gen_mod:get_opt(default_node_config, Opts),
+				     [mod_pubsub_opt:default_node_config(Opts),
 				      DefaultModule:options()]),
 		  lists:foreach(
 		    fun(H) ->
@@ -337,7 +339,7 @@ init([ServerHost, Opts]) ->
     NodeTree = config(ServerHost, nodetree),
     Plugins = config(ServerHost, plugins),
     PepMapping = config(ServerHost, pep_mapping),
-    DBType = gen_mod:get_module_opt(ServerHost, ?MODULE, db_type),
+    DBType = mod_pubsub_opt:db_type(ServerHost),
     {ok, #state{hosts = Hosts, server_host = ServerHost,
 		access = Access, pep_mapping = PepMapping,
 		ignore_pep_from_offline = PepOffline,
@@ -345,13 +347,13 @@ init([ServerHost, Opts]) ->
 		max_items_node = MaxItemsNode, nodetree = NodeTree,
 		plugins = Plugins, db_type = DBType}}.
 
-depends(ServerHost, Opts0) ->
-    Opts = Opts0 ++ mod_options(ServerHost),
-    [Host|_] = gen_mod:get_opt_hosts(ServerHost, Opts),
-    Plugins = gen_mod:get_opt(plugins, Opts),
+depends(ServerHost, Opts) ->
+    [Host|_] = gen_mod:get_opt_hosts(Opts),
+    Plugins = mod_pubsub_opt:plugins(Opts),
+    Db = mod_pubsub_opt:db_type(Opts),
     lists:flatmap(
       fun(Name) ->
-	      Plugin = plugin(ServerHost, Name),
+	      Plugin = plugin(Db, Name),
 	      try apply(Plugin, depends, [Host, ServerHost, Opts])
 	      catch _:undef -> []
 	      end
@@ -363,11 +365,11 @@ depends(ServerHost, Opts0) ->
 %% <em>node_plugin</em>. The 'node_' prefix is mandatory.</p>
 %% <p>See {@link node_hometree:init/1} for an example implementation.</p>
 init_plugins(Host, ServerHost, Opts) ->
-    TreePlugin = tree(Host, gen_mod:get_opt(nodetree, Opts)),
+    TreePlugin = tree(Host, mod_pubsub_opt:nodetree(Opts)),
     ?DEBUG("** tree plugin is ~p", [TreePlugin]),
     TreePlugin:init(Host, ServerHost, Opts),
-    Plugins = gen_mod:get_opt(plugins, Opts),
-    PepMapping = gen_mod:get_opt(pep_mapping, Opts),
+    Plugins = mod_pubsub_opt:plugins(Opts),
+    PepMapping = mod_pubsub_opt:pep_mapping(Opts),
     ?DEBUG("** PEP Mapping : ~p~n", [PepMapping]),
     PluginsOK = lists:foldl(
 	    fun (Name, Acc) ->
@@ -431,7 +433,7 @@ disco_sm_identity(Acc, From, To, Node, _Lang) ->
     disco_identity(jid:tolower(jid:remove_resource(To)), Node, From)
     ++ Acc.
 
--spec disco_identity(binary(), binary(), jid()) -> [identity()].
+-spec disco_identity(host(), binary(), jid()) -> [identity()].
 disco_identity(_Host, <<>>, _From) ->
     [#identity{category = <<"pubsub">>, type = <<"pep">>}];
 disco_identity(Host, Node, From) ->
@@ -729,15 +731,13 @@ handle_cast(_Msg, State) -> {noreply, State}.
 %% Description: Handling all non call/cast messages
 %%--------------------------------------------------------------------
 %% @private
-handle_info({route, #iq{to = To} = IQ},
-	    State) when To#jid.lresource == <<"">> ->
-    ejabberd_router:process_iq(IQ),
-    {noreply, State};
 handle_info({route, Packet}, State) ->
-    To = xmpp:get_to(Packet),
-    case catch do_route(To#jid.lserver, Packet) of
-	{'EXIT', Reason} -> ?ERROR_MSG("~p", [Reason]);
-	_ -> ok
+    try route(Packet)
+    catch ?EX_RULE(Class, Reason, St) ->
+	    StackTrace = ?EX_STACK(St),
+	    ?ERROR_MSG("Failed to route packet:~n~s~n** ~s",
+		       [xmpp:pp(Packet),
+			misc:format_exception(2, Class, Reason, StackTrace)])
     end,
     {noreply, State};
 handle_info(_Info, State) ->
@@ -816,7 +816,7 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %%--------------------------------------------------------------------
 -spec process_disco_info(iq()) -> iq().
 process_disco_info(#iq{type = set, lang = Lang} = IQ) ->
-    Txt = <<"Value 'set' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
 process_disco_info(#iq{from = From, to = To, lang = Lang, type = get,
 		       sub_els = [#disco_info{node = Node}]} = IQ) ->
@@ -835,7 +835,7 @@ process_disco_info(#iq{from = From, to = To, lang = Lang, type = get,
 
 -spec process_disco_items(iq()) -> iq().
 process_disco_items(#iq{type = set, lang = Lang} = IQ) ->
-    Txt = <<"Value 'set' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
 process_disco_items(#iq{type = get, from = From, to = To,
                         sub_els = [#disco_items{node = Node} = SubEl]} = IQ) ->
@@ -873,7 +873,7 @@ process_pubsub_owner(#iq{to = To} = IQ) ->
 process_vcard(#iq{type = get, lang = Lang} = IQ) ->
     xmpp:make_iq_result(IQ, iq_get_vcard(Lang));
 process_vcard(#iq{type = set, lang = Lang} = IQ) ->
-    Txt = <<"Value 'set' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang)).
 
 -spec process_commands(iq()) -> iq().
@@ -891,11 +891,13 @@ process_commands(#iq{type = set, to = To, from = From,
 	      IQ, xmpp_util:make_adhoc_response(Request, Response))
     end;
 process_commands(#iq{type = get, lang = Lang} = IQ) ->
-    Txt = <<"Value 'get' of 'type' attribute is not allowed">>,
+    Txt = ?T("Value 'get' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang)).
 
--spec do_route(binary(), stanza()) -> ok.
-do_route(Host, Packet) ->
+-spec route(stanza()) -> ok.
+route(#iq{to = To} = IQ) when To#jid.lresource == <<"">> ->
+    ejabberd_router:process_iq(IQ);
+route(Packet) ->
     To = xmpp:get_to(Packet),
     case To of
 	#jid{luser = <<>>, lresource = <<>>} ->
@@ -908,7 +910,7 @@ do_route(Host, Packet) ->
 			    ejabberd_router:route_error(Packet, Err);
 			AuthResponse ->
 			    handle_authorization_response(
-			      Host, Packet, AuthResponse)
+			      To#jid.lserver, Packet, AuthResponse)
 		    end;
 		_ ->
 		    Err = xmpp:err_service_unavailable(),
@@ -975,7 +977,7 @@ iq_disco_info(ServerHost, Host, SNode, From, Lang) ->
 		 end,
     case Node of
 	<<>> ->
-	    Name = gen_mod:get_module_opt(ServerHost, ?MODULE, name),
+	    Name = mod_pubsub_opt:name(ServerHost),
 	    {result,
 	     #disco_info{
 		identities = [#identity{
@@ -999,7 +1001,7 @@ iq_disco_info(ServerHost, Host, SNode, From, Lang) ->
 -spec iq_disco_items(host(), binary(), jid(), undefined | rsm_set()) ->
 			    {result, disco_items()} | {error, stanza_error()}.
 iq_disco_items(Host, <<>>, From, _RSM) ->
-    Items = 
+    Items =
 	lists:map(
 	  fun(#pubsub_node{nodeid = {_, SubNode}, options = Options}) ->
 		  case get_option(Options, title) of
@@ -1017,7 +1019,7 @@ iq_disco_items(Host, ?NS_COMMANDS, _From, _RSM) ->
     {result,
      #disco_items{items = [#disco_item{jid = jid:make(Host),
 				       node = ?NS_PUBSUB_GET_PENDING,
-				       name = <<"Get Pending">>}]}};
+				       name = ?T("Get Pending")}]}};
 iq_disco_items(_Host, ?NS_PUBSUB_GET_PENDING, _From, _RSM) ->
     {result, #disco_items{}};
 iq_disco_items(Host, Item, From, RSM) ->
@@ -1141,10 +1143,10 @@ iq_pubsub(Host, Access, #iq{from = From, type = IQType, lang = Lang,
 			 #ps_options{xdata = XData, jid = undefined, node = <<>>} ->
 			     decode_subscribe_options(XData, Lang);
 			 #ps_options{xdata = _XData, jid = #jid{}} ->
-			     Txt = <<"Attribute 'jid' is not allowed here">>,
+			     Txt = ?T("Attribute 'jid' is not allowed here"),
 			     {error, xmpp:err_bad_request(Txt, Lang)};
 			 #ps_options{xdata = _XData} ->
-			     Txt = <<"Attribute 'node' is not allowed here">>,
+			     Txt = ?T("Attribute 'node' is not allowed here"),
 			     {error, xmpp:err_bad_request(Txt, Lang)};
 			 _ ->
 			     []
@@ -1204,7 +1206,7 @@ iq_pubsub_owner(Host, #iq{type = IQType, from = From,
 	{set, #pubsub_owner{configure = {Node, XData}, _ = undefined}} ->
 	    case XData of
 		undefined ->
-		    {error, xmpp:err_bad_request(<<"No data form found">>, Lang)};
+		    {error, xmpp:err_bad_request(?T("No data form found"), Lang)};
 		#xdata{type = cancel} ->
 		    {result, #pubsub_owner{}};
 		#xdata{type = submit} ->
@@ -1215,7 +1217,7 @@ iq_pubsub_owner(Host, #iq{type = IQType, from = From,
 			    set_configure(Host, Node, From, Config, Lang)
 		    end;
 		#xdata{} ->
-		    {error, xmpp:err_bad_request(<<"Incorrect data form">>, Lang)}
+		    {error, xmpp:err_bad_request(?T("Incorrect data form"), Lang)}
 	    end;
 	{get, #pubsub_owner{default = {Node, undefined}, _ = undefined}} ->
 	    get_default(Host, Node, From, Lang);
@@ -1256,7 +1258,7 @@ adhoc_request(Host, _ServerHost, Owner,
 	    case send_pending_auth_events(Host, Node, Owner, Lang) of
 		ok ->
 		    xmpp_util:make_adhoc_response(
-		      Request, #adhoc_command{action = completed});
+		      Request, #adhoc_command{status = completed});
 		Err ->
 		    Err
 	    end
@@ -1310,7 +1312,7 @@ get_pending_nodes(Host, Owner, Plugins) ->
 %% @doc <p>Send a subscription approval form to Owner for all pending
 %% subscriptions on Host and Node.</p>
 -spec send_pending_auth_events(binary(), binary(), jid(),
-			       binary()) -> adhoc_command() | {error, stanza_error()}.
+			       binary()) -> ok | {error, stanza_error()}.
 send_pending_auth_events(Host, Node, Owner, Lang) ->
     ?DEBUG("Sending pending auth events for ~s on ~s:~s",
 	   [jid:encode(Owner), Host, Node]),
@@ -1323,7 +1325,7 @@ send_pending_auth_events(Host, Node, Owner, Lang) ->
 				node_call(Host, Type, get_node_subscriptions, [Nidx]);
 			    _ ->
 				{error, xmpp:err_forbidden(
-					  <<"Owner privileges required">>, Lang)}
+					  ?T("Owner privileges required"), Lang)}
 			end;
 		    false ->
 			{error, extended_error(xmpp:err_feature_not_implemented(),
@@ -1336,8 +1338,7 @@ send_pending_auth_events(Host, Node, Owner, Lang) ->
 	      fun({J, pending, _SubId}) -> send_authorization_request(N, jid:make(J));
 		 ({J, pending}) -> send_authorization_request(N, jid:make(J));
 		 (_) -> ok
-	      end, Subs),
-	    #adhoc_command{};
+	      end, Subs);
 	Err ->
 	    Err
     end.
@@ -1356,11 +1357,11 @@ send_authorization_request(#pubsub_node{nodeid = {Host, Node},
 	   Lang),
     X = #xdata{type = form,
 	       title = translate:translate(
-			 Lang, <<"PubSub subscriber request">>),
+			 Lang, ?T("PubSub subscriber request")),
 	       instructions = [translate:translate(
 				 Lang,
-				 <<"Choose whether to approve this entity's "
-				   "subscription.">>)],
+				 ?T("Choose whether to approve this entity's "
+				    "subscription."))],
 	       fields = Fs},
     Stanza = #message{from = service_jid(Host), sub_els = [X]},
     lists:foreach(
@@ -1415,7 +1416,7 @@ handle_authorization_response(Host, #message{from = From} = Packet, Response) ->
 			{result, Subs} = node_call(Host, Type, get_subscriptions, [Nidx, Subscriber]),
 			update_auth(Host, Node, Type, Nidx, Subscriber, Allow, Subs);
 		    false ->
-			{error, xmpp:err_forbidden(<<"Owner privileges required">>, Lang)}
+			{error, xmpp:err_forbidden(?T("Owner privileges required"), Lang)}
 		end
 	end,
     case transaction(Host, Node, Action, sync_dirty) of
@@ -1447,8 +1448,8 @@ update_auth(Host, Node, Type, Nidx, Subscriber, Allow, Subs) ->
 	    send_authorization_approval(Host, Subscriber, Node, NewSub),
 	    {result, ok};
 	_ ->
-	    Txt = <<"No pending subscriptions found">>,
-	    {error, xmpp:err_unexpected_request(Txt, ejabberd_config:get_mylang())}
+	    Txt = ?T("No pending subscriptions found"),
+	    {error, xmpp:err_unexpected_request(Txt, ejabberd_option:language())}
     end.
 
 %% @doc <p>Create new pubsub nodes</p>
@@ -1527,8 +1528,8 @@ create_node(Host, ServerHost, Node, Owner, GivenType, Access, Configuration) ->
 				Error
 			end;
 		    _ ->
-			Txt = <<"You're not allowed to create nodes">>,
-			{error, xmpp:err_forbidden(Txt, ejabberd_config:get_mylang())}
+			Txt = ?T("You're not allowed to create nodes"),
+			{error, xmpp:err_forbidden(Txt, ejabberd_option:language())}
 		end
 	end,
     Reply = #pubsub{create = Node},
@@ -1564,7 +1565,7 @@ create_node(Host, ServerHost, Node, Owner, GivenType, Access, Configuration) ->
 %%</ul>
 -spec delete_node(host(), binary(), jid()) -> {result, pubsub_owner()} | {error, stanza_error()}.
 delete_node(_Host, <<>>, _Owner) ->
-    {error, xmpp:err_not_allowed(<<"No node specified">>, ejabberd_config:get_mylang())};
+    {error, xmpp:err_not_allowed(?T("No node specified"), ejabberd_option:language())};
 delete_node(Host, Node, Owner) ->
     Action = fun (#pubsub_node{type = Type, id = Nidx}) ->
 	    case node_call(Host, Type, get_affiliation, [Nidx, Owner]) of
@@ -1576,7 +1577,7 @@ delete_node(Host, Node, Owner) ->
 			Error -> Error
 		    end;
 		_ ->
-		    {error, xmpp:err_forbidden(<<"Owner privileges required">>, ejabberd_config:get_mylang())}
+		    {error, xmpp:err_forbidden(?T("Owner privileges required"), ejabberd_option:language())}
 	    end
     end,
     Reply = undefined,
@@ -1692,7 +1693,7 @@ subscribe_node(Host, Node, From, JID, Configuration) ->
 					   err_closed_node())};
 		true ->
 		    Owners = node_owners_call(Host, Type, Nidx, O),
-		    {PS, RG} = get_presence_and_roster_permissions(Host, Subscriber,
+		    {PS, RG} = get_presence_and_roster_permissions(Host, JID,
 			    Owners, AccessModel, AllowedGroups),
 		    node_call(Host, Type, subscribe_node,
 			[Nidx, From, Subscriber, AccessModel,
@@ -1726,10 +1727,10 @@ subscribe_node(Host, Node, From, JID, Configuration) ->
 	{result, {_TNode, {Result, subscribed, _SubId}}} ->
 	    {result, Result};
 	{result, {TNode, {default, pending, _SubId}}} ->
-	    send_authorization_request(TNode, Subscriber),
+	    send_authorization_request(TNode, JID),
 	    {result, Reply(pending)};
 	{result, {TNode, {Result, pending}}} ->
-	    send_authorization_request(TNode, Subscriber),
+	    send_authorization_request(TNode, JID),
 	    {result, Result};
 	{result, {_, Result}} ->
 	    {result, Result};
@@ -1868,8 +1869,8 @@ publish_item(Host, ServerHost, Node, Publisher, ItemId, Payload, PubOpts, Access
 			    {error, xmpp:err_item_not_found()}
 		    end;
 		false ->
-		    Txt = <<"Automatic node creation is not enabled">>,
-		    {error, xmpp:err_item_not_found(Txt, ejabberd_config:get_mylang())}
+		    Txt = ?T("Automatic node creation is not enabled"),
+		    {error, xmpp:err_item_not_found(Txt, ejabberd_option:language())}
 	    end;
 	Error ->
 	    Error
@@ -1986,7 +1987,7 @@ purge_node(Host, Node, Owner) ->
 %% <p>The number of items to return is limited by MaxItems.</p>
 %% <p>The permission are not checked in this function.</p>
 -spec get_items(host(), binary(), jid(), binary(),
-		binary(), [binary()], undefined | rsm_set()) ->
+		undefined | non_neg_integer(), [binary()], undefined | rsm_set()) ->
 		       {result, pubsub()} | {error, stanza_error()}.
 get_items(Host, Node, From, SubId, MaxItems, ItemIds, undefined)
   when MaxItems =/= undefined ->
@@ -2150,7 +2151,7 @@ get_affiliations(Host, Node, JID) ->
 			{error, extended_error(xmpp:err_feature_not_implemented(),
 					       err_unsupported('modify-affiliations'))};
 		   Affiliation /= owner ->
-			{error, xmpp:err_forbidden(<<"Owner privileges required">>, ejabberd_config:get_mylang())};
+			{error, xmpp:err_forbidden(?T("Owner privileges required"), ejabberd_option:language())};
 		   true ->
 			node_call(Host, Type, get_node_affiliations, [Nidx])
 		end
@@ -2216,7 +2217,7 @@ set_affiliations(Host, Node, From, Affs) ->
 			{result, undefined};
 		    _ ->
 			{error, xmpp:err_forbidden(
-				  <<"Owner privileges required">>, ejabberd_config:get_mylang())}
+				  ?T("Owner privileges required"), ejabberd_option:language())}
 		end
 	end,
     case transaction(Host, Node, Action, sync_dirty) of
@@ -2362,9 +2363,11 @@ get_subscriptions(Host, Node, JID, Plugins) when is_list(Plugins) ->
 			({#pubsub_node{nodeid = {_, SubsNode}}, Sub}) ->
 			    case Node of
 				<<>> ->
-				    [#ps_subscription{node = SubsNode, type = Sub}];
+				    [#ps_subscription{jid = jid:remove_resource(JID),
+						      node = SubsNode, type = Sub}];
 				SubsNode ->
-				    [#ps_subscription{type = Sub}];
+				    [#ps_subscription{jid = jid:remove_resource(JID),
+						      type = Sub}];
 				_ ->
 				    []
 			    end;
@@ -2411,7 +2414,7 @@ get_subscriptions(Host, Node, JID) ->
 		    {error, extended_error(xmpp:err_feature_not_implemented(),
 					   err_unsupported('manage-subscriptions'))};
 		Affiliation /= owner ->
-		    {error, xmpp:err_forbidden(<<"Owner privileges required">>, ejabberd_config:get_mylang())};
+		    {error, xmpp:err_forbidden(?T("Owner privileges required"), ejabberd_option:language())};
 		true ->
 		    node_call(Host, Type, get_node_subscriptions, [Nidx])
 	    end
@@ -2492,8 +2495,8 @@ set_subscriptions(Host, Node, From, Entities) ->
 			end;
 		    _ ->
 			{error, xmpp:err_forbidden(
-				  <<"Owner privileges required">>, ejabberd_config:get_mylang())}
-			    
+				  ?T("Owner privileges required"), ejabberd_option:language())}
+
 		end
 	end,
     case transaction(Host, Node, Action, sync_dirty) of
@@ -2502,7 +2505,7 @@ set_subscriptions(Host, Node, From, Entities) ->
     end.
 
 -spec get_presence_and_roster_permissions(
-	host(), ljid(), [ljid()], accessModel(),
+	host(), jid(), [ljid()], accessModel(),
 	[binary()]) -> {boolean(), boolean()}.
 get_presence_and_roster_permissions(Host, From, Owners, AccessModel, AllowedGroups) ->
     if (AccessModel == presence) or (AccessModel == roster) ->
@@ -2517,6 +2520,7 @@ get_presence_and_roster_permissions(Host, From, Owners, AccessModel, AllowedGrou
 	    {true, true}
     end.
 
+-spec get_roster_info(binary(), binary(), ljid() | jid(), [binary()]) -> {boolean(), boolean()}.
 get_roster_info(_, _, {<<>>, <<>>, _}, _) ->
     {false, false};
 get_roster_info(OwnerUser, OwnerServer, {SubscriberUser, SubscriberServer, _}, AllowedGroups) ->
@@ -2625,7 +2629,7 @@ get_resource_state({U, S, R}, ShowValues, JIDs) ->
 	    Show = case ejabberd_c2s:get_presence(Pid) of
 		       #presence{type = unavailable} -> <<"unavailable">>;
 		       #presence{show = undefined} -> <<"online">>;
-		       #presence{show = S} -> atom_to_binary(S, latin1)
+		       #presence{show = Sh} -> atom_to_binary(Sh, latin1)
 	    end,
 	    case lists:member(Show, ShowValues) of
 		%% If yes, item can be delivered
@@ -2869,21 +2873,23 @@ broadcast_stanza({LUser, LServer, LResource}, Publisher, Node, Nidx, Type, NodeO
     %% set the from address on the notification to the bare JID of the account owner
     %% Also, add "replyto" if entity has presence subscription to the account owner
     %% See XEP-0163 1.1 section 4.3.1
-    FromBareJid = xmpp:set_from(BaseStanza, jid:make(LUser, LServer)),
+    Owner = jid:make(LUser, LServer),
+    FromBareJid = xmpp:set_from(BaseStanza, Owner),
     Stanza = add_extended_headers(
 	       add_message_type(FromBareJid, NotificationType),
 	       extended_headers([Publisher])),
+    Pred = fun(To) -> delivery_permitted(Owner, To, NodeOptions) end,
     ejabberd_sm:route(jid:make(LUser, LServer, SenderResource),
-		      {pep_message, <<((Node))/binary, "+notify">>, Stanza}),
+		      {pep_message, <<((Node))/binary, "+notify">>, Stanza, Pred}),
     ejabberd_router:route(xmpp:set_to(Stanza, jid:make(LUser, LServer)));
 broadcast_stanza(Host, _Publisher, Node, Nidx, Type, NodeOptions, SubsByDepth, NotifyType, BaseStanza, SHIM) ->
     broadcast_stanza(Host, Node, Nidx, Type, NodeOptions, SubsByDepth, NotifyType, BaseStanza, SHIM).
 
 -spec c2s_handle_info(ejabberd_c2s:state(), term()) -> ejabberd_c2s:state().
 c2s_handle_info(#{lserver := LServer} = C2SState,
-		{pep_message, Feature, Packet}) ->
+		{pep_message, Feature, Packet, Pred}) when is_function(Pred) ->
     [maybe_send_pep_stanza(LServer, USR, Caps, Feature, Packet)
-     || {USR, Caps} <- mod_caps:list_features(C2SState)],
+     || {USR, Caps} <- mod_caps:list_features(C2SState), Pred(USR)],
     {stop, C2SState};
 c2s_handle_info(#{lserver := LServer} = C2SState,
 		{pep_message, Feature, Packet, USR}) ->
@@ -2930,7 +2936,7 @@ send_stanza({LUser, LServer, _} = Publisher, USR, Node, BaseStanza) ->
     [ejabberd_sm:route(jid:make(Publisher),
 		      {pep_message, <<((Node))/binary, "+notify">>,
 		       add_extended_headers(
-			 Stanza, extended_headers([Publisher])),
+			 Stanza, extended_headers([jid:make(Publisher)])),
 		       To}) || To <- USRs];
 send_stanza(Host, USR, _Node, Stanza) ->
     ejabberd_router:route(
@@ -2990,27 +2996,17 @@ send_last_pep(From, To) ->
     Host = host(ServerHost),
     Publisher = jid:tolower(From),
     Owner = jid:remove_resource(Publisher),
-    RecipientIsOwner = jid:remove_resource(jid:tolower(To)) == Owner,
     lists:foreach(
       fun(#pubsub_node{nodeid = {_, Node}, type = Type, id = Nidx, options = Options}) ->
 	      case match_option(Options, send_last_published_item, on_sub_and_presence) of
 		  true ->
-		      LJID = jid:tolower(To),
-		      Subscribed = case get_option(Options, access_model) of
-				       open -> true;
-				       presence -> true;
-				       %% TODO: Fix the 'whitelist'/'authorize'
-				       %% cases. Currently, only node owners
-				       %% receive last PEP notifications.
-				       whitelist -> RecipientIsOwner;
-				       authorize -> RecipientIsOwner;
-				       roster ->
-					   Grps = get_option(Options, roster_groups_allowed, []),
-					   {OU, OS, _} = Owner,
-					   element(2, get_roster_info(OU, OS, LJID, Grps))
-				   end,
-		      if Subscribed -> send_items(Owner, Node, Nidx, Type, Options, Publisher, LJID, LJID, 1);
-			 true -> ok
+		      case delivery_permitted(From, To, Options) of
+			  true ->
+			      LJID = jid:tolower(To),
+			      send_items(Owner, Node, Nidx, Type, Options,
+					 Publisher, LJID, LJID, 1);
+			  false ->
+			      ok
 		      end;
 		  _ ->
 		      ok
@@ -3078,6 +3074,26 @@ subscribed_nodes_by_jid(NotifyType, SubsByDepth) ->
     {_, JIDSubs} = lists:foldl(DepthsToDeliver, {[], []}, SubsByDepth),
     JIDSubs.
 
+-spec delivery_permitted(jid() | ljid(), jid() | ljid(), nodeOptions())
+      -> boolean().
+delivery_permitted(From, To, Options) ->
+    LFrom = jid:tolower(From),
+    LTo = jid:tolower(To),
+    RecipientIsOwner = jid:remove_resource(LFrom) == jid:remove_resource(LTo),
+    %% TODO: Fix the 'whitelist'/'authorize' cases for last PEP notifications.
+    %% Currently, only node owners receive those.
+    case get_option(Options, access_model) of
+	open -> true;
+	presence -> true;
+	whitelist -> RecipientIsOwner;
+	authorize -> RecipientIsOwner;
+	roster ->
+	   Grps = get_option(Options, roster_groups_allowed, []),
+	   {LUser, LServer, _} = LFrom,
+	   {_, IsInGrp} = get_roster_info(LUser, LServer, LTo, Grps),
+	   IsInGrp
+    end.
+
 -spec user_resources(binary(), binary()) -> [binary()].
 user_resources(User, Server) ->
     ejabberd_sm:get_user_resources(User, Server).
@@ -3104,7 +3120,7 @@ get_configure(Host, ServerHost, Node, From, Lang) ->
 				configure =
 				    {Node, #xdata{type = form, fields = Fs}}}};
 		_ ->
-		    {error, xmpp:err_forbidden(<<"Owner privileges required">>, Lang)}
+		    {error, xmpp:err_forbidden(?T("Owner privileges required"), Lang)}
 	    end
     end,
     case transaction(Host, Node, Action, sync_dirty) of
@@ -3176,7 +3192,7 @@ node_owners_call(_Host, _Type, _Nidx, Owners) ->
     Owners.
 
 node_config(Node, ServerHost) ->
-    Opts = gen_mod:get_module_opt(ServerHost, ?MODULE, force_node_config),
+    Opts = mod_pubsub_opt:force_node_config(ServerHost),
     node_config(Node, ServerHost, Opts).
 
 node_config(Node, ServerHost, [{RE, Opts}|NodeOpts]) ->
@@ -3263,7 +3279,7 @@ set_configure(Host, Node, From, Config, Lang) ->
 			end;
 		    _ ->
 			{error, xmpp:err_forbidden(
-				  <<"Owner privileges required">>, Lang)}
+				  ?T("Owner privileges required"), Lang)}
 		end
 	end,
     case transaction(Host, Node, Action, transaction) of
@@ -3341,9 +3357,7 @@ decode_get_pending(#xdata{fields = Fs}, Lang) ->
     catch _:{pubsub_get_pending, Why} ->
 	    Txt = pubsub_get_pending:format_error(Why),
 	    {error, xmpp:err_resource_constraint(Txt, Lang)}
-    end;
-decode_get_pending(undefined, Lang) ->
-    {error, xmpp:err_bad_request(<<"No data form found">>, Lang)}.
+    end.
 
 -spec check_opt_range(atom(), [proplists:property()], non_neg_integer()) -> boolean().
 check_opt_range(_Opt, _Opts, undefined) ->
@@ -3365,7 +3379,7 @@ get_max_subscriptions_node(Host) ->
 is_last_item_cache_enabled(Host) ->
     config(Host, last_item_cache, false).
 
--spec set_cached_item(host(), nodeIdx(), binary(), binary(), [xmlel()]) -> ok.
+-spec set_cached_item(host(), nodeIdx(), binary(), jid(), [xmlel()]) -> ok.
 set_cached_item({_, ServerHost, _}, Nidx, ItemId, Publisher, Payload) ->
     set_cached_item(ServerHost, Nidx, ItemId, Publisher, Payload);
 set_cached_item(Host, Nidx, ItemId, Publisher, Payload) ->
@@ -3390,7 +3404,7 @@ unset_cached_item(Host, Nidx) ->
 	_ -> ok
     end.
 
--spec get_cached_item(host(), nodeIdx()) -> undefined | pubsubItem().
+-spec get_cached_item(host(), nodeIdx()) -> undefined | #pubsub_item{}.
 get_cached_item({_, ServerHost, _}, Nidx) ->
     get_cached_item(ServerHost, Nidx);
 get_cached_item(Host, Nidx) ->
@@ -3426,13 +3440,13 @@ tree(Host) ->
 	Tree -> Tree
     end.
 
--spec tree(host(), binary()) -> atom().
+-spec tree(host() | atom(), binary()) -> atom().
 tree(_Host, <<"virtual">>) ->
     nodetree_virtual;   % special case, virtual does not use any backend
 tree(Host, Name) ->
     submodule(Host, <<"nodetree">>, Name).
 
--spec plugin(host(), binary()) -> atom().
+-spec plugin(host() | atom(), binary()) -> atom().
 plugin(Host, Name) ->
     submodule(Host, <<"node">>, Name).
 
@@ -3444,16 +3458,19 @@ plugins(Host) ->
 	Plugins -> Plugins
     end.
 
--spec subscription_plugin(host()) -> atom().
+-spec subscription_plugin(host() | atom()) -> atom().
 subscription_plugin(Host) ->
     submodule(Host, <<"pubsub">>, <<"subscription">>).
 
--spec submodule(host(), binary(), binary()) -> atom().
-submodule(Host, Type, Name) ->
-    case gen_mod:get_module_opt(serverhost(Host), ?MODULE, db_type) of
+-spec submodule(host() | atom(), binary(), binary()) -> atom().
+submodule(Db, Type, Name) when is_atom(Db) ->
+    case Db of
 	mnesia -> ejabberd:module_name([<<"pubsub">>, Type, Name]);
-	Db -> ejabberd:module_name([<<"pubsub">>, Type, Name, misc:atom_to_binary(Db)])
-    end.
+	_ -> ejabberd:module_name([<<"pubsub">>, Type, Name, misc:atom_to_binary(Db)])
+    end;
+submodule(Host, Type, Name) ->
+    Db = mod_pubsub_opt:db_type(serverhost(Host)),
+    submodule(Db, Type, Name).
 
 -spec config(binary(), any()) -> any().
 config(ServerHost, Key) ->
@@ -3518,7 +3535,7 @@ features() ->
 % see plugin "subscribe",   % REQUIRED
 % see plugin "subscription-options",   % OPTIONAL
 % see plugin "subscription-notifications"   % OPTIONAL
--spec plugin_features(binary(), binary()) -> [binary()].
+-spec plugin_features(host(), binary()) -> [binary()].
 plugin_features(Host, Type) ->
     Module = plugin(Host, Type),
     case catch Module:features() of
@@ -3546,14 +3563,14 @@ tree_call({_User, Server, _Resource}, Function, Args) ->
     tree_call(Server, Function, Args);
 tree_call(Host, Function, Args) ->
     Tree = tree(Host),
-    ?DEBUG("tree_call apply(~s, ~s, ~p) @ ~s", [Tree, Function, Args, Host]),
+    ?DEBUG("Tree_call apply(~s, ~s, ~p) @ ~s", [Tree, Function, Args, Host]),
     apply(Tree, Function, Args).
 
 tree_action(Host, Function, Args) ->
-    ?DEBUG("tree_action ~p ~p ~p", [Host, Function, Args]),
+    ?DEBUG("Tree_action ~p ~p ~p", [Host, Function, Args]),
     ServerHost = serverhost(Host),
     Fun = fun () -> tree_call(Host, Function, Args) end,
-    case gen_mod:get_module_opt(ServerHost, ?MODULE, db_type) of
+    case mod_pubsub_opt:db_type(ServerHost) of
 	mnesia ->
 	    mnesia:sync_dirty(Fun);
 	sql ->
@@ -3561,9 +3578,9 @@ tree_action(Host, Function, Args) ->
 		{atomic, Result} ->
 		    Result;
 		{aborted, Reason} ->
-		    ?ERROR_MSG("transaction return internal error: ~p~n", [{aborted, Reason}]),
-		    ErrTxt = <<"Database failure">>,
-		    {error, xmpp:err_internal_server_error(ErrTxt, ejabberd_config:get_mylang())}
+		    ?ERROR_MSG("Transaction return internal error: ~p~n", [{aborted, Reason}]),
+		    ErrTxt = ?T("Database failure"),
+		    {error, xmpp:err_internal_server_error(ErrTxt, ejabberd_option:language())}
 	    end;
 	_ ->
 	    Fun()
@@ -3571,7 +3588,7 @@ tree_action(Host, Function, Args) ->
 
 %% @doc <p>node plugin call.</p>
 node_call(Host, Type, Function, Args) ->
-    ?DEBUG("node_call ~p ~p ~p", [Type, Function, Args]),
+    ?DEBUG("Node_call ~p ~p ~p", [Type, Function, Args]),
     Module = plugin(Host, Type),
     case apply(Module, Function, Args) of
 	{result, Result} ->
@@ -3590,7 +3607,7 @@ node_call(Host, Type, Function, Args) ->
     end.
 
 node_action(Host, Type, Function, Args) ->
-    ?DEBUG("node_action ~p ~p ~p ~p", [Host, Type, Function, Args]),
+    ?DEBUG("Node_action ~p ~p ~p ~p", [Host, Type, Function, Args]),
     transaction(Host, fun () ->
 		node_call(Host, Type, Function, Args)
 	end,
@@ -3614,7 +3631,7 @@ transaction(Host, Node, Action, Trans) ->
 
 transaction(Host, Fun, Trans) ->
     ServerHost = serverhost(Host),
-    DBType = gen_mod:get_module_opt(ServerHost, ?MODULE, db_type),
+    DBType = mod_pubsub_opt:db_type(ServerHost),
     do_transaction(ServerHost, Fun, Trans, DBType).
 
 do_transaction(ServerHost, Fun, Trans, DBType) ->
@@ -3640,11 +3657,11 @@ do_transaction(ServerHost, Fun, Trans, DBType) ->
 	{atomic, {error, Error}} ->
 	    {error, Error};
 	{aborted, Reason} ->
-	    ?ERROR_MSG("transaction return internal error: ~p~n", [{aborted, Reason}]),
-	    {error, xmpp:err_internal_server_error(<<"Database failure">>, ejabberd_config:get_mylang())};
+	    ?ERROR_MSG("Transaction return internal error: ~p~n", [{aborted, Reason}]),
+	    {error, xmpp:err_internal_server_error(?T("Database failure"), ejabberd_option:language())};
 	Other ->
-	    ?ERROR_MSG("transaction return internal error: ~p~n", [Other]),
-	    {error, xmpp:err_internal_server_error(<<"Database failure">>, ejabberd_config:get_mylang())}
+	    ?ERROR_MSG("Transaction return internal error: ~p~n", [Other]),
+	    {error, xmpp:err_internal_server_error(?T("Database failure"), ejabberd_option:language())}
     end.
 
 %%%% helpers
@@ -3820,10 +3837,10 @@ purge_offline(LJID) ->
 			    end
 		    end, lists:usort(lists:flatten(Affs)));
 	{Error, _} ->
-	    ?ERROR_MSG("can not purge offline: ~p", [Error])
+	    ?ERROR_MSG("Can not purge offline: ~p", [Error])
     end.
 
--spec purge_offline(host(), ljid(), binary()) -> ok | {error, stanza_error()}.
+-spec purge_offline(host(), ljid(), #pubsub_node{}) -> ok | {error, stanza_error()}.
 purge_offline(Host, LJID, Node) ->
     Nidx = Node#pubsub_node.id,
     Type = Node#pubsub_node.type,
@@ -3858,43 +3875,53 @@ purge_offline(Host, LJID, Node) ->
 	    Error
     end.
 
-mod_opt_type(access_createnode) -> fun acl:access_rules_validator/1;
-mod_opt_type(db_type) -> fun(T) -> ejabberd_config:v_db(?MODULE, T) end;
-mod_opt_type(name) -> fun iolist_to_binary/1;
-mod_opt_type(host) -> fun ejabberd_config:v_host/1;
-mod_opt_type(hosts) -> fun ejabberd_config:v_hosts/1;
+mod_opt_type(access_createnode) ->
+    econf:acl();
+mod_opt_type(name) ->
+    econf:binary();
 mod_opt_type(ignore_pep_from_offline) ->
-    fun (A) when is_boolean(A) -> A end;
+    econf:bool();
 mod_opt_type(last_item_cache) ->
-    fun (A) when is_boolean(A) -> A end;
+    econf:bool();
 mod_opt_type(max_items_node) ->
-    fun (A) when is_integer(A) andalso A >= 0 -> A end;
+    econf:non_neg_int();
 mod_opt_type(max_subscriptions_node) ->
-    fun(A) when is_integer(A) andalso A >= 0 -> A;
-       (undefined) -> undefined
-    end;
+    econf:non_neg_int();
 mod_opt_type(force_node_config) ->
-    fun(NodeOpts) ->
-	    lists:map(
-	      fun({Node, Opts}) ->
-		      {ok, RE} = re:compile(
-				   ejabberd_regexp:sh_to_awk(Node)),
-		      {RE, lists:keysort(1, Opts)}
-	      end, NodeOpts)
-    end;
+    econf:map(
+      econf:glob(),
+      econf:map(
+	econf:atom(),
+	econf:either(
+	  econf:int(),
+	  econf:atom()),
+	[{return, orddict}, unique]));
 mod_opt_type(default_node_config) ->
-    fun (A) when is_list(A) -> A end;
+    econf:map(
+      econf:atom(),
+      econf:either(
+	econf:int(),
+	econf:atom()),
+      [unique]);
 mod_opt_type(nodetree) ->
-    fun (A) when is_binary(A) -> A end;
+    econf:binary();
 mod_opt_type(pep_mapping) ->
-    fun (A) when is_list(A) -> A end;
+    econf:map(econf:binary(), econf:binary());
 mod_opt_type(plugins) ->
-    fun (A) when is_list(A) -> A end.
+    econf:list(
+      econf:enum([<<"flat">>, <<"pep">>]),
+      [unique]);
+mod_opt_type(host) ->
+    econf:host();
+mod_opt_type(hosts) ->
+    econf:hosts();
+mod_opt_type(db_type) ->
+    econf:db_type(?MODULE).
 
 mod_options(Host) ->
     [{access_createnode, all},
      {db_type, ejabberd_config:default_db(Host, ?MODULE)},
-     {host, <<"pubsub.@HOST@">>},
+     {host, <<"pubsub.", Host/binary>>},
      {hosts, []},
      {name, ?T("Publish-Subscribe")},
      {ignore_pep_from_offline, true},

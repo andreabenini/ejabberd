@@ -26,7 +26,6 @@
 
 -behaviour(mod_announce).
 
--compile([{parse_transform, ejabberd_sql_pt}]).
 
 %% API
 -export([init/2, set_motd_users/2, set_motd/2, delete_motd/1,
@@ -155,7 +154,7 @@ parse_element(XML) ->
         El when is_record(El, xmlel) ->
             {ok, El};
         _ ->
-            ?ERROR_MSG("malformed XML element in SQL table "
+            ?ERROR_MSG("Malformed XML element in SQL table "
                        "'motd' for username='': ~s", [XML]),
             {error, db_failure}
     end.

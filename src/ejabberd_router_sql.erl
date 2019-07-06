@@ -23,7 +23,6 @@
 -module(ejabberd_router_sql).
 -behaviour(ejabberd_router).
 
--compile([{parse_transform, ejabberd_sql_pt}]).
 
 %% API
 -export([init/0, register_route/5, unregister_route/3, find_routes/1,
@@ -45,7 +44,7 @@ init() ->
 	{updated, _} ->
 	    ok;
 	Err ->
-	    ?ERROR_MSG("failed to clean 'route' table: ~p", [Err]),
+	    ?ERROR_MSG("Failed to clean 'route' table: ~p", [Err]),
 	    Err
     end.
 
@@ -123,10 +122,11 @@ row_to_route(Domain, {ServerHost, NodeS, PidS, LocalHintS} = Row) ->
     catch _:{bad_node, _} ->
 	    [];
 	  ?EX_RULE(E, R, St) ->
-	    ?ERROR_MSG("failed to decode row from 'route' table:~n"
+	    StackTrace = ?EX_STACK(St),
+	    ?ERROR_MSG("Failed to decode row from 'route' table:~n"
 		       "Row = ~p~n"
 		       "Domain = ~s~n"
 		       "Reason = ~p",
-		       [Row, Domain, {E, {R, ?EX_STACK(St)}}]),
+		       [Row, Domain, {E, {R, StackTrace}}]),
 	    []
     end.

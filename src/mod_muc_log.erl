@@ -34,7 +34,7 @@
 -behaviour(gen_mod).
 
 %% API
--export([start/2, stop/1, reload/3, transform_module_options/1,
+-export([start/2, stop/1, reload/3,
 	 check_access_log/2, add_to_log/5]).
 
 -export([init/1, handle_call/3, handle_cast/2,
@@ -42,11 +42,10 @@
 	 mod_opt_type/1, mod_options/1, depends/2]).
 
 -include("logger.hrl").
-
 -include("xmpp.hrl").
 -include("mod_muc_room.hrl").
+-include("translate.hrl").
 
--define(T(Text), translate:translate(Lang, Text)).
 -record(room, {jid, title, subject, subject_author, config}).
 
 -define(PLAINTEXT_CO, <<"ZZCZZ">>).
@@ -91,14 +90,6 @@ check_access_log(Host, From) ->
       Res -> Res
     end.
 
-transform_module_options(Opts) ->
-    lists:map(
-      fun({top_link, {S1, S2}}) ->
-              {top_link, [{S1, S2}]};
-         (Opt) ->
-              Opt
-      end, Opts).
-
 depends(_Host, _Opts) ->
     [{mod_muc, hard}].
 
@@ -124,7 +115,7 @@ handle_cast({add_to_log, Type, Data, Room, Opts}, State) ->
     end,
     {noreply, State};
 handle_cast(Msg, State) ->
-    ?WARNING_MSG("unexpected cast: ~p", [Msg]),
+    ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(_Info, State) -> {noreply, State}.
@@ -137,17 +128,17 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %%% Internal functions
 %%--------------------------------------------------------------------
 init_state(Host, Opts) ->
-    OutDir = gen_mod:get_opt(outdir, Opts),
-    DirType = gen_mod:get_opt(dirtype, Opts),
-    DirName = gen_mod:get_opt(dirname, Opts),
-    FileFormat = gen_mod:get_opt(file_format, Opts),
-    FilePermissions = gen_mod:get_opt(file_permissions, Opts),
-    CSSFile = gen_mod:get_opt(cssfile, Opts),
-    AccessLog = gen_mod:get_opt(access_log, Opts),
-    Timezone = gen_mod:get_opt(timezone, Opts),
-    Top_link = gen_mod:get_opt(top_link, Opts),
-    NoFollow = gen_mod:get_opt(spam_prevention, Opts),
-    Lang = ejabberd_config:get_lang(Host),
+    OutDir = mod_muc_log_opt:outdir(Opts),
+    DirType = mod_muc_log_opt:dirtype(Opts),
+    DirName = mod_muc_log_opt:dirname(Opts),
+    FileFormat = mod_muc_log_opt:file_format(Opts),
+    FilePermissions = mod_muc_log_opt:file_permissions(Opts),
+    CSSFile = mod_muc_log_opt:cssfile(Opts),
+    AccessLog = mod_muc_log_opt:access_log(Opts),
+    Timezone = mod_muc_log_opt:timezone(Opts),
+    Top_link = mod_muc_log_opt:top_link(Opts),
+    NoFollow = mod_muc_log_opt:spam_prevention(Opts),
+    Lang = ejabberd_option:language(Host),
     #logstate{host = Host, out_dir = OutDir,
 	      dir_type = DirType, dir_name = DirName,
 	      file_format = FileFormat, css_file = CSSFile,
@@ -354,7 +345,7 @@ add_message_to_log(Nick1, Message, RoomJID, Opts,
 						   Lang, FileFormat),
 		 put_room_config(F, RoomConfig, Lang, FileFormat),
 		 io_lib:format("<font class=\"mrcm\">~s</font><br/>",
-			       [?T(<<"Chatroom configuration modified">>)]);
+			       [tr(Lang, ?T("Chatroom configuration modified"))]);
 	     {roomconfig_change, Occupants} ->
 		 RoomConfig = roomconfig_to_string(Room#room.config,
 						   Lang, FileFormat),
@@ -363,53 +354,53 @@ add_message_to_log(Nick1, Message, RoomJID, Opts,
 							 FileFormat),
 		 put_room_occupants(F, RoomOccupants, Lang, FileFormat),
 		 io_lib:format("<font class=\"mrcm\">~s</font><br/>",
-			       [?T(<<"Chatroom configuration modified">>)]);
+			       [tr(Lang, ?T("Chatroom configuration modified"))]);
 	     join ->
 		 io_lib:format("<font class=\"mj\">~s ~s</font><br/>",
-			       [Nick, ?T(<<"joins the room">>)]);
+			       [Nick, tr(Lang, ?T("joins the room"))]);
 	     leave ->
 		 io_lib:format("<font class=\"ml\">~s ~s</font><br/>",
-			       [Nick, ?T(<<"leaves the room">>)]);
+			       [Nick, tr(Lang, ?T("leaves the room"))]);
 	     {leave, Reason} ->
 		 io_lib:format("<font class=\"ml\">~s ~s: ~s</font><br/>",
-			       [Nick, ?T(<<"leaves the room">>),
+			       [Nick, tr(Lang, ?T("leaves the room")),
 				htmlize(Reason, NoFollow, FileFormat)]);
 	     {kickban, 301, <<"">>} ->
 		 io_lib:format("<font class=\"mb\">~s ~s</font><br/>",
-			       [Nick, ?T(<<"has been banned">>)]);
+			       [Nick, tr(Lang, ?T("has been banned"))]);
 	     {kickban, 301, Reason} ->
 		 io_lib:format("<font class=\"mb\">~s ~s: ~s</font><br/>",
-			       [Nick, ?T(<<"has been banned">>),
+			       [Nick, tr(Lang, ?T("has been banned")),
 				htmlize(Reason, FileFormat)]);
 	     {kickban, 307, <<"">>} ->
 		 io_lib:format("<font class=\"mk\">~s ~s</font><br/>",
-			       [Nick, ?T(<<"has been kicked">>)]);
+			       [Nick, tr(Lang, ?T("has been kicked"))]);
 	     {kickban, 307, Reason} ->
 		 io_lib:format("<font class=\"mk\">~s ~s: ~s</font><br/>",
-			       [Nick, ?T(<<"has been kicked">>),
+			       [Nick, tr(Lang, ?T("has been kicked")),
 				htmlize(Reason, FileFormat)]);
 	     {kickban, 321, <<"">>} ->
 		 io_lib:format("<font class=\"mk\">~s ~s</font><br/>",
 			       [Nick,
-				?T(<<"has been kicked because of an affiliation "
-				     "change">>)]);
+				tr(Lang, ?T("has been kicked because of an affiliation "
+					    "change"))]);
 	     {kickban, 322, <<"">>} ->
 		 io_lib:format("<font class=\"mk\">~s ~s</font><br/>",
 			       [Nick,
-				?T(<<"has been kicked because the room has "
-				     "been changed to members-only">>)]);
+				tr(Lang, ?T("has been kicked because the room has "
+					    "been changed to members-only"))]);
 	     {kickban, 332, <<"">>} ->
 		 io_lib:format("<font class=\"mk\">~s ~s</font><br/>",
 			       [Nick,
-				?T(<<"has been kicked because of a system "
-				     "shutdown">>)]);
+				tr(Lang, ?T("has been kicked because of a system "
+					    "shutdown"))]);
 	     {nickchange, OldNick} ->
 		 io_lib:format("<font class=\"mnc\">~s ~s ~s</font><br/>",
 			       [htmlize(OldNick, FileFormat),
-				?T(<<"is now known as">>), Nick]);
+				tr(Lang, ?T("is now known as")), Nick]);
 	     {subject, T} ->
 		 io_lib:format("<font class=\"msc\">~s~s~s</font><br/>",
-			       [Nick, ?T(<<" has set the subject to: ">>),
+			       [Nick, tr(Lang, ?T(" has set the subject to: ")),
 				htmlize(T, NoFollow, FileFormat)]);
 	     {body, T} ->
 		 case {ejabberd_regexp:run(T, <<"^/me ">>), Nick} of
@@ -449,38 +440,38 @@ add_message_to_log(Nick1, Message, RoomJID, Opts,
 %% Utilities
 
 get_room_existence_string(created, Lang) ->
-    ?T(<<"Chatroom is created">>);
+    tr(Lang, ?T("Chatroom is created"));
 get_room_existence_string(destroyed, Lang) ->
-    ?T(<<"Chatroom is destroyed">>);
+    tr(Lang, ?T("Chatroom is destroyed"));
 get_room_existence_string(started, Lang) ->
-    ?T(<<"Chatroom is started">>);
+    tr(Lang, ?T("Chatroom is started"));
 get_room_existence_string(stopped, Lang) ->
-    ?T(<<"Chatroom is stopped">>).
+    tr(Lang, ?T("Chatroom is stopped")).
 
 get_dateweek(Date, Lang) ->
     Weekday = case calendar:day_of_the_week(Date) of
-		1 -> ?T(<<"Monday">>);
-		2 -> ?T(<<"Tuesday">>);
-		3 -> ?T(<<"Wednesday">>);
-		4 -> ?T(<<"Thursday">>);
-		5 -> ?T(<<"Friday">>);
-		6 -> ?T(<<"Saturday">>);
-		7 -> ?T(<<"Sunday">>)
+		1 -> tr(Lang, ?T("Monday"));
+		2 -> tr(Lang, ?T("Tuesday"));
+		3 -> tr(Lang, ?T("Wednesday"));
+		4 -> tr(Lang, ?T("Thursday"));
+		5 -> tr(Lang, ?T("Friday"));
+		6 -> tr(Lang, ?T("Saturday"));
+		7 -> tr(Lang, ?T("Sunday"))
 	      end,
     {Y, M, D} = Date,
     Month = case M of
-	      1 -> ?T(<<"January">>);
-	      2 -> ?T(<<"February">>);
-	      3 -> ?T(<<"March">>);
-	      4 -> ?T(<<"April">>);
-	      5 -> ?T(<<"May">>);
-	      6 -> ?T(<<"June">>);
-	      7 -> ?T(<<"July">>);
-	      8 -> ?T(<<"August">>);
-	      9 -> ?T(<<"September">>);
-	      10 -> ?T(<<"October">>);
-	      11 -> ?T(<<"November">>);
-	      12 -> ?T(<<"December">>)
+	      1 -> tr(Lang, ?T("January"));
+	      2 -> tr(Lang, ?T("February"));
+	      3 -> tr(Lang, ?T("March"));
+	      4 -> tr(Lang, ?T("April"));
+	      5 -> tr(Lang, ?T("May"));
+	      6 -> tr(Lang, ?T("June"));
+	      7 -> tr(Lang, ?T("July"));
+	      8 -> tr(Lang, ?T("August"));
+	      9 -> tr(Lang, ?T("September"));
+	      10 -> tr(Lang, ?T("October"));
+	      11 -> tr(Lang, ?T("November"));
+	      12 -> tr(Lang, ?T("December"))
 	    end,
     list_to_binary(
       case Lang of
@@ -583,7 +574,7 @@ put_header(F, Room, Date, CSSFile, Lang, Hour_offset,
       {<<"">>, <<"">>} -> ok;
       {SuA, Su} ->
 	  fw(F, <<"<div class=\"roomsubject\">~s~s~s</div>">>,
-	     [SuA, ?T(<<" has set the subject to: ">>), Su])
+	     [SuA, tr(Lang, ?T(" has set the subject to: ")), Su])
     end,
     RoomConfig = roomconfig_to_string(Room#room.config,
 				      Lang, FileFormat),
@@ -630,7 +621,7 @@ put_room_config(F, RoomConfig, Lang, _FileFormat) ->
     fw(F,
        <<"<div class=\"rct\" onclick=\"sh('a~p');return "
 	 "false;\">~s</div>">>,
-       [Now2, ?T(<<"Room Configuration">>)]),
+       [Now2, tr(Lang, ?T("Room Configuration"))]),
     fw(F,
        <<"<div class=\"rcos\" id=\"a~p\" style=\"displa"
 	 "y: none;\" ><br/>~s</div>">>,
@@ -650,7 +641,7 @@ put_room_occupants(F, RoomOccupants, Lang,
     fw(F,
        <<"<div class=\"rct\" onclick=\"sh('o~p');return "
 	 "false;\">~s</div>">>,
-       [Now2, ?T(<<"Room Occupants">>)]),
+       [Now2, tr(Lang, ?T("Room Occupants"))]),
     fw(F,
        <<"<div class=\"rcos\" id=\"o~p\" style=\"displa"
 	 "y: none;\" ><br/>~s</div>">>,
@@ -774,7 +765,7 @@ roomconfig_to_string(Options, Lang, FileFormat) ->
 					   allow_private_messages_from_visitors ->
 					       <<"<div class=\"rcot\">",
 						 OptText/binary, ": \"",
-						 (htmlize(?T(misc:atom_to_binary(T)),
+						 (htmlize(tr(Lang, misc:atom_to_binary(T)),
 							  FileFormat))/binary,
 						 "\"</div>">>;
 					   _ -> <<"\"", T/binary, "\"">>
@@ -785,48 +776,47 @@ roomconfig_to_string(Options, Lang, FileFormat) ->
 		end,
 		<<"">>, Options2).
 
-get_roomconfig_text(title, Lang) -> ?T(<<"Room title">>);
+get_roomconfig_text(title, Lang) -> tr(Lang, ?T("Room title"));
 get_roomconfig_text(persistent, Lang) ->
-    ?T(<<"Make room persistent">>);
+    tr(Lang, ?T("Make room persistent"));
 get_roomconfig_text(public, Lang) ->
-    ?T(<<"Make room public searchable">>);
+    tr(Lang, ?T("Make room public searchable"));
 get_roomconfig_text(public_list, Lang) ->
-    ?T(<<"Make participants list public">>);
+    tr(Lang, ?T("Make participants list public"));
 get_roomconfig_text(password_protected, Lang) ->
-    ?T(<<"Make room password protected">>);
-get_roomconfig_text(password, Lang) -> ?T(<<"Password">>);
+    tr(Lang, ?T("Make room password protected"));
+get_roomconfig_text(password, Lang) -> tr(Lang, ?T("Password"));
 get_roomconfig_text(anonymous, Lang) ->
-    ?T(<<"This room is not anonymous">>);
+    tr(Lang, ?T("This room is not anonymous"));
 get_roomconfig_text(members_only, Lang) ->
-    ?T(<<"Make room members-only">>);
+    tr(Lang, ?T("Make room members-only"));
 get_roomconfig_text(moderated, Lang) ->
-    ?T(<<"Make room moderated">>);
+    tr(Lang, ?T("Make room moderated"));
 get_roomconfig_text(members_by_default, Lang) ->
-    ?T(<<"Default users as participants">>);
+    tr(Lang, ?T("Default users as participants"));
 get_roomconfig_text(allow_change_subj, Lang) ->
-    ?T(<<"Allow users to change the subject">>);
+    tr(Lang, ?T("Allow users to change the subject"));
 get_roomconfig_text(allow_private_messages, Lang) ->
-    ?T(<<"Allow users to send private messages">>);
+    tr(Lang, ?T("Allow users to send private messages"));
 get_roomconfig_text(allow_private_messages_from_visitors, Lang) ->
-    ?T(<<"Allow visitors to send private messages to">>);
+    tr(Lang, ?T("Allow visitors to send private messages to"));
 get_roomconfig_text(allow_query_users, Lang) ->
-    ?T(<<"Allow users to query other users">>);
+    tr(Lang, ?T("Allow users to query other users"));
 get_roomconfig_text(allow_user_invites, Lang) ->
-    ?T(<<"Allow users to send invites">>);
-get_roomconfig_text(logging, Lang) -> ?T(<<"Enable logging">>);
+    tr(Lang, ?T("Allow users to send invites"));
+get_roomconfig_text(logging, Lang) -> tr(Lang, ?T("Enable logging"));
 get_roomconfig_text(allow_visitor_nickchange, Lang) ->
-    ?T(<<"Allow visitors to change nickname">>);
+    tr(Lang, ?T("Allow visitors to change nickname"));
 get_roomconfig_text(allow_visitor_status, Lang) ->
-    ?T(<<"Allow visitors to send status text in "
-      "presence updates">>);
+    tr(Lang, ?T("Allow visitors to send status text in presence updates"));
 get_roomconfig_text(captcha_protected, Lang) ->
-    ?T(<<"Make room CAPTCHA protected">>);
+    tr(Lang, ?T("Make room CAPTCHA protected"));
 get_roomconfig_text(description, Lang) ->
-    ?T(<<"Room description">>);
+    tr(Lang, ?T("Room description"));
 %% get_roomconfig_text(subject, Lang) ->  "Subject";
 %% get_roomconfig_text(subject_author, Lang) ->  "Subject author";
 get_roomconfig_text(max_users, Lang) ->
-    ?T(<<"Maximum Number of Occupants">>);
+    tr(Lang, ?T("Maximum Number of Occupants"));
 get_roomconfig_text(_, _) -> undefined.
 
 %% Users = [{JID, Nick, Role}]
@@ -885,26 +875,30 @@ get_room_occupants(RoomJIDString) ->
     RoomJID = jid:decode(RoomJIDString),
     RoomName = RoomJID#jid.luser,
     MucService = RoomJID#jid.lserver,
-    StateData = get_room_state(RoomName, MucService),
-    [{U#user.jid, U#user.nick, U#user.role}
-     || U <- maps:values(StateData#state.users)].
+    case get_room_state(RoomName, MucService) of
+	{ok, StateData} ->
+	    [{U#user.jid, U#user.nick, U#user.role}
+	     || U <- maps:values(StateData#state.users)];
+	error ->
+	    []
+    end.
 
--spec get_room_state(binary(), binary()) -> mod_muc_room:state().
+-spec get_room_state(binary(), binary()) -> {ok, mod_muc_room:state()} | error.
 
 get_room_state(RoomName, MucService) ->
     case mod_muc:find_online_room(RoomName, MucService) of
 	{ok, RoomPid} ->
-	  get_room_state(RoomPid);
+	    get_room_state(RoomPid);
 	error ->
-	    #state{}
+	    error
     end.
 
--spec get_room_state(pid()) -> mod_muc_room:state().
+-spec get_room_state(pid()) -> {ok, mod_muc_room:state()} | error.
 
 get_room_state(RoomPid) ->
-    {ok, R} = p1_fsm:sync_send_all_state_event(RoomPid,
-						get_state),
-    R.
+    try p1_fsm:sync_send_all_state_event(RoomPid, get_state)
+    catch _:_ -> error
+    end.
 
 get_proc_name(Host) ->
     gen_mod:get_module_proc(Host, ?MODULE).
@@ -922,6 +916,10 @@ calc_hour_offset(TimeHere) ->
 fjoin(FileList) ->
     list_to_binary(filename:join([binary_to_list(File) || File <- FileList])).
 
+-spec tr(binary(), binary()) -> binary().
+tr(Lang, Text) ->
+    translate:translate(Lang, Text).
+
 has_no_permanent_store_hint(Packet) ->
     xmpp:has_subtag(Packet, #hint{type = 'no-store'}) orelse
     xmpp:has_subtag(Packet, #hint{type = 'no-storage'}) orelse
@@ -929,58 +927,48 @@ has_no_permanent_store_hint(Packet) ->
     xmpp:has_subtag(Packet, #hint{type = 'no-permanent-storage'}).
 
 mod_opt_type(access_log) ->
-    fun acl:access_rules_validator/1;
+    econf:acl();
 mod_opt_type(cssfile) ->
-    fun(S) ->
-	    case str:to_lower(S) of
-		<<"http:/", _/binary>> -> {url, misc:try_url(S)};
-		<<"https:/", _/binary>> -> {url, misc:try_url(S)};
-		_ -> {file, misc:try_read_file(S)}
-	    end
-    end;
+    econf:url_or_file();
 mod_opt_type(dirname) ->
-    fun (room_jid) -> room_jid;
-	(room_name) -> room_name
-    end;
+    econf:enum([room_jid, room_name]);
 mod_opt_type(dirtype) ->
-    fun (subdirs) -> subdirs;
-	(plain) -> plain
-    end;
+    econf:enum([subdirs, plain]);
 mod_opt_type(file_format) ->
-    fun (html) -> html;
-	(plaintext) -> plaintext
-    end;
+    econf:enum([html, plaintext]);
 mod_opt_type(file_permissions) ->
-    fun (SubOpts) ->
-	    {proplists:get_value(mode, SubOpts, 644),
-	     proplists:get_value(group, SubOpts, 33)}
-    end;
-mod_opt_type({file_permissions, mode}) ->
-    fun(I) when is_integer(I), I>=0 -> I end;
-mod_opt_type({file_permissions, group}) ->
-    fun(I) when is_integer(I), I>=0 -> I end;
-mod_opt_type(outdir) -> fun iolist_to_binary/1;
+    econf:and_then(
+      econf:options(
+	#{mode => econf:non_neg_int(),
+	  group => econf:non_neg_int()}),
+      fun(Opts) ->
+	      {proplists:get_value(mode, Opts, 644),
+	       proplists:get_value(group, Opts, 33)}
+      end);
+mod_opt_type(outdir) ->
+    econf:directory(write);
 mod_opt_type(spam_prevention) ->
-    fun (B) when is_boolean(B) -> B end;
+    econf:bool();
 mod_opt_type(timezone) ->
-    fun (local) -> local;
-	(universal) -> universal
-    end;
+    econf:enum([local, universal]);
 mod_opt_type(top_link) ->
-    fun ([{S1, S2}]) ->
-	    {iolist_to_binary(S1), iolist_to_binary(S2)}
-    end.
+    econf:and_then(
+      econf:non_empty(
+	econf:map(econf:binary(), econf:binary())),
+      fun hd/1).
 
+-spec mod_options(binary()) -> [{top_link, {binary(), binary()}} |
+				{file_permissions,
+				 {non_neg_integer(), non_neg_integer()}} |
+				{atom(), any()}].
 mod_options(_) ->
     [{access_log, muc_admin},
-     {cssfile, filename:join(misc:css_dir(), "muc.css")},
+     {cssfile, filename:join(misc:css_dir(), <<"muc.css">>)},
      {dirname, room_jid},
      {dirtype, subdirs},
      {file_format, html},
-     {file_permissions,
-      [{mode, 644},
-       {group, 33}]},
+     {file_permissions, {644, 33}},
      {outdir, <<"www/muc">>},
      {spam_prevention, true},
      {timezone, local},
-     {top_link, [{<<"/">>, <<"Home">>}]}].
+     {top_link, {<<"/">>, <<"Home">>}}].

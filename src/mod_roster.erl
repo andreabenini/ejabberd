@@ -59,6 +59,7 @@
 -include("ejabberd_http.hrl").
 -include("ejabberd_web_admin.hrl").
 -include("ejabberd_stacktrace.hrl").
+-include("translate.hrl").
 
 -define(ROSTER_CACHE, roster_cache).
 -define(ROSTER_ITEM_CACHE, roster_item_cache).
@@ -85,7 +86,7 @@
 -optional_callbacks([use_cache/2, cache_nodes/1]).
 
 start(Host, Opts) ->
-    Mod = gen_mod:db_mod(Host, Opts, ?MODULE),
+    Mod = gen_mod:db_mod(Opts, ?MODULE),
     Mod:init(Host, Opts),
     init_cache(Mod, Host, Opts),
     ejabberd_hooks:add(roster_get, Host, ?MODULE,
@@ -132,8 +133,8 @@ stop(Host) ->
 				     ?NS_ROSTER).
 
 reload(Host, NewOpts, OldOpts) ->
-    NewMod = gen_mod:db_mod(Host, NewOpts, ?MODULE),
-    OldMod = gen_mod:db_mod(Host, OldOpts, ?MODULE),
+    NewMod = gen_mod:db_mod(NewOpts, ?MODULE),
+    OldMod = gen_mod:db_mod(OldOpts, ?MODULE),
     if NewMod /= OldMod ->
 	    NewMod:init(Host, NewOpts);
        true ->
@@ -151,7 +152,7 @@ process_iq(#iq{lang = Lang, to = To} = IQ) ->
     case ejabberd_hooks:run_fold(roster_remote_access,
 				 To#jid.lserver, false, [IQ]) of
 	false ->
-	    Txt = <<"Query to another users is forbidden">>,
+	    Txt = ?T("Query to another users is forbidden"),
 	    xmpp:make_error(IQ, xmpp:err_forbidden(Txt, Lang));
 	true ->
 	    process_local_iq(IQ)
@@ -161,21 +162,21 @@ process_local_iq(#iq{type = set,lang = Lang,
 		     sub_els = [#roster_query{
 				   items = [#roster_item{ask = Ask}]}]} = IQ)
   when Ask /= undefined ->
-    Txt = <<"Possessing 'ask' attribute is not allowed by RFC6121">>,
+    Txt = ?T("Possessing 'ask' attribute is not allowed by RFC6121"),
     xmpp:make_error(IQ, xmpp:err_bad_request(Txt, Lang));
 process_local_iq(#iq{type = set, from = From, lang = Lang,
 		     sub_els = [#roster_query{
 				   items = [#roster_item{} = Item]}]} = IQ) ->
     case has_duplicated_groups(Item#roster_item.groups) of
 	true ->
-	    Txt = <<"Duplicated groups are not allowed by RFC6121">>,
+	    Txt = ?T("Duplicated groups are not allowed by RFC6121"),
 	    xmpp:make_error(IQ, xmpp:err_bad_request(Txt, Lang));
 	false ->
 	    #jid{lserver = LServer} = From,
-	    Access = gen_mod:get_module_opt(LServer, ?MODULE, access),
+	    Access = mod_roster_opt:access(LServer),
 	    case acl:match_rule(LServer, Access, From) of
 		deny ->
-		    Txt = <<"Access denied by service policy">>,
+		    Txt = ?T("Access denied by service policy"),
 		    xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
 		allow ->
 		    process_iq_set(IQ)
@@ -183,7 +184,7 @@ process_local_iq(#iq{type = set, from = From, lang = Lang,
     end;
 process_local_iq(#iq{type = set, lang = Lang,
 		     sub_els = [#roster_query{items = [_|_]}]} = IQ) ->
-    Txt = <<"Multiple <item/> elements are not allowed by RFC6121">>,
+    Txt = ?T("Multiple <item/> elements are not allowed by RFC6121"),
     xmpp:make_error(IQ, xmpp:err_bad_request(Txt, Lang));
 process_local_iq(#iq{type = get, lang = Lang,
 		     sub_els = [#roster_query{items = Items}]} = IQ) ->
@@ -191,11 +192,11 @@ process_local_iq(#iq{type = get, lang = Lang,
 	[] ->
 	    process_iq_get(IQ);
 	[_|_] ->
-	    Txt = <<"The query must not contain <item/> elements">>,
+	    Txt = ?T("The query must not contain <item/> elements"),
 	    xmpp:make_error(IQ, xmpp:err_bad_request(Txt, Lang))
     end;
 process_local_iq(#iq{lang = Lang} = IQ) ->
-    Txt = <<"No module is handling this query">>,
+    Txt = ?T("No module is handling this query"),
     xmpp:make_error(IQ, xmpp:err_service_unavailable(Txt, Lang)).
 
 roster_hash(Items) ->
@@ -205,10 +206,10 @@ roster_hash(Items) ->
 					      <- Items]))).
 
 roster_versioning_enabled(Host) ->
-    gen_mod:get_module_opt(Host, ?MODULE, versioning).
+    mod_roster_opt:versioning(Host).
 
 roster_version_on_db(Host) ->
-    gen_mod:get_module_opt(Host, ?MODULE, store_current_id).
+    mod_roster_opt:store_current_id(Host).
 
 %% Returns a list that may contain an xmlelement with the XEP-237 feature if it's enabled.
 -spec get_versioning_feature([xmpp_element()], binary()) -> [xmpp_element()].
@@ -320,9 +321,10 @@ process_iq_get(#iq{to = To, lang = Lang,
 				 ver = Version}
 	   end)
     catch ?EX_RULE(E, R, St) ->
-	    ?ERROR_MSG("failed to process roster get for ~s: ~p",
-		       [jid:encode(To), {E, {R, ?EX_STACK(St)}}]),
-	    Txt = <<"Roster module has failed">>,
+	    StackTrace = ?EX_STACK(St),
+	    ?ERROR_MSG("Failed to process roster get for ~s: ~p",
+		       [jid:encode(To), {E, {R, StackTrace}}]),
+	    Txt = ?T("Roster module has failed"),
 	    xmpp:make_error(IQ, xmpp:err_internal_server_error(Txt, Lang))
     end.
 
@@ -445,7 +447,7 @@ process_iq_set(#iq{from = _From, to = To,
 	ok ->
 	    xmpp:make_iq_result(IQ);
 	E ->
-	    ?ERROR_MSG("roster set failed:~nIQ = ~s~nError = ~p",
+	    ?ERROR_MSG("Roster set failed:~nIQ = ~s~nError = ~p",
 		       [xmpp:pp(IQ), E]),
 	    xmpp:make_error(IQ, xmpp:err_internal_server_error())
     end.
@@ -489,8 +491,7 @@ push_item(To, OldItem, NewItem) ->
     #jid{luser = LUser, lserver = LServer} = To,
     Ver = case roster_versioning_enabled(LServer) of
 	      true -> roster_version(LServer, LUser);
-	      false -> undefined;
-	      undefined -> undefined
+	      false -> undefined
 	  end,
     lists:foreach(
       fun(Resource) ->
@@ -927,16 +928,16 @@ user_roster(User, Server, Query, Lang) ->
     Items = get_roster(LUser, LServer),
     SItems = lists:sort(Items),
     FItems = case SItems of
-	       [] -> [?CT(<<"None">>)];
+	       [] -> [?CT(?T("None"))];
 	       _ ->
 		   [?XE(<<"table">>,
 			[?XE(<<"thead">>,
 			     [?XE(<<"tr">>,
-				  [?XCT(<<"td">>, <<"Jabber ID">>),
-				   ?XCT(<<"td">>, <<"Nickname">>),
-				   ?XCT(<<"td">>, <<"Subscription">>),
-				   ?XCT(<<"td">>, <<"Pending">>),
-				   ?XCT(<<"td">>, <<"Groups">>)])]),
+				  [?XCT(<<"td">>, ?T("Jabber ID")),
+				   ?XCT(<<"td">>, ?T("Nickname")),
+				   ?XCT(<<"td">>, ?T("Subscription")),
+				   ?XCT(<<"td">>, ?T("Pending")),
+				   ?XCT(<<"td">>, ?T("Groups"))])]),
 			 ?XE(<<"tbody">>,
 			     (lists:map(fun (R) ->
 						Groups = lists:flatmap(fun
@@ -974,7 +975,7 @@ user_roster(User, Server, Query, Lang) ->
 								 [?INPUTT(<<"submit">>,
 									  <<"validate",
 									    (ejabberd_web_admin:term_to_id(R#roster.jid))/binary>>,
-									  <<"Validate">>)]);
+									  ?T("Validate"))]);
 							true -> ?X(<<"td">>)
 						     end,
 						     ?XAE(<<"td">>,
@@ -983,16 +984,16 @@ user_roster(User, Server, Query, Lang) ->
 							  [?INPUTT(<<"submit">>,
 								   <<"remove",
 								     (ejabberd_web_admin:term_to_id(R#roster.jid))/binary>>,
-								   <<"Remove">>)])])
+								   ?T("Remove"))])])
 					end,
 					SItems)))])]
 	     end,
     [?XC(<<"h1">>,
-	 (<<(?T(<<"Roster of ">>))/binary, (us_to_list(US))/binary>>))]
+	 (<<(translate:translate(Lang, ?T("Roster of ")))/binary, (us_to_list(US))/binary>>))]
       ++
       case Res of
-	ok -> [?XREST(<<"Submitted">>)];
-	error -> [?XREST(<<"Bad format">>)];
+	ok -> [?XREST(?T("Submitted"))];
+	error -> [?XREST(?T("Bad format"))];
 	nothing -> []
       end
 	++
@@ -1002,7 +1003,7 @@ user_roster(User, Server, Query, Lang) ->
 		 [?P, ?INPUT(<<"text">>, <<"newjid">>, <<"">>),
 		  ?C(<<" ">>),
 		  ?INPUTT(<<"submit">>, <<"addjid">>,
-			  <<"Add Jabber ID">>)]))].
+			  ?T("Add Jabber ID"))]))].
 
 build_contact_jid_td(RosterJID) ->
     ContactJID = jid:make(RosterJID),
@@ -1011,7 +1012,7 @@ build_contact_jid_td(RosterJID) ->
 		 of
 	       {<<"">>, _} -> <<"">>;
 	       {CUser, CServer} ->
-		   case lists:member(CServer, ejabberd_config:get_myhosts()) of
+		   case lists:member(CServer, ejabberd_option:hosts()) of
 		     false -> <<"">>;
 		     true ->
 			 <<"/admin/server/", CServer/binary, "/user/",
@@ -1102,7 +1103,7 @@ us_to_list({User, Server}) ->
 
 webadmin_user(Acc, _User, _Server, Lang) ->
     Acc ++
-      [?XE(<<"h3">>, [?ACT(<<"roster/">>, <<"Roster">>)])].
+      [?XE(<<"h3">>, [?ACT(<<"roster/">>, ?T("Roster"))])].
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 has_duplicated_groups(Groups) ->
@@ -1129,19 +1130,16 @@ init_cache(Mod, Host, Opts) ->
 
 -spec cache_opts(gen_mod:opts()) -> [proplists:property()].
 cache_opts(Opts) ->
-    MaxSize = gen_mod:get_opt(cache_size, Opts),
-    CacheMissed = gen_mod:get_opt(cache_missed, Opts),
-    LifeTime = case gen_mod:get_opt(cache_life_time, Opts) of
-		   infinity -> infinity;
-		   I -> timer:seconds(I)
-	       end,
+    MaxSize = mod_roster_opt:cache_size(Opts),
+    CacheMissed = mod_roster_opt:cache_missed(Opts),
+    LifeTime = mod_roster_opt:cache_life_time(Opts),
     [{max_size, MaxSize}, {cache_missed, CacheMissed}, {life_time, LifeTime}].
 
 -spec use_cache(module(), binary(), roster | roster_version) -> boolean().
 use_cache(Mod, Host, Table) ->
     case erlang:function_exported(Mod, use_cache, 2) of
 	true -> Mod:use_cache(Host, Table);
-	false -> gen_mod:get_module_opt(Host, ?MODULE, use_cache)
+	false -> mod_roster_opt:use_cache(Host)
     end.
 
 -spec cache_nodes(module(), binary()) -> [node()].
@@ -1215,25 +1213,28 @@ import(LServer, {sql, _}, DBType, <<"roster_version">>, [LUser, Ver]) ->
     Mod:import(LServer, <<"roster_version">>, [LUser, Ver]).
 
 mod_opt_type(access) ->
-    fun acl:access_rules_validator/1;
-mod_opt_type(db_type) -> fun(T) -> ejabberd_config:v_db(?MODULE, T) end;
+    econf:acl();
 mod_opt_type(store_current_id) ->
-    fun (B) when is_boolean(B) -> B end;
+    econf:bool();
 mod_opt_type(versioning) ->
-    fun (B) when is_boolean(B) -> B end;
-mod_opt_type(O) when O == cache_life_time; O == cache_size ->
-    fun (I) when is_integer(I), I > 0 -> I;
-        (infinity) -> infinity
-    end;
-mod_opt_type(O) when O == use_cache; O == cache_missed ->
-    fun (B) when is_boolean(B) -> B end.
+    econf:bool();
+mod_opt_type(db_type) ->
+    econf:db_type(?MODULE);
+mod_opt_type(use_cache) ->
+    econf:bool();
+mod_opt_type(cache_size) ->
+    econf:pos_int(infinity);
+mod_opt_type(cache_missed) ->
+    econf:bool();
+mod_opt_type(cache_life_time) ->
+    econf:timeout(second, infinity).
 
 mod_options(Host) ->
     [{access, all},
      {store_current_id, false},
      {versioning, false},
      {db_type, ejabberd_config:default_db(Host, ?MODULE)},
-     {use_cache, ejabberd_config:use_cache(Host)},
-     {cache_size, ejabberd_config:cache_size(Host)},
-     {cache_missed, ejabberd_config:cache_missed(Host)},
-     {cache_life_time, ejabberd_config:cache_life_time(Host)}].
+     {use_cache, ejabberd_option:use_cache(Host)},
+     {cache_size, ejabberd_option:cache_size(Host)},
+     {cache_missed, ejabberd_option:cache_missed(Host)},
+     {cache_life_time, ejabberd_option:cache_life_time(Host)}].
