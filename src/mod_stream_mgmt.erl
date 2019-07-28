@@ -257,6 +257,12 @@ c2s_handle_info(#{jid := JID} = State, {_Ref, {resume, OldState}}) ->
 	   [jid:encode(JID)]),
     route_unacked_stanzas(OldState#{mgmt_resend => false}),
     {stop, State};
+c2s_handle_info(State, {timeout, _, Timeout}) when Timeout == ack_timeout;
+						   Timeout == pending_timeout ->
+    %% Late arrival of an already cancelled timer: we just ignore it.
+    %% This might happen because misc:cancel_timer/1 doesn't guarantee
+    %% timer cancelation in the case when p1_server is used.
+    {stop, State};
 c2s_handle_info(State, _) ->
     State.
 
@@ -439,7 +445,7 @@ transition_to_pending(#{mgmt_state := active, jid := JID,
 			lserver := LServer, mgmt_timeout := Timeout} = State) ->
     State1 = cancel_ack_timer(State),
     ?INFO_MSG("Waiting for resumption of stream for ~s", [jid:encode(JID)]),
-    TRef = erlang:start_timer(timer:seconds(Timeout), self(), pending_timeout),
+    TRef = erlang:start_timer(Timeout, self(), pending_timeout),
     State2 = State1#{mgmt_state => pending, mgmt_pending_timer => TRef},
     ejabberd_hooks:run_fold(c2s_session_pending, LServer, State2, []);
 transition_to_pending(State) ->
@@ -693,8 +699,7 @@ send(#{mod := Mod} = State, Pkt) ->
 -spec restart_pending_timer(state(), non_neg_integer()) -> state().
 restart_pending_timer(#{mgmt_pending_timer := TRef} = State, NewTimeout) ->
     misc:cancel_timer(TRef),
-    NewTRef = erlang:start_timer(timer:seconds(NewTimeout), self(),
-				 pending_timeout),
+    NewTRef = erlang:start_timer(NewTimeout, self(), pending_timeout),
     State#{mgmt_pending_timer => NewTRef};
 restart_pending_timer(State, _NewTimeout) ->
     State.
@@ -799,9 +804,13 @@ get_queue_type(Host) ->
 mod_opt_type(max_ack_queue) ->
     econf:pos_int(infinity);
 mod_opt_type(resume_timeout) ->
-    econf:non_neg_int();
+    econf:either(
+      econf:int(0, 0),
+      econf:timeout(second));
 mod_opt_type(max_resume_timeout) ->
-    econf:non_neg_int();
+    econf:either(
+      econf:int(0, 0),
+      econf:timeout(second));
 mod_opt_type(ack_timeout) ->
     econf:timeout(second, infinity);
 mod_opt_type(resend_on_timeout) ->
@@ -817,7 +826,7 @@ mod_opt_type(queue_type) ->
 
 mod_options(Host) ->
     [{max_ack_queue, 5000},
-     {resume_timeout, 300},
+     {resume_timeout, timer:seconds(300)},
      {max_resume_timeout, undefined},
      {ack_timeout, timer:seconds(60)},
      {cache_size, ejabberd_option:cache_size(Host)},

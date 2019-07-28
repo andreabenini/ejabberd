@@ -503,7 +503,7 @@ create_image_files(Images_dir) ->
 	      case file:copy(Src, Dst) of
 		  {ok, _} -> ok;
 		  {error, Why} ->
-		      ?ERROR_MSG("Failed to copy ~s to ~s",
+		      ?ERROR_MSG("Failed to copy ~s to ~s: ~s",
 				 [Src, Dst, file:format_error(Why)])
 	      end
       end, Filenames).
@@ -896,8 +896,9 @@ get_room_state(RoomName, MucService) ->
 -spec get_room_state(pid()) -> {ok, mod_muc_room:state()} | error.
 
 get_room_state(RoomPid) ->
-    try p1_fsm:sync_send_all_state_event(RoomPid, get_state)
-    catch _:_ -> error
+    case mod_muc_room:get_state(RoomPid) of
+	{ok, State} -> {ok, State};
+	{error, _} -> error
     end.
 
 get_proc_name(Host) ->

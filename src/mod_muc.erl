@@ -76,13 +76,13 @@
 -include("logger.hrl").
 -include("xmpp.hrl").
 -include("mod_muc.hrl").
+-include("mod_muc_room.hrl").
 -include("translate.hrl").
 -include("ejabberd_stacktrace.hrl").
 
--record(state, {hosts :: [binary()],
-		server_host :: binary(),
-		worker :: pos_integer()}).
-
+-type state() :: #{hosts := [binary()],
+		   server_host := binary(),
+		   worker := pos_integer()}.
 -type access() :: {acl:acl(), acl:acl(), acl:acl(), acl:acl(), acl:acl()}.
 -type muc_room_opts() :: [{atom(), any()}].
 -export_type([access/0]).
@@ -128,10 +128,8 @@ start(Host, Opts) ->
 
 stop(Host) ->
     Proc = mod_muc_sup:procname(Host),
-    Rooms = shutdown_rooms(Host),
     supervisor:terminate_child(ejabberd_gen_mod_sup, Proc),
-    supervisor:delete_child(ejabberd_gen_mod_sup, Proc),
-    {wait, Rooms}.
+    supervisor:delete_child(ejabberd_gen_mod_sup, Proc).
 
 -spec reload(binary(), gen_mod:opts(), gen_mod:opts()) -> ok.
 reload(ServerHost, NewOpts, OldOpts) ->
@@ -164,7 +162,7 @@ reload(ServerHost, NewOpts, OldOpts) ->
       fun(Host) ->
 	      lists:foreach(
 		fun({_, _, Pid}) when node(Pid) == node() ->
-			Pid ! config_reloaded;
+			mod_muc_room:config_reloaded(Pid);
 		   (_) ->
 			ok
 		end, get_online_rooms(ServerHost, Host))
@@ -271,7 +269,7 @@ shutdown_rooms(ServerHost, Hosts, RMod) ->
 	     || Host <- Hosts],
     lists:flatmap(
       fun({_, _, Pid}) when node(Pid) == node() ->
-	      Pid ! shutdown,
+	      mod_muc_room:shutdown(Pid),
 	      [Pid];
 	 (_) ->
 	      []
@@ -282,7 +280,7 @@ shutdown_rooms(ServerHost, Hosts, RMod) ->
 %% B) The only participant of a temporary room leaves it
 %% C) mod_muc:stop was called, and each room is being terminated
 %%    In this case, the mod_muc process died before the room processes
-%%    So the message sending must be catched
+%%    So the message sending must be caught
 -spec room_destroyed(binary(), binary(), pid(), binary()) -> ok.
 room_destroyed(Host, Room, Pid, ServerHost) ->
     Proc = procname(ServerHost, {Room, Host}),
@@ -366,17 +364,21 @@ get_online_rooms_by_user(ServerHost, LUser, LServer) ->
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
+-spec init(list()) -> {ok, state()}.
 init([Host, Opts, Worker]) ->
     process_flag(trap_exit, true),
     MyHosts = gen_mod:get_opt_hosts(Opts),
     register_routes(Host, MyHosts, Worker),
     register_iq_handlers(MyHosts, Worker),
-    {ok, #state{server_host = Host, hosts = MyHosts, worker = Worker}}.
+    {ok, #{server_host => Host, hosts => MyHosts, worker => Worker}}.
 
+-spec handle_call(term(), {pid(), term()}, state()) ->
+			 {reply, ok | {ok, pid()} | {error, any()}, state()} |
+			 {stop, normal, ok, state()}.
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
 handle_call({create, Room, Host, From, Nick, Opts}, _From,
-	    #state{server_host = ServerHost} = State) ->
+	    #{server_host := ServerHost} = State) ->
     ?DEBUG("MUC: create new room '~s'~n", [Room]),
     NewOpts = case Opts of
 		  default -> mod_muc_opt:default_room_options(ServerHost);
@@ -391,7 +393,8 @@ handle_call({create, Room, Host, From, Nick, Opts}, _From,
 	    {reply, Err, State}
     end.
 
-handle_cast({route_to_room, Packet}, #state{server_host = ServerHost} = State) ->
+-spec handle_cast(term(), state()) -> {noreply, state()}.
+handle_cast({route_to_room, Packet}, #{server_host := ServerHost} = State) ->
     try route_to_room(Packet, ServerHost)
     catch ?EX_RULE(Class, Reason, St) ->
             StackTrace = ?EX_STACK(St),
@@ -400,27 +403,28 @@ handle_cast({route_to_room, Packet}, #state{server_host = ServerHost} = State) -
 			misc:format_exception(2, Class, Reason, StackTrace)])
     end,
     {noreply, State};
-handle_cast({room_destroyed, {Room, Host}, Pid}, State) ->
-    ServerHost = State#state.server_host,
+handle_cast({room_destroyed, {Room, Host}, Pid},
+	    #{server_host := ServerHost} = State) ->
     RMod = gen_mod:ram_db_mod(ServerHost, ?MODULE),
     RMod:unregister_online_room(ServerHost, Room, Host, Pid),
     {noreply, State};
 handle_cast({reload, AddHosts, DelHosts, NewHosts},
-	    #state{server_host = ServerHost, worker = Worker} = State) ->
+	    #{server_host := ServerHost, worker := Worker} = State) ->
     register_routes(ServerHost, AddHosts, Worker),
     register_iq_handlers(AddHosts, Worker),
     unregister_routes(DelHosts, Worker),
     unregister_iq_handlers(DelHosts, Worker),
-    {noreply, State#state{hosts = NewHosts}};
+    {noreply, State#{hosts => NewHosts}};
 handle_cast(Msg, State) ->
     ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({route, Packet}, State) ->
+-spec handle_info(term(), state()) -> {noreply, state()}.
+handle_info({route, Packet}, #{server_host := ServerHost} = State) ->
     %% We can only receive the packet here from other nodes
     %% where mod_muc is not loaded. Such configuration
     %% is *highly* discouraged
-    try route(Packet, State#state.server_host)
+    try route(Packet, ServerHost)
     catch ?EX_RULE(Class, Reason, St) ->
             StackTrace = ?EX_STACK(St),
             ?ERROR_MSG("Failed to route packet:~n~s~n** ~s",
@@ -435,10 +439,12 @@ handle_info(Info, State) ->
     ?ERROR_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{hosts = Hosts, worker = Worker}) ->
+-spec terminate(term(), state()) -> any().
+terminate(_Reason, #{hosts := Hosts, worker := Worker}) ->
     unregister_routes(Hosts, Worker),
     unregister_iq_handlers(Hosts, Worker).
 
+-spec code_change(term(), state(), term()) -> {ok, state()}.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 %%--------------------------------------------------------------------
@@ -517,7 +523,7 @@ route_to_room(Packet, ServerHost) ->
 		    ejabberd_router:route_error(Packet, Err);
 		StartType ->
 		    case load_room(RMod, Host, ServerHost, Room) of
-			error when StartType == start ->
+			{error, notfound} when StartType == start ->
 			    case check_create_room(ServerHost, Host, Room, From) of
 				true ->
 				    case start_new_room(RMod, Host, ServerHost, Room, From, Nick) of
@@ -533,10 +539,13 @@ route_to_room(Packet, ServerHost) ->
 				    Err = xmpp:err_forbidden(ErrText, Lang),
 				    ejabberd_router:route_error(Packet, Err)
 			    end;
-			error ->
+			{error, notfound} ->
 			    Lang = xmpp:get_lang(Packet),
 			    ErrText = ?T("Conference room does not exist"),
 			    Err = xmpp:err_item_not_found(ErrText, Lang),
+			    ejabberd_router:route_error(Packet, Err);
+			{error, _} ->
+			    Err = xmpp:err_internal_server_error(),
 			    ejabberd_router:route_error(Packet, Err);
 			{ok, Pid2} ->
 			    mod_muc_room:route(Pid2, Packet)
@@ -705,7 +714,7 @@ check_create_room(ServerHost, Host, Room, From) ->
 	    case mod_muc_opt:max_room_id(ServerHost) of
 		Max when byte_size(Room) =< Max ->
 		    Regexp = mod_muc_opt:regexp_room_id(ServerHost),
-		    case re:run(Room, Regexp, [unicode, {capture, none}]) of
+		    case re:run(Room, Regexp, [{capture, none}]) of
 			match ->
 			    AccessAdmin = mod_muc_opt:access_admin(ServerHost),
 			    case acl:match_rule(ServerHost, AccessAdmin, From) of
@@ -774,17 +783,28 @@ load_permanent_rooms(Hosts, ServerHost, Opts) ->
 	    ok
     end.
 
+-spec load_room(module(), binary(), binary(), binary()) -> {ok, pid()} |
+							   {error, notfound | term()}.
 load_room(RMod, Host, ServerHost, Room) ->
     case restore_room(ServerHost, Host, Room) of
 	error ->
-	    error;
+	    {error, notfound};
 	Opts0 ->
 	    case proplists:get_bool(persistent, Opts0) of
 		true ->
 		    ?DEBUG("Restore room: ~s", [Room]),
 		    start_room(RMod, Host, ServerHost, Room, Opts0);
 		_ ->
-		    error
+		    ?DEBUG("Restore hibernated non-persistent room: ~s", [Room]),
+		    Res = start_room(RMod, Host, ServerHost, Room, Opts0),
+		    Mod = gen_mod:db_mod(ServerHost, mod_muc),
+		    case erlang:function_exported(Mod, get_subscribed_rooms, 3) of
+			true ->
+			    ok;
+			_ ->
+			    forget_room(ServerHost, Host, Room)
+		    end,
+		    Res
 	    end
     end.
 
@@ -840,13 +860,13 @@ iq_disco_items(ServerHost, Host, From, Lang, MaxRoomsDiscoItems, Node, RSM)
   when Node == <<"">>; Node == <<"nonemptyrooms">>; Node == <<"emptyrooms">> ->
     Count = count_online_rooms(ServerHost, Host),
     Query = if Node == <<"">>, RSM == undefined, Count > MaxRoomsDiscoItems ->
-		    {get_disco_item, only_non_empty, From, Lang};
+		    {only_non_empty, From, Lang};
 	       Node == <<"nonemptyrooms">> ->
-		    {get_disco_item, only_non_empty, From, Lang};
+		    {only_non_empty, From, Lang};
 	       Node == <<"emptyrooms">> ->
-		    {get_disco_item, 0, From, Lang};
+		    {0, From, Lang};
 	       true ->
-		    {get_disco_item, all, From, Lang}
+		    {all, From, Lang}
 	    end,
     MaxItems = case RSM of
 		   undefined ->
@@ -884,33 +904,22 @@ iq_disco_items(_ServerHost, _Host, _From, Lang, _MaxRoomsDiscoItems, _Node, _RSM
     {error, xmpp:err_item_not_found(?T("Node not found"), Lang)}.
 
 -spec get_room_disco_item({binary(), binary(), pid()},
-			  term()) -> {ok, disco_item()} |
-				     {error, timeout | notfound}.
-get_room_disco_item({Name, Host, Pid},
-		    {get_disco_item, Filter, JID, Lang}) ->
-    RoomJID = jid:make(Name, Host),
-    Timeout = 100,
-    Time = erlang:system_time(millisecond),
-    Query1 = {get_disco_item, Filter, JID, Lang, Time+Timeout},
-    try p1_fsm:sync_send_all_state_event(Pid, Query1, Timeout) of
-	{item, Desc} ->
+			  {mod_muc_room:disco_item_filter(),
+			   jid(), binary()}) -> {ok, disco_item()} |
+						{error, timeout | notfound}.
+get_room_disco_item({Name, Host, Pid}, {Filter, JID, Lang}) ->
+    case mod_muc_room:get_disco_item(Pid, Filter, JID, Lang) of
+	{ok, Desc} ->
+	    RoomJID = jid:make(Name, Host),
 	    {ok, #disco_item{jid = RoomJID, name = Desc}};
-	false ->
-	    {error, notfound}
-    catch _:{timeout, {p1_fsm, _, _}} ->
-	    {error, timeout};
-	  _:{_, {p1_fsm, _, _}} ->
-	    {error, notfound}
+	{error, _} = Err ->
+	    Err
     end.
 
 -spec get_subscribed_rooms(binary(), jid()) -> {ok, [{jid(), [binary()]}]} | {error, any()}.
 get_subscribed_rooms(Host, User) ->
     ServerHost = ejabberd_router:host_of_route(Host),
     get_subscribed_rooms(ServerHost, Host, User).
-
--record(subscriber, {jid :: jid(),
-		     nick = <<>> :: binary(),
-		     nodes = [] :: [binary()]}).
 
 -spec get_subscribed_rooms(binary(), binary(), jid()) ->
 			   {ok, [{jid(), [binary()]}]} | {error, any()}.
@@ -931,8 +940,7 @@ get_subscribed_rooms(ServerHost, Host, From) ->
 			       []
 		       end;
 		       ({Name, _, Pid}) ->
-			   case p1_fsm:sync_send_all_state_event(
-				  Pid, {is_subscribed, BareFrom}) of
+			   case mod_muc_room:is_subscribed(Pid, BareFrom) of
 			       {true, Nodes} ->
 				   [{jid:make(Name, Host), Nodes}];
 			       false -> []
@@ -1017,8 +1025,7 @@ process_iq_register_set(ServerHost, Host, From,
 broadcast_service_message(ServerHost, Host, Msg) ->
     lists:foreach(
       fun({_, _, Pid}) ->
-		p1_fsm:send_all_state_event(
-		    Pid, {service_message, Msg})
+	      mod_muc_room:service_message(Pid, Msg)
       end, get_online_rooms(ServerHost, Host)).
 
 -spec get_online_rooms(binary(), binary()) -> [{binary(), binary(), pid()}].
@@ -1112,7 +1119,7 @@ mod_opt_type(max_room_id) ->
 mod_opt_type(max_rooms_discoitems) ->
     econf:non_neg_int();
 mod_opt_type(regexp_room_id) ->
-    econf:re();
+    econf:re([unicode]);
 mod_opt_type(max_room_name) ->
     econf:pos_int(infinity);
 mod_opt_type(max_user_conferences) ->
@@ -1173,7 +1180,9 @@ mod_opt_type(host) ->
 mod_opt_type(hosts) ->
     econf:hosts();
 mod_opt_type(queue_type) ->
-    econf:queue_type().
+    econf:queue_type();
+mod_opt_type(hibernation_timeout) ->
+    econf:timeout(second, infinity).
 
 mod_options(Host) ->
     [{access, all},
@@ -1204,6 +1213,7 @@ mod_options(Host) ->
      {user_message_shaper, none},
      {user_presence_shaper, none},
      {preload_rooms, true},
+     {hibernation_timeout, infinity},
      {default_room_options,
       [{allow_change_subj,true},
        {allow_private_messages,true},

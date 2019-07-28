@@ -1,7 +1,7 @@
 %%%----------------------------------------------------------------------
 %%% File    : ejabberd_auth_jwt.erl
 %%% Author  : Mickael Remond <mremond@process-one.net>
-%%% Purpose : Authentification using JWT tokens
+%%% Purpose : Authentication using JWT tokens
 %%% Created : 16 Mar 2019 by Mickael Remond <mremond@process-one.net>
 %%%
 %%%
@@ -39,7 +39,14 @@
 %%%----------------------------------------------------------------------
 %%% API
 %%%----------------------------------------------------------------------
-start(_Host) -> ok.
+start(Host) ->
+    case ejabberd_option:jwt_key(Host) of
+	undefined ->
+	    ?ERROR_MSG("Option jwt_key is not configured for ~s: "
+		       "JWT authentication won't work", [Host]);
+	_ ->
+	    ok
+    end.
 
 stop(_Host) -> ok.
 
@@ -64,7 +71,7 @@ check_password(User, AuthzId, Server, Token) ->
 %%% Internal functions
 %%%----------------------------------------------------------------------
 check_jwt_token(User, Server, Token) ->
-    JWK = get_jwk(Server),
+    JWK = ejabberd_option:jwt_key(Server),
     try jose_jwt:verify(JWK, Token) of
         {true, {jose_jwt, Fields}, Signature} ->
             ?DEBUG("jwt verify: ~p - ~p~n", [Fields, Signature]),
@@ -99,9 +106,6 @@ check_jwt_token(User, Server, Token) ->
         error:{badarg, _} ->
             false
     end.
-
-get_jwk(Host) ->
-    jose_jwk:from_binary(ejabberd_option:jwt_key(Host)).
 
 %% TODO: auth0 username is defined in 'jid' field, but we should
 %% allow customizing the name of the field containing the username

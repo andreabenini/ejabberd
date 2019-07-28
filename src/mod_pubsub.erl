@@ -572,7 +572,7 @@ caps_update(From, To, _Features) ->
 
 -spec presence_probe(jid(), jid(), pid()) -> ok.
 presence_probe(#jid{luser = U, lserver = S}, #jid{luser = U, lserver = S}, _Pid) ->
-    %% ignore presence_probe from my other ressources
+    %% ignore presence_probe from my other resources
     ok;
 presence_probe(#jid{lserver = S} = From, #jid{lserver = S} = To, _Pid) ->
     send_last_pep(To, From);
@@ -603,7 +603,11 @@ on_user_offline(C2SState, _Reason) ->
 
 -spec out_subscription(presence()) -> any().
 out_subscription(#presence{type = subscribed, from = From, to = To}) ->
-    send_last_pep(jid:remove_resource(From), To);
+    if From#jid.lserver == To#jid.lserver ->
+           send_last_pep(jid:remove_resource(From), To);
+       true ->
+           ok
+    end;
 out_subscription(_) ->
     ok.
 
@@ -1284,9 +1288,9 @@ send_pending_node_form(Host, Owner, Lang, Plugins) ->
 	Ps ->
 	    case get_pending_nodes(Host, Owner, Ps) of
 		{ok, Nodes} ->
+		    Form = [{node, <<>>, lists:zip(Nodes, Nodes)}],
 		    XForm = #xdata{type = form,
-				   fields = pubsub_get_pending:encode(
-					      [{node, Nodes}], Lang)},
+				   fields = pubsub_get_pending:encode(Form, Lang)},
 		    #adhoc_command{status = executing, action = execute,
 				   xdata = XForm};
 		Err ->
@@ -1556,7 +1560,7 @@ create_node(Host, ServerHost, Node, Owner, GivenType, Access, Configuration) ->
 	    Error
     end.
 
-%% @doc <p>Delete specified node and all childs.</p>
+%% @doc <p>Delete specified node and all children.</p>
 %%<p>There are several reasons why the node deletion request might fail:</p>
 %%<ul>
 %%<li>The requesting entity does not have sufficient privileges to delete the node.</li>
@@ -1899,7 +1903,7 @@ delete_item(Host, Node, Publisher, ItemId, ForceNotify) ->
 	    PersistentFeature = lists:member(<<"persistent-items">>, Features),
 	    DeleteFeature = lists:member(<<"delete-items">>, Features),
 	    PublishModel = get_option(Options, publish_model),
-	    if %%->   iq_pubsub just does that matchs
+	    if %%->   iq_pubsub just does that matches
 		%%        %% Request does not specify an item
 		%%        {error, extended_error(?ERR_BAD_REQUEST, "item-required")};
 		not PersistentFeature ->
@@ -3238,11 +3242,12 @@ max_items(Host, Options) ->
 			    binary(), [binary()]) -> [xdata_field()].
 get_configure_xfields(_Type, Options, Lang, Groups) ->
     pubsub_node_config:encode(
-      lists:map(
+      lists:filtermap(
 	fun({roster_groups_allowed, Value}) ->
-		{roster_groups_allowed, Value, Groups};
-	   (Opt) ->
-		Opt
+		{true, {roster_groups_allowed, Value, Groups}};
+	   ({sql, _}) -> false;
+	   ({rsm, _}) -> false;
+	   (_) -> true
 	end, Options),
       Lang).
 

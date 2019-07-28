@@ -176,14 +176,16 @@ init([Host, Opts]) ->
 	    {stop, Why}
     end.
 
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
-
-handle_cast(_Msg, State) ->
+handle_call(Request, From, State) ->
+    ?WARNING_MSG("Unexpected call from ~p: ~p", [From, Request]),
     {noreply, State}.
 
-handle_info(_Info, State) ->
+handle_cast(Msg, State) ->
+    ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
+    {noreply, State}.
+
+handle_info(Info, State) ->
+    ?WARNING_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -202,7 +204,7 @@ mod_options(Host) ->
     [{match_retained_limit, 1000},
      {max_topic_depth, 8},
      {max_topic_aliases, 100},
-     {session_expiry, 300},
+     {session_expiry, timer:minutes(5)},
      {max_queue, 5000},
      {access_subscribe, []},
      {access_publish, []},
@@ -217,7 +219,9 @@ mod_options(Host) ->
 mod_opt_type(max_queue) ->
     econf:pos_int(unlimited);
 mod_opt_type(session_expiry) ->
-    econf:non_neg_int();
+    econf:either(
+      econf:int(0, 0),
+      econf:timeout(second));
 mod_opt_type(match_retained_limit) ->
     econf:pos_int(infinity);
 mod_opt_type(max_topic_depth) ->

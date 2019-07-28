@@ -131,7 +131,7 @@ initialize(Host, Opts) ->
     UserAccess = case UserAccess0 of
 		     [] -> none;
 		     _ ->
-			 dict:from_list(UserAccess0)
+			 maps:from_list(UserAccess0)
 		 end,
     ContentTypes = build_list_content_types(
                      mod_http_fileserver_opt:content_types(Opts),
@@ -198,8 +198,9 @@ handle_call({serve, LocalPath, Auth, RHeaders}, _From, State) ->
 		  State#state.default_content_type, State#state.content_types,
 		  State#state.user_access, IfModifiedSince),
     {reply, Reply, State};
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call(Request, From, State) ->
+    ?WARNING_MSG("Unexpected call from ~p: ~p", [From, Request]),
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% Function: handle_cast(Msg, State) -> {noreply, State} |
@@ -231,7 +232,8 @@ handle_cast(Msg, State) ->
 %%                                       {stop, Reason, State}
 %% Description: Handling all non call/cast messages
 %%--------------------------------------------------------------------
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    ?WARNING_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -241,11 +243,14 @@ handle_info(_Info, State) ->
 %% cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
 %%--------------------------------------------------------------------
-terminate(_Reason, State) ->
+terminate(_Reason, #state{host = Host} = State) ->
     close_log(State#state.accesslogfd),
-    %% TODO: unregister the hook gracefully
-    %% ejabberd_hooks:delete(reopen_log_hook, State#state.host, ?MODULE, reopen_log, 50),
-    ok.
+    case gen_mod:is_loaded_elsewhere(Host, ?MODULE) of
+	false ->
+	    ejabberd_hooks:delete(reopen_log_hook, ?MODULE, reopen_log, 50);
+	true ->
+	    ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
@@ -285,7 +290,7 @@ serve(LocalPath, Auth, DocRoot, DirectoryIndices, CustomHeaders, DefaultContentT
     CanProceed = case {UserAccess, Auth} of
 		     {none, _} -> true;
 		     {_, {User, Pass}} ->
-			 case dict:find(User, UserAccess) of
+			 case maps:find(User, UserAccess) of
 			     {ok, Pass} -> true;
 			     _ -> false
 			 end;
@@ -402,7 +407,7 @@ add_to_log(File, FileSize, Code, Request) ->
     Referer = find_header('Referer', Request#request.headers, "-"),
     %% Pseudo Combined Apache log format:
     %% 127.0.0.1 - - [28/Mar/2007:18:41:55 +0200] "GET / HTTP/1.1" 302 303 "-" "tsung"
-    %% TODO some fields are harcoded/missing:
+    %% TODO some fields are hardcoded/missing:
     %%   The date/time integers should have always 2 digits. For example day "7" should be "07"
     %%   Month should be 3*letter, not integer 1..12
     %%   Missing time zone = (`+' | `-') 4*digit

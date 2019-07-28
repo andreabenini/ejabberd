@@ -97,13 +97,16 @@ handle_call({create, Module, Name, TabDef}, _From, State) ->
 	    Tables = maps:put(Name, {TabDef, Result}, State#state.tables),
 	    {reply, Result, State#state{tables = Tables}}
     end;
-handle_call(_Request, _From, State) ->
+handle_call(Request, From, State) ->
+    ?WARNING_MSG("Unexpected call from ~p: ~p", [From, Request]),
     {noreply, State}.
 
-handle_cast(_Msg, State) ->
+handle_cast(Msg, State) ->
+    ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    ?WARNING_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -365,14 +368,14 @@ do_transform(OldAttrs, Attrs, Old) ->
 transform_fun(Module, Name) ->
     fun(Obj) ->
 	    try Module:transform(Obj)
-	    catch ?EX_RULE(E, R, St) ->
+	    catch ?EX_RULE(Class, Reason, St) ->
 		    StackTrace = ?EX_STACK(St),
 		    ?ERROR_MSG("Failed to transform Mnesia table ~s:~n"
 			       "** Record: ~p~n"
-			       "** Reason: ~p~n"
-			       "** StackTrace: ~p",
-			       [Name, Obj, R, StackTrace]),
-		    erlang:raise(E, R, StackTrace)
+			       "** ~s",
+			       [Name, Obj,
+				misc:format_exception(2, Class, Reason, StackTrace)]),
+		    erlang:raise(Class, Reason, StackTrace)
 	    end
     end.
 

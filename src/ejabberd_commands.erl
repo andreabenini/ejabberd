@@ -200,7 +200,7 @@
 %%% command.
 
 %%% TODO: consider this feature:
-%%% All commands are catched. If an error happens, return the restuple:
+%%% All commands are caught. If an error happens, return the restuple:
 %%%   {error, flattened error string}
 %%% This means that ecomm call APIs (ejabberd_ctl, ejabberd_xmlrpc)
 %%% need to allows this. And ejabberd_xmlrpc must be prepared to
@@ -292,14 +292,16 @@ init([]) ->
     register_commands(get_commands_spec()),
     {ok, #state{}}.
 
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
-
-handle_cast(_Msg, State) ->
+handle_call(Request, From, State) ->
+    ?WARNING_MSG("Unexpected call from ~p: ~p", [From, Request]),
     {noreply, State}.
 
-handle_info(_Info, State) ->
+handle_cast(Msg, State) ->
+    ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
+    {noreply, State}.
+
+handle_info(Info, State) ->
+    ?WARNING_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -346,7 +348,7 @@ list_commands() ->
 -spec list_commands(integer()) -> [{atom(), [aterm()], string()}].
 
 %% @doc Get a list of all the available commands, arguments and
-%% description in a given API verion.
+%% description in a given API version.
 list_commands(Version) ->
     Commands = get_commands_definition(Version),
     [{Name, Args, Desc} || #ejabberd_commands{name = Name,

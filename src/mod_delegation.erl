@@ -44,10 +44,9 @@
 -include("xmpp.hrl").
 -include("translate.hrl").
 
--type disco_acc() :: {error, stanza_error()} | {result, [binary()]} | empty.
--record(state, {server_host = <<"">> :: binary(),
-		delegations = dict:new() :: dict:dict()}).
--type state() :: #state{}.
+-type route_type() :: ejabberd_sm | ejabberd_local.
+-type delegations() :: #{{binary(), route_type()} => {binary(), disco_info()}}.
+-record(state, {server_host = <<"">> :: binary()}).
 
 %%%===================================================================
 %%% API
@@ -115,19 +114,21 @@ ejabberd_local(IQ) ->
 ejabberd_sm(IQ) ->
     process_iq(IQ, ejabberd_sm).
 
--spec disco_local_features(disco_acc(), jid(), jid(), binary(), binary()) -> disco_acc().
+-spec disco_local_features(mod_disco:features_acc(), jid(), jid(),
+			   binary(), binary()) -> mod_disco:features_acc().
 disco_local_features(Acc, From, To, Node, Lang) ->
     disco_features(Acc, From, To, Node, Lang, ejabberd_local).
 
--spec disco_sm_features(disco_acc(), jid(), jid(), binary(), binary()) -> disco_acc().
+-spec disco_sm_features(mod_disco:features_acc(), jid(), jid(),
+			binary(), binary()) -> mod_disco:features_acc().
 disco_sm_features(Acc, From, To, Node, Lang) ->
     disco_features(Acc, From, To, Node, Lang, ejabberd_sm).
 
--spec disco_local_identity(disco_acc(), jid(), jid(), binary(), binary()) -> disco_acc().
+-spec disco_local_identity([identity()], jid(), jid(), binary(), binary()) -> [identity()].
 disco_local_identity(Acc, From, To, Node, Lang) ->
     disco_identity(Acc, From, To, Node, Lang, ejabberd_local).
 
--spec disco_sm_identity(disco_acc(), jid(), jid(), binary(), binary()) -> disco_acc().
+-spec disco_sm_identity([identity()], jid(), jid(), binary(), binary()) -> [identity()].
 disco_sm_identity(Acc, From, To, Node, Lang) ->
     disco_identity(Acc, From, To, Node, Lang, ejabberd_sm).
 
@@ -136,6 +137,9 @@ disco_sm_identity(Acc, From, To, Node, Lang) ->
 %%%===================================================================
 init([Host, _Opts]) ->
     process_flag(trap_exit, true),
+    catch ets:new(?MODULE,
+                  [named_table, public,
+                   {heir, erlang:group_leader(), none}]),
     ejabberd_hooks:add(component_connected, ?MODULE,
 		       component_connected, 50),
     ejabberd_hooks:add(component_disconnected, ?MODULE,
@@ -150,11 +154,9 @@ init([Host, _Opts]) ->
 		       disco_sm_identity, 50),
     {ok, #state{server_host = Host}}.
 
-handle_call(get_delegations, _From, State) ->
-    {reply, {ok, State#state.delegations}, State};
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+handle_call(Request, From, State) ->
+    ?WARNING_MSG("Unexpected call from ~p: ~p", [From, Request]),
+    {noreply, State}.
 
 handle_cast({component_connected, Host}, State) ->
     ServerHost = State#state.server_host,
@@ -166,15 +168,14 @@ handle_cast({component_connected, Host}, State) ->
 		  allow ->
 		      send_disco_queries(ServerHost, Host, NS);
 		  deny ->
-		      ?DEBUG("Denied delegation for ~s on ~s", [Host, NS]),
-		      ok
+		      ?DEBUG("Denied delegation for ~s on ~s", [Host, NS])
 	      end
       end, NSAttrsAccessList),
     {noreply, State};
 handle_cast({component_disconnected, Host}, State) ->
     ServerHost = State#state.server_host,
     Delegations =
-	dict:filter(
+	maps:filter(
 	  fun({NS, Type}, {H, _}) when H == Host ->
 		  ?INFO_MSG("Remove delegation of namespace '~s' "
 			    "from external component '~s'",
@@ -183,24 +184,27 @@ handle_cast({component_disconnected, Host}, State) ->
 		  false;
 	     (_, _) ->
 		  true
-	  end, State#state.delegations),
-    {noreply, State#state{delegations = Delegations}};
-handle_cast(_Msg, State) ->
+	  end, get_delegations(ServerHost)),
+    set_delegations(ServerHost, Delegations),
+    {noreply, State};
+handle_cast(Msg, State) ->
+    ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({iq_reply, ResIQ, {disco_info, Type, Host, NS}}, State) ->
-    {noreply,
-     case ResIQ of
-	 #iq{type = result, sub_els = [SubEl]} ->
-	     try xmpp:decode(SubEl) of
-		 #disco_info{} = Info ->
-		     process_disco_info(State, Type, Host, NS, Info)
-		 catch _:{xmpp_codec, _} ->
-			 State
-		 end;
-	 _ ->
-	     State
-     end};
+    case ResIQ of
+	#iq{type = result, sub_els = [SubEl]} ->
+	    try xmpp:decode(SubEl) of
+		#disco_info{} = Info ->
+		    ServerHost = State#state.server_host,
+		    process_disco_info(ServerHost, Type, Host, NS, Info)
+	    catch _:{xmpp_codec, _} ->
+		    ok
+	    end;
+	_ ->
+	    ok
+    end,
+    {noreply, State};
 handle_info({iq_reply, ResIQ, #iq{} = IQ}, State) ->
     process_iq_result(IQ, ResIQ),
     {noreply, State};
@@ -223,7 +227,8 @@ terminate(_Reason, State) ->
     lists:foreach(
       fun({NS, Type}) ->
 	      gen_iq_handler:remove_iq_handler(Type, ServerHost, NS)
-      end, dict:fetch_keys(State#state.delegations)).
+      end, maps:keys(get_delegations(ServerHost))),
+    ets:delete(?MODULE, ServerHost).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -231,22 +236,25 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
--spec get_delegations(binary()) -> dict:dict().
+-spec get_delegations(binary()) -> delegations().
 get_delegations(Host) ->
-    Proc = gen_mod:get_module_proc(Host, ?MODULE),
-    try gen_server:call(Proc, get_delegations) of
-	{ok, Delegations} -> Delegations
-    catch exit:{noproc, _} ->
-	    %% No module is loaded for this virtual host
-	    dict:new()
+    try ets:lookup_element(?MODULE, Host, 2)
+    catch _:badarg -> #{}
     end.
 
--spec process_iq(iq(), ejabberd_local | ejabberd_sm) -> ignore | iq().
+-spec set_delegations(binary(), delegations()) -> true.
+set_delegations(ServerHost, Delegations) ->
+    case maps:size(Delegations) of
+	0 -> ets:delete(?MODULE, ServerHost);
+	_ -> ets:insert(?MODULE, {ServerHost, Delegations})
+    end.
+
+-spec process_iq(iq(), route_type()) -> ignore | iq().
 process_iq(#iq{to = To, lang = Lang, sub_els = [SubEl]} = IQ, Type) ->
     LServer = To#jid.lserver,
     NS = xmpp:get_ns(SubEl),
     Delegations = get_delegations(LServer),
-    case dict:find({NS, Type}, Delegations) of
+    case maps:find({NS, Type}, Delegations) of
 	{ok, {Host, _}} ->
 	    Delegation = #delegation{
 			    forwarded = #forwarded{sub_els = [IQ]}},
@@ -291,28 +299,27 @@ process_iq_result(#iq{lang = Lang} = IQ, timeout) ->
     Err = xmpp:err_internal_server_error(Txt, Lang),
     ejabberd_router:route_error(IQ, Err).
 
--spec process_disco_info(state(), ejabberd_local | ejabberd_sm,
-			 binary(), binary(), disco_info()) -> state().
-process_disco_info(State, Type, Host, NS, Info) ->
-    From = jid:make(State#state.server_host),
+-spec process_disco_info(binary(), route_type(),
+			 binary(), binary(), disco_info()) -> ok.
+process_disco_info(ServerHost, Type, Host, NS, Info) ->
+    From = jid:make(ServerHost),
     To = jid:make(Host),
-    case dict:find({NS, Type}, State#state.delegations) of
+    Delegations = get_delegations(ServerHost),
+    case maps:find({NS, Type}, Delegations) of
 	error ->
 	    Msg = #message{from = From, to = To,
 			   sub_els = [#delegation{delegated = [#delegated{ns = NS}]}]},
-	    Delegations = dict:store({NS, Type}, {Host, Info}, State#state.delegations),
-	    gen_iq_handler:add_iq_handler(Type, State#state.server_host, NS,
-					  ?MODULE, Type),
+	    Delegations1 = maps:put({NS, Type}, {Host, Info}, Delegations),
+	    gen_iq_handler:add_iq_handler(Type, ServerHost, NS, ?MODULE, Type),
 	    ejabberd_router:route(Msg),
+	    set_delegations(ServerHost, Delegations1),
 	    ?INFO_MSG("Namespace '~s' is delegated to external component '~s'",
-		      [NS, Host]),
-	    State#state{delegations = Delegations};
+		      [NS, Host]);
 	{ok, {AnotherHost, _}} ->
 	    ?WARNING_MSG("Failed to delegate namespace '~s' to "
 			 "external component '~s' because it's already "
 			 "delegated to '~s'",
-			 [NS, Host, AnotherHost]),
-	    State
+			 [NS, Host, AnotherHost])
     end.
 
 -spec send_disco_queries(binary(), binary(), binary()) -> ok.
@@ -329,8 +336,8 @@ send_disco_queries(LServer, Host, NS) ->
       end, [{ejabberd_local, <<(?NS_DELEGATION)/binary, "::", NS/binary>>},
 	    {ejabberd_sm, <<(?NS_DELEGATION)/binary, ":bare:", NS/binary>>}]).
 
--spec disco_features(disco_acc(), jid(), jid(), binary(), binary(),
-		     ejabberd_local | ejabberd_sm) -> disco_acc().
+-spec disco_features(mod_disco:features_acc(), jid(), jid(), binary(), binary(),
+		     route_type()) -> mod_disco:features_acc().
 disco_features(Acc, _From, To, <<"">>, _Lang, Type) ->
     Delegations = get_delegations(To#jid.lserver),
     Features = my_features(Type) ++
@@ -339,7 +346,7 @@ disco_features(Acc, _From, To, <<"">>, _Lang, Type) ->
 		  Info#disco_info.features;
 	     (_) ->
 		  []
-	  end, dict:to_list(Delegations)),
+	  end, maps:to_list(Delegations)),
     case Acc of
 	empty when Features /= [] -> {result, Features};
 	{result, Fs} -> {result, Fs ++ Features};
@@ -348,8 +355,8 @@ disco_features(Acc, _From, To, <<"">>, _Lang, Type) ->
 disco_features(Acc, _, _, _, _, _) ->
     Acc.
 
--spec disco_identity(disco_acc(), jid(), jid(), binary(), binary(),
-		     ejabberd_local | ejabberd_sm) -> disco_acc().
+-spec disco_identity([identity()], jid(), jid(), binary(), binary(),
+		     route_type()) -> [identity()].
 disco_identity(Acc, _From, To, <<"">>, _Lang, Type) ->
     Delegations = get_delegations(To#jid.lserver),
     Identities = lists:flatmap(
@@ -357,12 +364,8 @@ disco_identity(Acc, _From, To, <<"">>, _Lang, Type) ->
 			   Info#disco_info.identities;
 		      (_) ->
 			   []
-		   end, dict:to_list(Delegations)),
-    case Acc of
-	empty when Identities /= [] -> {result, Identities};
-	{result, Ids} -> {result, Ids ++ Identities};
-	Acc -> Acc
-    end;
+		   end, maps:to_list(Delegations)),
+    Acc ++ Identities;
 disco_identity(Acc, _From, _To, _Node, _Lang, _Type) ->
     Acc.
 

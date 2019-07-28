@@ -27,15 +27,15 @@
 %% Simple types
 -export([pos_int/0, pos_int/1, non_neg_int/0, non_neg_int/1]).
 -export([int/0, int/2, number/1, octal/0]).
--export([binary/0, binary/1]).
--export([string/0, string/1]).
+-export([binary/0, binary/1, binary/2]).
+-export([string/0, string/1, string/2]).
 -export([enum/1, bool/0, atom/0, any/0]).
 %% Complex types
 -export([url/0, url/1]).
 -export([file/0, file/1]).
 -export([directory/0, directory/1]).
 -export([ip/0, ipv4/0, ipv6/0, ip_mask/0, port/0]).
--export([re/0, glob/0]).
+-export([re/0, re/1, glob/0, glob/1]).
 -export([path/0, binary_sep/1]).
 -export([beam/0, beam/1]).
 -export([timeout/1, timeout/2]).
@@ -91,21 +91,24 @@ format_error({bad_module, Mod}, Ctx)
     Mods = ejabberd_config:beams(all),
     format("~s: unknown ~s: ~s. Did you mean ~s?",
 	   [yconf:format_ctx(Ctx),
-	    format_module_type(Ctx), Mod,
-	    misc:best_match(Mod, Mods)]);
+	    format_module_type(Ctx),
+	    format_module(Mod),
+	    format_module(misc:best_match(Mod, Mods))]);
 format_error({bad_module, Mod}, Ctx)
   when Ctx == [modules] ->
     Mods = lists:filter(
 	     fun(M) ->
 		     case atom_to_list(M) of
 			 "mod_" ++ _ -> true;
+			 "Elixir.Mod" ++ _ -> true;
 			 _ -> false
 		     end
 	     end, ejabberd_config:beams(all)),
     format("~s: unknown ~s: ~s. Did you mean ~s?",
 	   [yconf:format_ctx(Ctx),
-	    format_module_type(Ctx), Mod,
-	    misc:best_match(Mod, Mods)]);
+	    format_module_type(Ctx),
+	    format_module(Mod),
+	    format_module(misc:best_match(Mod, Mods))]);
 format_error({bad_export, {F, A}, Mod}, Ctx)
   when Ctx == [listen, module];
        Ctx == [listen, request_handlers];
@@ -114,17 +117,18 @@ format_error({bad_export, {F, A}, Mod}, Ctx)
     Slogan = yconf:format_ctx(Ctx),
     case lists:member(Mod, ejabberd_config:beams(local)) of
 	true ->
-	    format("~s: '~s' is not a ~s", [Slogan, Mod, Type]);
+	    format("~s: '~s' is not a ~s",
+		   [Slogan, format_module(Mod), Type]);
 	false ->
 	    case lists:member(Mod, ejabberd_config:beams(external)) of
 		true ->
 		    format("~s: third-party ~s '~s' doesn't export "
 			   "function ~s/~B. If it's really a ~s, "
 			   "consider to upgrade it",
-			   [Slogan, Type, Mod, F, A, Type]);
+			   [Slogan, Type, format_module(Mod),F, A, Type]);
 		false ->
 		    format("~s: '~s' doesn't match any known ~s",
-			   [Slogan, Mod, Type])
+			   [Slogan, format_module(Mod), Type])
 	    end
     end;
 format_error({unknown_option, [], _} = Why, Ctx) ->
@@ -155,6 +159,8 @@ format_error({bad_pem, Why, Path}) ->
 	   [Path, pkix:format_error(Why)]);
 format_error({bad_cert, Why, Path}) ->
     format_error({bad_pem, Why, Path});
+format_error({bad_jwt_key, Path}) ->
+    format("No valid JWT key found in file: ~s", [Path]);
 format_error({bad_jid, Bad}) ->
     format("Invalid XMPP address: ~s", [Bad]);
 format_error({bad_user, Bad}) ->
@@ -190,6 +196,13 @@ format_error({mqtt_codec, Reason}) ->
     mqtt_codec:format_error(Reason);
 format_error(Reason) ->
     yconf:format_error(Reason).
+
+-spec format_module(atom()) -> string().
+format_module(Mod) ->
+    case atom_to_list(Mod) of
+	"Elixir." ++ M -> M;
+	M -> M
+    end.
 
 format_module_type([listen, module]) ->
     "listening module";
@@ -243,6 +256,9 @@ binary() ->
 binary(Re) ->
     yconf:binary(Re).
 
+binary(Re, Opts) ->
+    yconf:binary(Re, Opts).
+
 enum(L) ->
     yconf:enum(L).
 
@@ -257,6 +273,9 @@ string() ->
 
 string(Re) ->
     yconf:string(Re).
+
+string(Re, Opts) ->
+    yconf:string(Re, Opts).
 
 any() ->
     yconf:any().
@@ -297,20 +316,20 @@ port() ->
 re() ->
     yconf:re().
 
+re(Opts) ->
+    yconf:re(Opts).
+
 glob() ->
     yconf:glob().
+
+glob(Opts) ->
+    yconf:glob(Opts).
 
 path() ->
     yconf:path().
 
 binary_sep(Sep) ->
     yconf:binary_sep(Sep).
-
-beam() ->
-    yconf:beam().
-
-beam(Exports) ->
-    yconf:beam(Exports).
 
 timeout(Units) ->
     yconf:timeout(Units).
@@ -354,6 +373,20 @@ options(V, O) ->
 %%%===================================================================
 %%% Custom validators
 %%%===================================================================
+beam() ->
+    beam([]).
+
+beam(Exports) ->
+    and_then(
+      non_empty(binary()),
+      fun(<<"Elixir.", _/binary>> = Val) ->
+	      (yconf:beam(Exports))(Val);
+	 (<<C, _/binary>> = Val) when C >= $A, C =< $Z ->
+	      (yconf:beam(Exports))(<<"Elixir.", Val/binary>>);
+	 (Val) ->
+	      (yconf:beam(Exports))(Val)
+      end).
+
 acl() ->
     either(
       atom(),

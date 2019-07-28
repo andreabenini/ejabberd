@@ -92,7 +92,7 @@ start() ->
                      end
              end,
     Node = list_to_atom(SNode1),
-    Status = case rpc:call(Node, ?MODULE, process, [Args], Timeout) of
+    Status = case ejabberd_cluster:call(Node, ?MODULE, process, [Args], Timeout) of
                  {badrpc, Reason} ->
                      print("Failed RPC connection to the node ~p: ~p~n",
                            [Node, Reason]),
@@ -114,14 +114,16 @@ init([]) ->
     ets:new(ejabberd_ctl_host_cmds, [named_table, set, public]),
     {ok, #state{}}.
 
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
-
-handle_cast(_Msg, State) ->
+handle_call(Request, From, State) ->
+    ?WARNING_MSG("Unexpected call from ~p: ~p", [From, Request]),
     {noreply, State}.
 
-handle_info(_Info, State) ->
+handle_cast(Msg, State) ->
+    ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
+    {noreply, State}.
+
+handle_info(Info, State) ->
+    ?WARNING_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -331,8 +333,10 @@ try_call_command(Args, Auth, AccessCommands, Version) ->
 	throw:Error ->
 	    {io_lib:format("~p", [Error]), ?STATUS_ERROR};
 	?EX_RULE(A, Why, Stack) ->
-	    {io_lib:format("Problem '~p ~p' occurred executing the command.~nStacktrace: ~p",
-			   [A, Why, ?EX_STACK(Stack)]), ?STATUS_ERROR}
+	    StackTrace = ?EX_STACK(Stack),
+	    {io_lib:format("Unhandled exception occurred executing the command:~n** ~s",
+			   [misc:format_exception(2, A, Why, StackTrace)]),
+	     ?STATUS_ERROR}
     end.
 
 %% @spec (Args::[string()], Auth, AccessCommands) -> string() | integer() | {string(), integer()} | {error, ErrorType}

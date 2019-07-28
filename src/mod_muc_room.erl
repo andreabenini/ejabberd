@@ -34,12 +34,27 @@
 	 start_link/8,
 	 start/10,
 	 start/8,
+	 supervisor/1,
 	 get_role/2,
 	 get_affiliation/2,
 	 is_occupant_or_admin/2,
 	 route/2,
 	 expand_opts/1,
-	 config_fields/0]).
+	 config_fields/0,
+	 destroy/1,
+	 destroy/2,
+	 shutdown/1,
+	 get_config/1,
+	 set_config/2,
+	 get_state/1,
+	 change_item/5,
+	 config_reloaded/1,
+	 subscribe/4,
+	 unsubscribe/2,
+	 is_subscribed/2,
+	 get_subscribers/1,
+	 service_message/2,
+	 get_disco_item/4]).
 
 %% gen_fsm callbacks
 -export([init/1,
@@ -77,8 +92,9 @@
 -type fsm_stop() :: {stop, normal, state()}.
 -type fsm_next() :: {next_state, normal_state, state()}.
 -type fsm_transition() :: fsm_stop() | fsm_next().
-
--export_type([state/0]).
+-type disco_item_filter() ::  only_non_empty | all | non_neg_integer().
+-type admin_action() :: {jid(), affiliation | role, affiliation() | role(), binary()}.
+-export_type([state/0, disco_item_filter/0]).
 
 -callback set_affiliation(binary(), binary(), binary(), jid(), affiliation(),
 			  binary()) -> ok | {error, any()}.
@@ -98,17 +114,19 @@
 		   {ok, pid()} | {error, any()}.
 start(Host, ServerHost, Access, Room, HistorySize, RoomShaper,
       Creator, Nick, DefRoomOpts, QueueType) ->
-    p1_fsm:start(?MODULE, [Host, ServerHost, Access, Room, HistorySize,
-			    RoomShaper, Creator, Nick, DefRoomOpts, QueueType],
-		    ?FSMOPTS).
+    supervisor:start_child(
+      supervisor(ServerHost),
+      [Host, ServerHost, Access, Room, HistorySize,
+       RoomShaper, Creator, Nick, DefRoomOpts, QueueType]).
 
 -spec start(binary(), binary(), mod_muc:access(), binary(), non_neg_integer(),
 	    atom(), [{atom(), term()}], ram | file) ->
 		   {ok, pid()} | {error, any()}.
 start(Host, ServerHost, Access, Room, HistorySize, RoomShaper, Opts, QueueType) ->
-    p1_fsm:start(?MODULE, [Host, ServerHost, Access, Room, HistorySize,
-			    RoomShaper, Opts, QueueType],
-		    ?FSMOPTS).
+    supervisor:start_child(
+      supervisor(ServerHost),
+      [Host, ServerHost, Access, Room, HistorySize,
+       RoomShaper, Opts, QueueType]).
 
 -spec start_link(binary(), binary(), mod_muc:access(), binary(), non_neg_integer(),
 		 atom(), jid(), binary(), [{atom(), term()}], ram | file) ->
@@ -126,6 +144,118 @@ start_link(Host, ServerHost, Access, Room, HistorySize, RoomShaper, Opts, QueueT
     p1_fsm:start_link(?MODULE, [Host, ServerHost, Access, Room, HistorySize,
 				 RoomShaper, Opts, QueueType],
 		       ?FSMOPTS).
+
+-spec supervisor(binary()) -> atom().
+supervisor(Host) ->
+    gen_mod:get_module_proc(Host, mod_muc_room_sup).
+
+-spec destroy(pid()) -> ok.
+destroy(Pid) ->
+    p1_fsm:send_all_state_event(Pid, destroy).
+
+-spec destroy(pid(), binary()) -> ok.
+destroy(Pid, Reason) ->
+    p1_fsm:send_all_state_event(Pid, {destroy, Reason}).
+
+-spec shutdown(pid()) -> boolean().
+shutdown(Pid) ->
+    ejabberd_cluster:send(Pid, shutdown).
+
+-spec config_reloaded(pid()) -> boolean().
+config_reloaded(Pid) ->
+    ejabberd_cluster:send(Pid, config_reloaded).
+
+-spec get_config(pid()) -> {ok, config()} | {error, notfound | timeout}.
+get_config(Pid) ->
+    try p1_fsm:sync_send_all_state_event(Pid, get_config)
+    catch _:{timeout, {p1_fsm, _, _}} ->
+	    {error, timeout};
+	  _:{_, {p1_fsm, _, _}} ->
+	    {error, notfound}
+    end.
+
+-spec set_config(pid(), config()) -> {ok, config()} | {error, notfound | timeout}.
+set_config(Pid, Config) ->
+    try p1_fsm:sync_send_all_state_event(Pid, {change_config, Config})
+    catch _:{timeout, {p1_fsm, _, _}} ->
+	    {error, timeout};
+	  _:{_, {p1_fsm, _, _}} ->
+	    {error, notfound}
+    end.
+
+-spec change_item(pid(), jid(), affiliation | role, affiliation() | role(), binary()) ->
+			 {ok, state()} | {error, notfound | timeout}.
+change_item(Pid, JID, Type, AffiliationOrRole, Reason) ->
+    try p1_fsm:sync_send_all_state_event(
+	  Pid, {process_item_change, {JID, Type, AffiliationOrRole, Reason}, undefined})
+    catch _:{timeout, {p1_fsm, _, _}} ->
+	    {error, timeout};
+	  _:{_, {p1_fsm, _, _}} ->
+	    {error, notfound}
+    end.
+
+-spec get_state(pid()) -> {ok, state()} | {error, notfound | timeout}.
+get_state(Pid) ->
+    try p1_fsm:sync_send_all_state_event(Pid, get_state)
+    catch _:{timeout, {p1_fsm, _, _}} ->
+	    {error, timeout};
+	  _:{_, {p1_fsm, _, _}} ->
+	    {error, notfound}
+    end.
+
+-spec subscribe(pid(), jid(), binary(), [binary()]) -> {ok, [binary()]} | {error, binary()}.
+subscribe(Pid, JID, Nick, Nodes) ->
+    try p1_fsm:sync_send_all_state_event(Pid, {muc_subscribe, JID, Nick, Nodes})
+    catch _:{timeout, {p1_fsm, _, _}} ->
+	    {error, ?T("Request has timed out")};
+	  _:{_, {p1_fsm, _, _}} ->
+	    {error, ?T("Conference room does not exist")}
+    end.
+
+-spec unsubscribe(pid(), jid()) -> ok | {error, binary()}.
+unsubscribe(Pid, JID) ->
+    try p1_fsm:sync_send_all_state_event(Pid, {muc_unsubscribe, JID})
+    catch _:{timeout, {p1_fsm, _, _}} ->
+	    {error, ?T("Request has timed out")};
+	  _:{_, {p1_fsm, _, _}} ->
+	    {error, ?T("Conference room does not exist")}
+    end.
+
+-spec is_subscribed(pid(), jid()) -> {true, [binary()]} | false.
+is_subscribed(Pid, JID) ->
+    try p1_fsm:sync_send_all_state_event(Pid, {is_subscribed, JID})
+    catch _:{_, {p1_fsm, _, _}} -> false
+    end.
+
+-spec get_subscribers(pid()) -> {ok, [jid()]} | {error, notfound | timeout}.
+get_subscribers(Pid) ->
+    try p1_fsm:sync_send_all_state_event(Pid, get_subscribers)
+    catch _:{timeout, {p1_fsm, _, _}} ->
+	    {error, timeout};
+	  _:{_, {p1_fsm, _, _}} ->
+	    {error, notfound}
+    end.
+
+-spec service_message(pid(), binary()) -> ok.
+service_message(Pid, Text) ->
+    p1_fsm:send_all_state_event(Pid, {service_message, Text}).
+
+-spec get_disco_item(pid(), disco_item_filter(), jid(), binary()) ->
+			    {ok, binary()} | {error, notfound | timeout}.
+get_disco_item(Pid, Filter, JID, Lang) ->
+    Timeout = 100,
+    Time = erlang:system_time(millisecond),
+    Query = {get_disco_item, Filter, JID, Lang, Time+Timeout},
+    try p1_fsm:sync_send_all_state_event(Pid, Query, Timeout) of
+	{item, Desc} ->
+	    {ok, Desc};
+	false ->
+	    {error, notfound}
+    catch _:{timeout, {p1_fsm, _, _}} ->
+	    {error, timeout};
+	  _:{_, {p1_fsm, _, _}} ->
+	    {error, notfound}
+    end.
 
 %%%----------------------------------------------------------------------
 %%% Callback functions from gen_fsm
@@ -150,7 +280,7 @@ init([Host, ServerHost, Access, Room, HistorySize,
 	      [Room, Host, jid:encode(Creator)]),
     add_to_log(room_existence, created, State1),
     add_to_log(room_existence, started, State1),
-    {ok, normal_state, State1};
+    {ok, normal_state, reset_hibernate_timer(State1)};
 init([Host, ServerHost, Access, Room, HistorySize, RoomShaper, Opts, QueueType]) ->
     process_flag(trap_exit, true),
     Shaper = ejabberd_shaper:new(RoomShaper),
@@ -164,7 +294,7 @@ init([Host, ServerHost, Access, Room, HistorySize, RoomShaper, Opts, QueueType])
 				  room_queue = RoomQueue,
 				  room_shaper = Shaper}),
     add_to_log(room_existence, started, State),
-    {ok, normal_state, State}.
+    {ok, normal_state, reset_hibernate_timer(State)}.
 
 normal_state({route, <<"">>,
 	      #message{from = From, type = Type, lang = Lang} = Packet},
@@ -293,20 +423,24 @@ normal_state({route, <<"">>,
 		ejabberd_router:route(IQRes),
 		{next_state, normal_state, StateData};
 	    #iq{sub_els = [SubEl]} = IQ ->
-		Res1 = case xmpp:get_ns(SubEl) of
-			   ?NS_MUC_ADMIN ->
+		Res1 = case SubEl of
+			   #muc_admin{} ->
 			       process_iq_admin(From, IQ, StateData);
-			   ?NS_MUC_OWNER ->
+			   #muc_owner{} ->
 			       process_iq_owner(From, IQ, StateData);
-			   ?NS_DISCO_INFO ->
+			   #disco_info{} ->
 			       process_iq_disco_info(From, IQ, StateData);
-			   ?NS_DISCO_ITEMS ->
+			   #disco_items{} ->
 			       process_iq_disco_items(From, IQ, StateData);
-			   ?NS_VCARD ->
+			   #vcard_temp{} ->
 			       process_iq_vcard(From, IQ, StateData);
-			   ?NS_MUCSUB ->
+			   #muc_subscribe{} ->
 			       process_iq_mucsub(From, IQ, StateData);
-			   ?NS_CAPTCHA ->
+			   #muc_unsubscribe{} ->
+			       process_iq_mucsub(From, IQ, StateData);
+			   #muc_subscriptions{} ->
+			       process_iq_mucsub(From, IQ, StateData);
+			   #xcaptcha{} ->
 			       process_iq_captcha(From, IQ, StateData);
 			   _ ->
 			       Txt = ?T("The feature requested is not "
@@ -485,6 +619,15 @@ normal_state({route, ToNick,
 	    ejabberd_router:route_error(Packet, Err)
     end,
     {next_state, normal_state, StateData};
+normal_state(hibernate, StateData) ->
+    case maps:size(StateData#state.users) of
+	0 ->
+	    store_room_no_checks(StateData, []),
+	    ?INFO_MSG("Hibernating room ~s@~s", [StateData#state.room, StateData#state.host]),
+	    {stop, normal, StateData#state{hibernate_timer = hibernating}};
+	_ ->
+	    {next_state, normal_state, StateData}
+    end;
 normal_state(_Event, StateData) ->
     {next_state, normal_state, StateData}.
 
@@ -593,7 +736,7 @@ handle_sync_event({muc_subscribe, From, Nick, Nodes}, _From,
 	    NewConfig = (NewState#state.config)#config{
 			  captcha_protected = CaptchaRequired,
 			  password_protected = PasswordProtected},
-	    {reply, {error, <<"Request is ignored">>},
+	    {reply, {error, ?T("Request is ignored")},
 	     NewState#state{config = NewConfig}};
 	{error, Err} ->
 	    {reply, {error, get_error_text(Err)}, StateName, StateData}
@@ -605,7 +748,7 @@ handle_sync_event({muc_unsubscribe, From}, _From, StateName, StateData) ->
 	{result, _, NewState} ->
 	    {reply, ok, StateName, NewState};
 	{ignore, NewState} ->
-	    {reply, {error, <<"Request is ignored">>}, NewState};
+	    {reply, {error, ?T("Request is ignored")}, NewState};
 	{error, Err} ->
 	    {reply, {error, get_error_text(Err)}, StateName, StateData}
     end;
@@ -748,20 +891,27 @@ terminate(Reason, _StateName,
 		  end,
 		  tab_remove_online_user(JID, StateData)
 	  end, [], get_users_and_subscribers(StateData)),
-	add_to_log(room_existence, stopped, StateData),
-	case (StateData#state.config)#config.persistent of
-	    false ->
-		ejabberd_hooks:run(room_destroyed, LServer, [LServer, Room, Host]);
+
+	disable_hibernate_timer(StateData),
+	case StateData#state.hibernate_timer of
+	    hibernating ->
+		ok;
 	    _ ->
-		ok
+		add_to_log(room_existence, stopped, StateData),
+		case (StateData#state.config)#config.persistent of
+		    false ->
+			ejabberd_hooks:run(room_destroyed, LServer, [LServer, Room, Host]);
+		    _ ->
+			ok
+		end
 	end,
 	mod_muc:room_destroyed(Host, Room, self(), LServer)
     catch ?EX_RULE(E, R, St) ->
 	    StackTrace = ?EX_STACK(St),
 	    mod_muc:room_destroyed(Host, Room, self(), LServer),
-	    ?ERROR_MSG("Got exception on room termination: ~p", [{E, {R, StackTrace}}])
-    end,
-    ok.
+	    ?ERROR_MSG("Got exception on room termination:~n** ~s",
+		       [misc:format_exception(2, E, R, StackTrace)])
+    end.
 
 %%%----------------------------------------------------------------------
 %%% Internal functions
@@ -1166,7 +1316,7 @@ close_room_if_temporary_and_empty(StateData1) ->
 		    "and empty",
 		    [jid:encode(StateData1#state.jid)]),
 	  add_to_log(room_existence, destroyed, StateData1),
-	  maybe_forget_room(StateData1),
+	  forget_room(StateData1),
 	  {stop, normal, StateData1};
       _ -> {next_state, normal_state, StateData1}
     end.
@@ -1634,7 +1784,7 @@ store_user_activity(JID, UserActivity, StateData) ->
 							      Activity)}
 		       end
 		 end,
-    StateData1.
+    reset_hibernate_timer(StateData1).
 
 -spec clean_treap(treap:treap(), integer() | {1, integer()}) -> treap:treap().
 clean_treap(Treap, CleanPriority) ->
@@ -1705,6 +1855,7 @@ update_online_user(JID, #user{nick = Nick} = User, StateData) ->
     end,
     NewStateData.
 
+-spec set_subscriber(jid(), binary(), [binary()], state()) -> state().
 set_subscriber(JID, Nick, Nodes,
 	       #state{room = Room, host = Host, server_host = ServerHost} = StateData) ->
     BareJID = jid:remove_resource(JID),
@@ -1731,7 +1882,7 @@ set_subscriber(JID, Nick, Nodes,
 add_online_user(JID, Nick, Role, StateData) ->
     tab_add_online_user(JID, StateData),
     User = #user{jid = JID, nick = Nick, role = Role},
-    update_online_user(JID, User, StateData).
+    reset_hibernate_timer(update_online_user(JID, User, StateData)).
 
 -spec remove_online_user(jid(), state()) -> state().
 remove_online_user(JID, StateData) ->
@@ -1752,7 +1903,7 @@ remove_online_user(JID, StateData, Reason) ->
 	    catch _:{badkey, _} ->
 		    StateData#state.nicks
 	    end,
-    StateData#state{users = Users, nicks = Nicks}.
+    reset_hibernate_timer(StateData#state{users = Users, nicks = Nicks}).
 
 -spec filter_presence(presence()) -> presence().
 filter_presence(Presence) ->
@@ -2610,6 +2761,11 @@ process_iq_admin(_From, #iq{lang = Lang, sub_els = [#muc_admin{items = []}]},
 		 _StateData) ->
     Txt = ?T("No 'item' element found"),
     {error, xmpp:err_bad_request(Txt, Lang)};
+process_iq_admin(_From, #iq{type = get, lang = Lang,
+			    sub_els = [#muc_admin{items = [_, _|_]}]},
+		 _StateData) ->
+    ErrText = ?T("Too many <item/> elements"),
+    {error, xmpp:err_bad_request(ErrText, Lang)};
 process_iq_admin(From, #iq{type = set, lang = Lang,
 			   sub_els = [#muc_admin{items = Items}]},
 		 StateData) ->
@@ -2642,10 +2798,7 @@ process_iq_admin(From, #iq{type = get, lang = Lang,
 		    ErrText = ?T("Moderator privileges required"),
 		    {error, xmpp:err_forbidden(ErrText, Lang)}
 	    end
-    end;
-process_iq_admin(_From, #iq{type = get, lang = Lang}, _StateData) ->
-    ErrText = ?T("Too many <item/> elements"),
-    {error, xmpp:err_bad_request(ErrText, Lang)}.
+    end.
 
 -spec items_with_role(role(), state()) -> [muc_item()].
 items_with_role(SRole, StateData) ->
@@ -2734,16 +2887,14 @@ process_admin_items_set(UJID, Items, Lang, StateData) ->
 	{error, Err} -> {error, Err}
     end.
 
--spec process_item_change(jid()) -> function().
+-spec process_item_change(jid()) -> fun((admin_action(), state() | {error, stanza_error()}) ->
+					       state() | {error, stanza_error()}).
 process_item_change(UJID) ->
     fun(_, {error, _} = Err) ->
 	    Err;
        (Item, SD) ->
 	    process_item_change(Item, SD, UJID)
     end.
-
--type admin_action() :: {jid(), affiliation | role,
-			 affiliation() | role(), binary()}.
 
 -spec process_item_change(admin_action(), state(), undefined | jid()) -> state() | {error, stanza_error()}.
 process_item_change(Item, SD, UJID) ->
@@ -2803,8 +2954,9 @@ process_item_change(Item, SD, UJID) ->
 			     undefined ->
 				 <<"">>
 			 end,
-	    ?ERROR_MSG("Failed to set item ~p~s: ~p",
-		       [Item, FromSuffix, {E, {R, StackTrace}}]),
+	    ?ERROR_MSG("Failed to set item ~p~s:~n** ~s",
+		       [Item, FromSuffix,
+			misc:format_exception(2, E, R, StackTrace)]),
 	    {error, xmpp:err_internal_server_error()}
     end.
 
@@ -3497,7 +3649,6 @@ change_config(Config, StateData) ->
 		maybe_forget_room(StateData),
 		StateData1#state{affiliations = Affiliations};
 	    _ ->
-		maybe_forget_room(StateData),
 		StateData1
         end,
     case {(StateData#state.config)#config.members_only,
@@ -3829,9 +3980,17 @@ destroy_room(DEl, StateData) ->
 			   Info#user.jid, Packet,
 			   ?NS_MUCSUB_NODES_CONFIG, StateData)
       end, ok, get_users_and_subscribers(StateData)),
-    maybe_forget_room(StateData),
+    forget_room(StateData),
     {result, undefined, stop}.
 
+-spec forget_room(state()) -> state().
+forget_room(StateData) ->
+    mod_muc:forget_room(StateData#state.server_host,
+			StateData#state.host,
+			StateData#state.room),
+    StateData.
+
+-spec maybe_forget_room(state()) -> state().
 maybe_forget_room(StateData) ->
     Forget = case (StateData#state.config)#config.persistent of
 		 true ->
@@ -3842,10 +4001,7 @@ maybe_forget_room(StateData) ->
 	     end,
     case Forget of
 	true ->
-	    mod_muc:forget_room(StateData#state.server_host,
-				StateData#state.host,
-				StateData#state.room),
-	    StateData;
+	    forget_room(StateData);
 	_ ->
 	    StateData
     end.
@@ -3956,7 +4112,8 @@ iq_disco_info_extras(Lang, StateData, Static) ->
 process_iq_disco_items(_From, #iq{type = set, lang = Lang}, _StateData) ->
     Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     {error, xmpp:err_not_allowed(Txt, Lang)};
-process_iq_disco_items(From, #iq{type = get}, StateData) ->
+process_iq_disco_items(From, #iq{type = get, sub_els = [#disco_items{node = <<>>}]},
+		       StateData) ->
     case (StateData#state.config)#config.public_list of
       true ->
 	  {result, get_mucroom_disco_items(StateData)};
@@ -3970,7 +4127,10 @@ process_iq_disco_items(From, #iq{type = get}, StateData) ->
 		%% (http://xmpp.org/extensions/xep-0045.html#disco-roomitems)
 		{result, #disco_items{}}
 	  end
-    end.
+    end;
+process_iq_disco_items(_From, #iq{lang = Lang}, _StateData) ->
+    Txt = ?T("Node not found"),
+    {error, xmpp:err_item_not_found(Txt, Lang)}.
 
 -spec process_iq_captcha(jid(), iq(), state()) -> {error, stanza_error()} |
 						  {result, undefined}.
@@ -4140,6 +4300,7 @@ process_iq_mucsub(_From, #iq{type = get, lang = Lang}, _StateData) ->
     Txt = ?T("Value 'get' of 'type' attribute is not allowed"),
     {error, xmpp:err_bad_request(Txt, Lang)}.
 
+-spec remove_subscriptions(state()) -> state().
 remove_subscriptions(StateData) ->
     if not (StateData#state.config)#config.allow_subscription ->
 	    StateData#state{subscribers = #{},
@@ -4407,13 +4568,16 @@ store_room(StateData, ChangesHints) ->
 			  end
 		  end,
     if ShouldStore ->
-	    mod_muc:store_room(StateData#state.server_host,
-			       StateData#state.host, StateData#state.room,
-			       make_opts(StateData),
-			       ChangesHints);
+	    store_room_no_checks(StateData, ChangesHints);
        true ->
 	    ok
     end.
+
+store_room_no_checks(StateData, ChangesHints) ->
+    mod_muc:store_room(StateData#state.server_host,
+		       StateData#state.host, StateData#state.room,
+		       make_opts(StateData),
+		       ChangesHints).
 
 -spec send_subscriptions_change_notifications(jid(), binary(), subscribe|unsubscribe, state()) -> ok.
 send_subscriptions_change_notifications(From, Nick, Type, State) ->
@@ -4526,7 +4690,37 @@ send_wrapped_multiple(From, Users, Packet, Node, State) ->
       end, ok, Users).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Detect messange stanzas that don't have meaninful content
+%% Detect messange stanzas that don't have meaningful content
 -spec has_body_or_subject(message()) -> boolean().
 has_body_or_subject(#message{body = Body, subject = Subj}) ->
     Body /= [] orelse Subj /= [].
+
+-spec reset_hibernate_timer(state()) -> state().
+reset_hibernate_timer(State) ->
+    case State#state.hibernate_timer of
+	hibernating ->
+	    ok;
+	_ ->
+	    disable_hibernate_timer(State),
+	    NewTimer = case {mod_muc_opt:hibernation_timeout(State#state.server_host),
+			     maps:size(State#state.users)} of
+			   {infinity, _} ->
+			       none;
+			   {Timeout, 0} ->
+			       p1_fsm:send_event_after(Timeout, hibernate);
+			   _ ->
+			       none
+		       end,
+	    State#state{hibernate_timer = NewTimer}
+    end.
+
+
+-spec disable_hibernate_timer(state()) -> ok.
+disable_hibernate_timer(State) ->
+    case State#state.hibernate_timer of
+	Ref when is_reference(Ref) ->
+	    p1_fsm:cancel_timer(Ref),
+	    ok;
+	_ ->
+	    ok
+    end.

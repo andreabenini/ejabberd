@@ -52,6 +52,7 @@
 
 -type image_error() :: efbig | enodata | limit | malformed_image | timeout.
 -type priority() :: neg_integer().
+-type callback() :: fun((captcha_succeed | captcha_failed) -> any()).
 
 -record(state, {limits = treap:empty() :: treap:treap(),
 		enabled = false :: boolean()}).
@@ -73,46 +74,37 @@ captcha_text(Lang) ->
 -spec mk_ocr_field(binary(), binary(), binary()) -> xdata_field().
 mk_ocr_field(Lang, CID, Type) ->
     URI = #media_uri{type = Type, uri = <<"cid:", CID/binary>>},
-    #xdata_field{var = <<"ocr">>,
-		 type = 'text-single',
-		 label = captcha_text(Lang),
-		 required = true,
-		 sub_els = [#media{uri = [URI]}]}.
-
--spec mk_field(_, binary(), binary()) -> xdata_field().
-mk_field(Type, Var, Value) ->
-    #xdata_field{type = Type, var = Var, values = [Value]}.
+    [_, F] = captcha_form:encode([{ocr, <<>>}], Lang, [ocr]),
+    xmpp:set_els(F, [#media{uri = [URI]}]).
 
 -spec create_captcha(binary(), jid(), jid(),
-                     binary(), any(), any()) -> {error, image_error()} |
-                                                {ok, binary(), [text()], [xmpp_element()]}.
+                     binary(), any(),
+		     callback() | term()) -> {error, image_error()} |
+					     {ok, binary(), [text()], [xmpp_element()]}.
 create_captcha(SID, From, To, Lang, Limiter, Args) ->
     case create_image(Limiter) of
       {ok, Type, Key, Image} ->
-	  Id = <<(p1_rand:get_string())/binary>>,
-	  JID = jid:encode(From),
-	  CID = <<"sha1+", (str:sha(Image))/binary, "@bob.xmpp.org">>,
-	  Data = #bob_data{cid = CID, 'max-age' = 0, type = Type,
-			   data = Image},
-	  Fs = [mk_field(hidden, <<"FORM_TYPE">>, ?NS_CAPTCHA),
-		mk_field(hidden, <<"from">>, jid:encode(To)),
-		mk_field(hidden, <<"challenge">>, Id),
-		mk_field(hidden, <<"sid">>, SID),
-		mk_ocr_field(Lang, CID, Type)],
-	  X = #xdata{type = form, fields = Fs},
-	  Captcha = #xcaptcha{xdata = X},
-          BodyString = {?T("Your subscription request and/or messages to ~s have been blocked. "
-			   "To unblock your subscription request, visit ~s"), [JID, get_url(Id)]},
-	  Body = xmpp:mk_text(BodyString, Lang),
-	  OOB = #oob_x{url = get_url(Id)},
-	  Hint = #hint{type = 'no-store'},
-	  Tref = erlang:send_after(?CAPTCHA_LIFETIME, ?MODULE,
-				   {remove_id, Id}),
-	  ets:insert(captcha,
-		     #captcha{id = Id, pid = self(), key = Key, tref = Tref,
-			      args = Args}),
-	  {ok, Id, Body, [Hint, OOB, Captcha, Data]};
-      Err -> Err
+	    Id = <<(p1_rand:get_string())/binary>>,
+	    JID = jid:encode(From),
+	    CID = <<"sha1+", (str:sha(Image))/binary, "@bob.xmpp.org">>,
+	    Data = #bob_data{cid = CID, 'max-age' = 0, type = Type, data = Image},
+	    Fs = captcha_form:encode(
+		   [{from, To}, {challenge, Id}, {sid, SID},
+		    mk_ocr_field(Lang, CID, Type)],
+		   Lang, [challenge]),
+	    X = #xdata{type = form, fields = Fs},
+	    Captcha = #xcaptcha{xdata = X},
+	    BodyString = {?T("Your subscription request and/or messages to ~s have been blocked. "
+			     "To unblock your subscription request, visit ~s"), [JID, get_url(Id)]},
+	    Body = xmpp:mk_text(BodyString, Lang),
+	    OOB = #oob_x{url = get_url(Id)},
+	    Hint = #hint{type = 'no-store'},
+	    Tref = erlang:send_after(?CAPTCHA_LIFETIME, ?MODULE, {remove_id, Id}),
+	    ets:insert(captcha,
+		       #captcha{id = Id, pid = self(), key = Key, tref = Tref,
+				args = Args}),
+	    {ok, Id, Body, [Hint, OOB, Captcha, Data]};
+	Err -> Err
     end.
 
 -spec create_captcha_x(binary(), jid(), binary(), any(), xdata()) ->
@@ -120,32 +112,23 @@ create_captcha(SID, From, To, Lang, Limiter, Args) ->
 create_captcha_x(SID, To, Lang, Limiter, #xdata{fields = Fs} = X) ->
     case create_image(Limiter) of
       {ok, Type, Key, Image} ->
-	  Id = <<(p1_rand:get_string())/binary>>,
-	  CID = <<"sha1+", (str:sha(Image))/binary, "@bob.xmpp.org">>,
-	  Data = #bob_data{cid = CID, 'max-age' = 0, type = Type, data = Image},
-	  HelpTxt = translate:translate(Lang,
-					?T("If you don't see the CAPTCHA image here, "
-					   "visit the web page.")),
-	  Imageurl = get_url(<<Id/binary, "/image">>),
-	  NewFs = [mk_field(hidden, <<"FORM_TYPE">>, ?NS_CAPTCHA)|Fs] ++
-		[#xdata_field{type = fixed, var = <<"captcha-fallback-text">>, values = [HelpTxt]},
-		 #xdata_field{type = hidden, var = <<"captchahidden">>,
-			      values = [<<"workaround-for-psi">>]},
-		 #xdata_field{type = 'text-single', var = <<"captcha-fallback-url">>,
-			      label = translate:translate(
-					Lang, ?T("CAPTCHA web page")),
-			      values = [Imageurl]},
-		 mk_field(hidden, <<"from">>, jid:encode(To)),
-		 mk_field(hidden, <<"challenge">>, Id),
-		 mk_field(hidden, <<"sid">>, SID),
-		 mk_ocr_field(Lang, CID, Type)],
-	  Captcha = X#xdata{type = form, fields = NewFs},
-	  Tref = erlang:send_after(?CAPTCHA_LIFETIME, ?MODULE,
-				   {remove_id, Id}),
-	  ets:insert(captcha,
-		     #captcha{id = Id, key = Key, tref = Tref}),
-	  {ok, [Captcha, Data]};
-      Err -> Err
+	    Id = <<(p1_rand:get_string())/binary>>,
+	    CID = <<"sha1+", (str:sha(Image))/binary, "@bob.xmpp.org">>,
+	    Data = #bob_data{cid = CID, 'max-age' = 0, type = Type, data = Image},
+	    HelpTxt = translate:translate(
+			Lang, ?T("If you don't see the CAPTCHA image here, visit the web page.")),
+	    Imageurl = get_url(<<Id/binary, "/image">>),
+	    [H|T] = captcha_form:encode(
+		      [{'captcha-fallback-text', HelpTxt},
+		       {'captcha-fallback-url', Imageurl},
+		       {from, To}, {challenge, Id}, {sid, SID},
+		       mk_ocr_field(Lang, CID, Type)],
+		      Lang, [challenge]),
+	    Captcha = X#xdata{type = form, fields = [H|Fs ++ T]},
+	    Tref = erlang:send_after(?CAPTCHA_LIFETIME, ?MODULE, {remove_id, Id}),
+	    ets:insert(captcha, #captcha{id = Id, key = Key, tref = Tref}),
+	    {ok, [Captcha, Data]};
+	Err -> Err
     end.
 
 -spec build_captcha_html(binary(), binary()) -> captcha_not_found |
@@ -199,15 +182,23 @@ build_captcha_html(Id, Lang) ->
 -spec process_reply(xmpp_element()) -> ok | {error, bad_match | not_found | malformed}.
 
 process_reply(#xdata{} = X) ->
-    case {xmpp_util:get_xdata_values(<<"challenge">>, X),
-	  xmpp_util:get_xdata_values(<<"ocr">>, X)} of
-	{[Id], [OCR]} ->
+    Required = [<<"challenge">>, <<"ocr">>],
+    Fs = lists:filter(
+	   fun(#xdata_field{var = Var}) ->
+		   lists:member(Var, [<<"FORM_TYPE">>|Required])
+	   end, X#xdata.fields),
+    try captcha_form:decode(Fs, [?NS_CAPTCHA], Required) of
+	Props ->
+	    Id = proplists:get_value(challenge, Props),
+	    OCR = proplists:get_value(ocr, Props),
 	    case check_captcha(Id, OCR) of
 		captcha_valid -> ok;
 		captcha_non_valid -> {error, bad_match};
 		captcha_not_found -> {error, not_found}
-	    end;
-	_ ->
+	    end
+    catch _:{captcha_form, Why} ->
+	    ?WARNING_MSG("Malformed CAPTCHA form: ~s",
+			 [captcha_form:format_error(Why)]),
 	    {error, malformed}
     end;
 process_reply(#xcaptcha{xdata = #xdata{} = X}) ->
@@ -339,10 +330,13 @@ handle_call(config_reloaded, _From, #state{enabled = Enabled} = State) ->
 		     State
 	     end,
     {reply, ok, State1};
-handle_call(_Request, _From, State) ->
-    {reply, bad_request, State}.
+handle_call(Request, From, State) ->
+    ?WARNING_MSG("Unexpected call from ~p: ~p", [From, Request]),
+    {noreply, State}.
 
-handle_cast(_Msg, State) -> {noreply, State}.
+handle_cast(Msg, State) ->
+    ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
+    {noreply, State}.
 
 handle_info({remove_id, Id}, State) ->
     ?DEBUG("CAPTCHA ~p timed out", [Id]),
@@ -353,7 +347,9 @@ handle_info({remove_id, Id}, State) ->
 	_ -> ok
     end,
     {noreply, State};
-handle_info(_Info, State) -> {noreply, State}.
+handle_info(Info, State) ->
+    ?WARNING_MSG("Unexpected info: ~p", [Info]),
+    {noreply, State}.
 
 terminate(_Reason, #state{enabled = Enabled}) ->
     if Enabled -> unregister_handlers();
@@ -607,7 +603,9 @@ clean_treap(Treap, CleanPriority) ->
 	  end
     end.
 
--spec callback(captcha_succeed | captcha_failed, pid(), term()) -> any().
+-spec callback(captcha_succeed | captcha_failed,
+	       pid() | undefined,
+	       callback() | term()) -> any().
 callback(Result, _Pid, F) when is_function(F) ->
     F(Result);
 callback(Result, Pid, Args) when is_pid(Pid) ->

@@ -64,7 +64,7 @@ c2s_auth_result(#{ip := {Addr, _}, lserver := LServer} = State, {false, _}, _Use
 	false ->
 	    BanLifetime = mod_fail2ban_opt:c2s_auth_ban_lifetime(LServer),
 	    MaxFailures = mod_fail2ban_opt:c2s_max_auth_failures(LServer),
-	    UnbanTS = erlang:system_time(second) + BanLifetime,
+	    UnbanTS = current_time() + BanLifetime,
 	    Attempts = case ets:lookup(failed_auth, Addr) of
 		[{Addr, N, _, _}] ->
 			       ets:insert(failed_auth,
@@ -90,7 +90,7 @@ c2s_auth_result(#{ip := {Addr, _}} = State, true, _User) ->
 c2s_stream_started(#{ip := {Addr, _}} = State, _) ->
     case ets:lookup(failed_auth, Addr) of
 	[{Addr, N, TS, MaxFailures}] when N >= MaxFailures ->
-	    case TS > erlang:system_time(second) of
+	    case TS > current_time() of
 		true ->
 		    log_and_disconnect(State, N, TS);
 		false ->
@@ -135,24 +135,24 @@ init([Host, _Opts]) ->
     erlang:send_after(?CLEAN_INTERVAL, self(), clean),
     {ok, #state{host = Host}}.
 
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+handle_call(Request, From, State) ->
+    ?WARNING_MSG("Unexpected call from ~p: ~p", [From, Request]),
+    {noreply, State}.
 
 handle_cast(_Msg, State) ->
-    ?ERROR_MSG("Unexpected cast = ~p", [_Msg]),
+    ?WARNING_MSG("Unexpected cast = ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(clean, State) ->
     ?DEBUG("Cleaning ~p ETS table", [failed_auth]),
-    Now = erlang:system_time(second),
+    Now = current_time(),
     ets:select_delete(
       failed_auth,
       ets:fun2ms(fun({_, _, UnbanTS, _}) -> UnbanTS =< Now end)),
     erlang:send_after(?CLEAN_INTERVAL, self(), clean),
     {noreply, State};
 handle_info(_Info, State) ->
-    ?ERROR_MSG("Unexpected info = ~p", [_Info]),
+    ?WARNING_MSG("Unexpected info = ~p", [_Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{host = Host}) ->
@@ -215,7 +215,7 @@ unban(Net, Mask) ->
 log_and_disconnect(#{ip := {Addr, _}, lang := Lang} = State, Attempts, UnbanTS) ->
     IP = misc:ip_to_list(Addr),
     UnbanDate = format_date(
-		  calendar:now_to_universal_time(seconds_to_now(UnbanTS))),
+		  calendar:now_to_universal_time(msec_to_now(UnbanTS))),
     Format = ?T("Too many (~p) failed authentications "
 		"from this IP address (~s). The address "
 		"will be unblocked at ~s UTC"),
@@ -225,25 +225,32 @@ log_and_disconnect(#{ip := {Addr, _}, lang := Lang} = State, Attempts, UnbanTS) 
     Err = xmpp:serr_policy_violation({Format, Args}, Lang),
     {stop, ejabberd_c2s:send(State, Err)}.
 
+-spec is_whitelisted(binary(), inet:ip_address()) -> boolean().
 is_whitelisted(Host, Addr) ->
     Access = mod_fail2ban_opt:access(Host),
     acl:match_rule(Host, Access, Addr) == allow.
 
-seconds_to_now(Secs) ->
+-spec msec_to_now(pos_integer()) -> erlang:timestamp().
+msec_to_now(MSecs) ->
+    Secs = MSecs div 1000,
     {Secs div 1000000, Secs rem 1000000, 0}.
 
+-spec format_date(calendar:datetime()) -> iolist().
 format_date({{Year, Month, Day}, {Hour, Minute, Second}}) ->
     io_lib:format("~2..0w:~2..0w:~2..0w ~2..0w.~2..0w.~4..0w",
 		  [Hour, Minute, Second, Day, Month, Year]).
 
+current_time() ->
+    erlang:system_time(millisecond).
+
 mod_opt_type(access) ->
     econf:acl();
 mod_opt_type(c2s_auth_ban_lifetime) ->
-    econf:pos_int();
+    econf:timeout(second);
 mod_opt_type(c2s_max_auth_failures) ->
     econf:pos_int().
 
 mod_options(_Host) ->
     [{access, none},
-     {c2s_auth_ban_lifetime, 3600}, %% one hour
+     {c2s_auth_ban_lifetime, timer:hours(1)},
      {c2s_max_auth_failures, 20}].

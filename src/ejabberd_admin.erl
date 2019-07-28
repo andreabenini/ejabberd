@@ -77,14 +77,16 @@ init([]) ->
     ejabberd_commands:register_commands(get_commands_spec()),
     {ok, #state{}}.
 
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
-
-handle_cast(_Msg, State) ->
+handle_call(Request, From, State) ->
+    ?WARNING_MSG("Unexpected call from ~p: ~p", [From, Request]),
     {noreply, State}.
 
-handle_info(_Info, State) ->
+handle_cast(Msg, State) ->
+    ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
+    {noreply, State}.
+
+handle_info(Info, State) ->
+    ?WARNING_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -276,7 +278,7 @@ get_commands_spec() ->
 			args_example = ["example.com"],
 			args = [{host, binary}], result = {res, rescode}},
 
-     #ejabberd_commands{name = import_prosody, tags = [mnesia, sql, riak],
+     #ejabberd_commands{name = import_prosody, tags = [mnesia, sql],
 			desc = "Import data from Prosody",
 			longdesc = "Note: this method requires ejabberd compiled with optional tools support "
 				"and package must provide optional luerl dependency.",
@@ -498,27 +500,42 @@ update_module(ModuleNameString) ->
 %%%
 
 register(User, Host, Password) ->
-    case ejabberd_auth:try_register(User, Host, Password) of
-	ok ->
-	    {ok, io_lib:format("User ~s@~s successfully registered", [User, Host])};
-	{error, exists} ->
-	    Msg = io_lib:format("User ~s@~s already registered", [User, Host]),
-	    {error, conflict, 10090, Msg};
-	{error, Reason} ->
-	    String = io_lib:format("Can't register user ~s@~s at node ~p: ~s",
-				   [User, Host, node(),
-				    mod_register:format_error(Reason)]),
-	    {error, cannot_register, 10001, String}
+    case is_my_host(Host) of
+	true ->
+	    case ejabberd_auth:try_register(User, Host, Password) of
+		ok ->
+		    {ok, io_lib:format("User ~s@~s successfully registered", [User, Host])};
+		{error, exists} ->
+		    Msg = io_lib:format("User ~s@~s already registered", [User, Host]),
+		    {error, conflict, 10090, Msg};
+		{error, Reason} ->
+		    String = io_lib:format("Can't register user ~s@~s at node ~p: ~s",
+					   [User, Host, node(),
+					    mod_register:format_error(Reason)]),
+		    {error, cannot_register, 10001, String}
+	    end;
+	false ->
+	    {error, cannot_register, 10001, "Unknown virtual host"}
     end.
 
 unregister(User, Host) ->
-    ejabberd_auth:remove_user(User, Host),
-    {ok, ""}.
+    case is_my_host(Host) of
+	true ->
+	    ejabberd_auth:remove_user(User, Host),
+	    {ok, ""};
+	false ->
+	    {error, "Unknown virtual host"}
+    end.
 
 registered_users(Host) ->
-    Users = ejabberd_auth:get_users(Host),
-    SUsers = lists:sort(Users),
-    lists:map(fun({U, _S}) -> U end, SUsers).
+    case is_my_host(Host) of
+	true ->
+	    Users = ejabberd_auth:get_users(Host),
+	    SUsers = lists:sort(Users),
+	    lists:map(fun({U, _S}) -> U end, SUsers);
+	false ->
+	    {error, "Unknown virtual host"}
+    end.
 
 registered_vhosts() ->
     ejabberd_option:hosts().
@@ -812,3 +829,9 @@ mnesia_change_nodename(FromString, ToString, Source, Target) ->
 clear_cache() ->
     Nodes = ejabberd_cluster:get_nodes(),
     lists:foreach(fun(T) -> ets_cache:clear(T, Nodes) end, ets_cache:all()).
+
+-spec is_my_host(binary()) -> boolean().
+is_my_host(Host) ->
+    try ejabberd_router:is_my_host(Host)
+    catch _:{invalid_domain, _} -> false
+    end.

@@ -115,22 +115,25 @@
 start_link() ->
     ?GEN_SERVER:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec stop() -> ok | {error, atom()}.
+-spec stop() -> ok.
 stop() ->
-    case supervisor:terminate_child(ejabberd_sup, ?MODULE) of
-	ok -> supervisor:delete_child(ejabberd_sup, ?MODULE);
-	Err -> Err
-    end.
+    _ = supervisor:terminate_child(ejabberd_sup, ?MODULE),
+    _ = supervisor:delete_child(ejabberd_sup, ?MODULE),
+    _ = supervisor:terminate_child(ejabberd_sup, ejabberd_c2s_sup),
+    _ = supervisor:delete_child(ejabberd_sup, ejabberd_c2s_sup),
+    ok.
 
 -spec route(jid(), term()) -> ok.
 %% @doc route arbitrary term to c2s process(es)
 route(To, Term) ->
-    case catch do_route(To, Term) of
-	{'EXIT', Reason} ->
-	    ?ERROR_MSG("Route ~p to ~p failed: ~p",
-		       [Term, To, Reason]);
-	_ ->
-	    ok
+    try do_route(To, Term), ok
+    catch ?EX_RULE(E, R, St) ->
+	    StackTrace = ?EX_STACK(St),
+	    ?ERROR_MSG("Failed to route term to ~s:~n"
+		       "** Term = ~p~n"
+		       "** ~s",
+		       [jid:encode(To), Term,
+			misc:format_exception(2, E, R, StackTrace)])
     end.
 
 -spec route(stanza()) -> ok.
@@ -140,13 +143,8 @@ route(Packet) ->
 	drop ->
 	    ?DEBUG("Hook dropped stanza:~n~s", [xmpp:pp(Packet)]);
 	Packet1 ->
-	    try do_route(Packet1), ok
-	    catch ?EX_RULE(E, R, St) ->
-		    StackTrace = ?EX_STACK(St),
-		    ?ERROR_MSG("Failed to route packet:~n~s~nReason = ~p",
-			       [xmpp:pp(Packet1),
-				{E, {R, StackTrace}}])
-	    end
+	    do_route(Packet1),
+	    ok
     end.
 
 -spec open_session(sid(), binary(), binary(), binary(), prio(), info()) -> ok.
@@ -494,14 +492,14 @@ init([]) ->
 	    {stop, Why}
     end.
 
-handle_call(_Request, _From, State) ->
-    Reply = ok, {reply, Reply, State}.
+handle_call(Request, From, State) ->
+    ?WARNING_MSG("Unexpected call from ~p: ~p", [From, Request]),
+    {noreply, State}.
 
-handle_cast(_Msg, State) -> {noreply, State}.
+handle_cast(Msg, State) ->
+    ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
+    {noreply, State}.
 
-handle_info({route, Packet}, State) ->
-    route(Packet),
-    {noreply, State};
 handle_info(Info, State) ->
     ?WARNING_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.

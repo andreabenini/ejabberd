@@ -1,7 +1,7 @@
 %%%----------------------------------------------------------------------
 %%% File    : ejabberd_auth.erl
 %%% Author  : Alexey Shchepin <alexey@process-one.net>
-%%% Purpose : Authentification
+%%% Purpose : Authentication
 %%% Created : 23 Nov 2002 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
@@ -73,7 +73,7 @@
 -callback plain_password_required(binary()) -> boolean().
 -callback store_type(binary()) -> plain | external | scram.
 -callback set_password(binary(), binary(), password()) ->
-    {ets_cache:tag(), {ok, password()} | {error, db_failure}}.
+    {ets_cache:tag(), {ok, password()} | {error, db_failure | not_allowed}}.
 -callback remove_user(binary(), binary()) -> ok | {error, db_failure | not_allowed}.
 -callback user_exists(binary(), binary()) -> {ets_cache:tag(), boolean() | {error, db_failure}}.
 -callback check_password(binary(), binary(), binary(), binary()) -> {ets_cache:tag(), boolean()}.
@@ -117,9 +117,9 @@ init([]) ->
     init_cache(HostModules),
     {ok, #state{host_modules = HostModules}}.
 
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+handle_call(Request, From, State) ->
+    ?WARNING_MSG("Unexpected call from ~p: ~p", [From, Request]),
+    {noreply, State}.
 
 handle_cast({host_up, Host}, #state{host_modules = HostModules} = State) ->
     Modules = auth_modules(Host),
@@ -150,7 +150,8 @@ handle_cast(Msg, State) ->
     ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    ?WARNING_MSG("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, State) ->
@@ -252,7 +253,9 @@ check_password_with_authmodule(User, AuthzId, Server, Password, Digest, DigestGe
 	    false
     end.
 
--spec set_password(binary(), binary(), password()) -> ok | {error, atom()}.
+-spec set_password(binary(), binary(), password()) -> ok | {error,
+							    db_failure | not_allowed |
+							    invalid_jid | invalid_password}.
 set_password(User, Server, Password) ->
     case validate_credentials(User, Server, Password) of
 	{ok, LUser, LServer} ->
@@ -266,7 +269,9 @@ set_password(User, Server, Password) ->
 	    Err
     end.
 
--spec try_register(binary(), binary(), password()) -> ok | {error, atom()}.
+-spec try_register(binary(), binary(), password()) -> ok | {error,
+							    db_failure | not_allowed | exists |
+							    invalid_jid | invalid_password}.
 try_register(User, Server, Password) ->
     case validate_credentials(User, Server, Password) of
 	{ok, LUser, LServer} ->
@@ -537,6 +542,7 @@ password_format(LServer) ->
 %%%----------------------------------------------------------------------
 %%% Backend calls
 %%%----------------------------------------------------------------------
+-spec db_try_register(binary(), binary(), password(), module()) -> ok | {error, exists | db_failure | not_allowed}.
 db_try_register(User, Server, Password, Mod) ->
     case erlang:function_exported(Mod, try_register, 3) of
 	true ->
@@ -544,22 +550,24 @@ db_try_register(User, Server, Password, Mod) ->
 			    scram -> password_to_scram(Password);
 			    _ -> Password
 			end,
-	    case use_cache(Mod, Server) of
-		true ->
-		    case ets_cache:update(
-			   cache_tab(Mod), {User, Server}, {ok, Password},
-			   fun() -> Mod:try_register(User, Server, Password1) end,
-			   cache_nodes(Mod, Server)) of
-			{ok, _} -> ok;
-			{error, _} = Err -> Err
-		    end;
-		false ->
-		    ets_cache:untag(Mod:try_register(User, Server, Password1))
+	    Ret = case use_cache(Mod, Server) of
+		      true ->
+			  ets_cache:update(
+			    cache_tab(Mod), {User, Server}, {ok, Password},
+			    fun() -> Mod:try_register(User, Server, Password1) end,
+			    cache_nodes(Mod, Server));
+		      false ->
+			  ets_cache:untag(Mod:try_register(User, Server, Password1))
+		  end,
+	    case Ret of
+		{ok, _} -> ok;
+		{error, _} = Err -> Err
 	    end;
 	false ->
 	    {error, not_allowed}
     end.
 
+-spec db_set_password(binary(), binary(), password(), module()) -> ok | {error, db_failure | not_allowed}.
 db_set_password(User, Server, Password, Mod) ->
     case erlang:function_exported(Mod, set_password, 3) of
 	true ->
@@ -567,17 +575,18 @@ db_set_password(User, Server, Password, Mod) ->
 			    scram -> password_to_scram(Password);
 			    _ -> Password
 			end,
-	    case use_cache(Mod, Server) of
-		true ->
-		    case ets_cache:update(
-			   cache_tab(Mod), {User, Server}, {ok, Password},
-			   fun() -> Mod:set_password(User, Server, Password1) end,
-			   cache_nodes(Mod, Server)) of
-			{ok, _} -> ok;
-			{error, _} = Err -> Err
-		    end;
-		false ->
-		    ets_cache:untag(Mod:set_password(User, Server, Password1))
+	    Ret = case use_cache(Mod, Server) of
+		      true ->
+			  ets_cache:update(
+			    cache_tab(Mod), {User, Server}, {ok, Password},
+			    fun() -> Mod:set_password(User, Server, Password1) end,
+			    cache_nodes(Mod, Server));
+		      false ->
+			  ets_cache:untag(Mod:set_password(User, Server, Password1))
+		  end,
+	    case Ret of
+		{ok, _} -> ok;
+		{error, _} = Err -> Err
 	    end;
 	false ->
 	    {error, not_allowed}
@@ -892,7 +901,5 @@ import_start(_LServer, _) ->
 
 import(Server, {sql, _}, mnesia, <<"users">>, Fields) ->
     ejabberd_auth_mnesia:import(Server, Fields);
-import(Server, {sql, _}, riak, <<"users">>, Fields) ->
-    ejabberd_auth_riak:import(Server, Fields);
 import(_LServer, {sql, _}, sql, <<"users">>, _) ->
     ok.
