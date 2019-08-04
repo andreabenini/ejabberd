@@ -34,7 +34,7 @@
 %% API
 -export([start/2,
 	 stop/1,
-	 start_link/3,
+	 start_link/2,
 	 reload/3,
 	 room_destroyed/4,
 	 store_room/4,
@@ -114,7 +114,7 @@
 %% API
 %%====================================================================
 start(Host, Opts) ->
-    case mod_muc_sup:start(Host, Opts) of
+    case mod_muc_sup:start(Host) of
 	{ok, _} ->
 	    MyHosts = gen_mod:get_opt_hosts(Opts),
 	    Mod = gen_mod:db_mod(Opts, ?MODULE),
@@ -171,9 +171,9 @@ reload(ServerHost, NewOpts, OldOpts) ->
 depends(_Host, _Opts) ->
     [{mod_mam, soft}].
 
-start_link(Host, Opts, I) ->
+start_link(Host, I) ->
     Proc = procname(Host, I),
-    ?GEN_SERVER:start_link({local, Proc}, ?MODULE, [Host, Opts, I],
+    ?GEN_SERVER:start_link({local, Proc}, ?MODULE, [Host, I],
 			   ejabberd_config:fsm_limit_opts([])).
 
 -spec procname(binary(), pos_integer() | {binary(), binary()}) -> atom().
@@ -365,8 +365,9 @@ get_online_rooms_by_user(ServerHost, LUser, LServer) ->
 %% gen_server callbacks
 %%====================================================================
 -spec init(list()) -> {ok, state()}.
-init([Host, Opts, Worker]) ->
+init([Host, Worker]) ->
     process_flag(trap_exit, true),
+    Opts = gen_mod:get_module_opts(Host, ?MODULE),
     MyHosts = gen_mod:get_opt_hosts(Opts),
     register_routes(Host, MyHosts, Worker),
     register_iq_handlers(MyHosts, Worker),
@@ -556,11 +557,17 @@ route_to_room(Packet, ServerHost) ->
     end.
 
 -spec process_vcard(iq()) -> iq().
-process_vcard(#iq{type = get, lang = Lang, sub_els = [#vcard_temp{}]} = IQ) ->
-    xmpp:make_iq_result(
-      IQ, #vcard_temp{fn = <<"ejabberd/mod_muc">>,
-		      url = ejabberd_config:get_uri(),
-		      desc = misc:get_descr(Lang, ?T("ejabberd MUC module"))});
+process_vcard(#iq{type = get, to = To, lang = Lang, sub_els = [#vcard_temp{}]} = IQ) ->
+    ServerHost = ejabberd_router:host_of_route(To#jid.lserver),
+    VCard = case mod_muc_opt:vcard(ServerHost) of
+		undefined ->
+		    #vcard_temp{fn = <<"ejabberd/mod_muc">>,
+				url = ejabberd_config:get_uri(),
+				desc = misc:get_descr(Lang, ?T("ejabberd MUC module"))};
+		V ->
+		    V
+	    end,
+    xmpp:make_iq_result(IQ, VCard);
 process_vcard(#iq{type = set, lang = Lang} = IQ) ->
     Txt = ?T("Value 'set' of 'type' attribute is not allowed"),
     xmpp:make_error(IQ, xmpp:err_not_allowed(Txt, Lang));
@@ -1182,7 +1189,9 @@ mod_opt_type(hosts) ->
 mod_opt_type(queue_type) ->
     econf:queue_type();
 mod_opt_type(hibernation_timeout) ->
-    econf:timeout(second, infinity).
+    econf:timeout(second, infinity);
+mod_opt_type(vcard) ->
+    econf:vcard_temp().
 
 mod_options(Host) ->
     [{access, all},
@@ -1214,6 +1223,7 @@ mod_options(Host) ->
      {user_presence_shaper, none},
      {preload_rooms, true},
      {hibernation_timeout, infinity},
+     {vcard, undefined},
      {default_room_options,
       [{allow_change_subj,true},
        {allow_private_messages,true},

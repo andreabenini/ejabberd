@@ -39,7 +39,7 @@
 %% supervisor callbacks.
 -export([init/1]).
 
--export([start_link/2, mod_opt_type/1, mod_options/1, depends/2]).
+-export([start_link/1, mod_opt_type/1, mod_options/1, depends/2]).
 
 -define(PROCNAME, ejabberd_mod_proxy65).
 
@@ -59,7 +59,7 @@ start(Host, Opts) ->
 	    Mod = gen_mod:ram_db_mod(global, ?MODULE),
 	    Mod:init(),
 	    Proc = gen_mod:get_module_proc(Host, ?PROCNAME),
-	    ChildSpec = {Proc, {?MODULE, start_link, [Host, Opts]},
+	    ChildSpec = {Proc, {?MODULE, start_link, [Host]},
 			 transient, infinity, supervisor, [?MODULE]},
 	    supervisor:start_child(ejabberd_gen_mod_sup, ChildSpec)
     end.
@@ -80,14 +80,13 @@ reload(Host, NewOpts, OldOpts) ->
     Mod:init(),
     mod_proxy65_service:reload(Host, NewOpts, OldOpts).
 
-start_link(Host, Opts) ->
+start_link(Host) ->
     Proc = gen_mod:get_module_proc(Host, ?PROCNAME),
-    supervisor:start_link({local, Proc}, ?MODULE,
-			  [Host, Opts]).
+    supervisor:start_link({local, Proc}, ?MODULE, [Host]).
 
-init([Host, Opts]) ->
+init([Host]) ->
     Service = {mod_proxy65_service,
-	       {mod_proxy65_service, start_link, [Host, Opts]},
+	       {mod_proxy65_service, start_link, [Host]},
 	       transient, 5000, worker, [mod_proxy65_service]},
     {ok, {{one_for_one, 10, 1}, [Service]}}.
 
@@ -121,7 +120,9 @@ mod_opt_type(recbuf) ->
 mod_opt_type(shaper) ->
     econf:shaper();
 mod_opt_type(sndbuf) ->
-    econf:pos_int().
+    econf:pos_int();
+mod_opt_type(vcard) ->
+    econf:vcard_temp().
 
 mod_options(Host) ->
     [{ram_db_type, ejabberd_config:default_ram_db(Host, ?MODULE)},
@@ -132,6 +133,7 @@ mod_options(Host) ->
      {ip, undefined},
      {port, 7777},
      {name, ?T("SOCKS5 Bytestreams")},
+     {vcard, undefined},
      {max_connections, infinity},
      {auth_type, anonymous},
      {recbuf, 65536},
