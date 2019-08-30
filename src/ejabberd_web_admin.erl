@@ -265,6 +265,13 @@ get_auth_admin(Auth, HostHTTP, RPath, Method) ->
 
 get_auth_account(HostOfRule, AccessRule, User, Server,
 		 Pass) ->
+    case lists:member(Server, ejabberd_config:get_option(hosts)) of
+	true -> get_auth_account2(HostOfRule, AccessRule, User, Server, Pass);
+	false -> {unauthorized, <<"inexistent-host">>}
+    end.
+
+get_auth_account2(HostOfRule, AccessRule, User, Server,
+		 Pass) ->
     case ejabberd_auth:check_password(User, <<"">>, Server, Pass) of
       true ->
 	  case any_rules_allowed(HostOfRule, AccessRule,
@@ -443,7 +450,7 @@ process_admin(_Host, #request{path = [<<"additions.js">>]}, _) ->
 process_admin(global, #request{path = [<<"vhosts">>], lang = Lang}, AJID) ->
     Res = list_vhosts(Lang, AJID),
     make_xhtml((?H1GL((translate:translate(Lang, ?T("Virtual Hosts"))),
-		      <<"virtualhosting">>, ?T("Virtual Hosting")))
+		      <<"virtual-hosting">>, ?T("Virtual Hosting")))
 		 ++ Res,
 	       global, Lang, AJID);
 process_admin(Host,  #request{path = [<<"users">>], q = Query,
@@ -478,8 +485,8 @@ process_admin(Host, #request{path = [<<"last-activity">>],
 		list_last_activity(Host, Lang, false, Month);
 	    _ -> list_last_activity(Host, Lang, true, Month)
 	  end,
-    make_xhtml([?XCT(<<"h1">>, ?T("Users Last Activity"))]
-		 ++
+    PageH1 = ?H1GL(translate:translate(Lang, ?T("Users Last Activity")), <<"mod-last">>, <<"mod_last">>),
+    make_xhtml(PageH1 ++
 		 [?XAE(<<"form">>,
 		       [{<<"action">>, <<"">>}, {<<"method">>, <<"post">>}],
 		       [?CT(?T("Period: ")),
@@ -509,8 +516,8 @@ process_admin(Host, #request{path = [<<"last-activity">>],
 	       Host, Lang, AJID);
 process_admin(Host, #request{path = [<<"stats">>], lang = Lang}, AJID) ->
     Res = get_stats(Host, Lang),
-    make_xhtml([?XCT(<<"h1">>, ?T("Statistics"))] ++ Res,
-	       Host, Lang, AJID);
+    PageH1 = ?H1GL(translate:translate(Lang, ?T("Statistics")), <<"mod-stats">>, <<"mod_stats">>),
+    make_xhtml(PageH1 ++ Res, Host, Lang, AJID);
 process_admin(Host, #request{path = [<<"user">>, U],
 			     q = Query, lang = Lang}, AJID) ->
     case ejabberd_auth:user_exists(U, Host) of
@@ -1285,9 +1292,7 @@ get_node(global, Node, [<<"backup">>], Query, Lang) ->
 				   [?CT(?T("Export data of users in a host to PIEFXIS "
 					   "files (XEP-0227):")),
 				    ?C(<<" ">>),
-				    ?INPUT(<<"text">>,
-					   <<"export_piefxis_host_dirhost">>,
-					   (ejabberd_config:get_myname()))]),
+				    make_select_host(Lang, <<"export_piefxis_host_dirhost">>)]),
 			       ?XE(<<"td">>,
 				   [?INPUT(<<"text">>,
 					   <<"export_piefxis_host_dirpath">>,
@@ -1301,9 +1306,7 @@ get_node(global, Node, [<<"backup">>], Query, Lang) ->
                                    [?CT(?T("Export all tables as SQL queries "
 					   "to a file:")),
                                     ?C(<<" ">>),
-                                    ?INPUT(<<"text">>,
-                                           <<"export_sql_filehost">>,
-                                           (ejabberd_config:get_myname()))]),
+                                    make_select_host(Lang, <<"export_sql_filehost">>)]),
                                ?XE(<<"td">>,
 				   [?INPUT(<<"text">>,
                                            <<"export_sql_filepath">>,
@@ -1472,6 +1475,15 @@ node_parse_query(Node, Query) ->
 	    _ -> nothing
 	  end
     end.
+
+make_select_host(Lang, Name) ->
+    ?XAE(<<"select">>,
+	 [{<<"name">>, Name}],
+	 (lists:map(fun (Host) ->
+			    ?XACT(<<"option">>,
+				  ([{<<"value">>, Host}]), Host)
+		    end,
+		    ejabberd_config:get_option(hosts)))).
 
 db_storage_select(ID, Opt, Lang) ->
     ?XAE(<<"select">>,
