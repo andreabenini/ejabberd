@@ -40,7 +40,9 @@ opt_type(acl) ->
 opt_type(acme) ->
     econf:options(
       #{ca_url => econf:url(),
-	contact => econf:binary("^[a-zA-Z]+:[^:]+$")},
+	contact => econf:list_or_single(econf:binary("^[a-zA-Z]+:[^:]+$")),
+	auto => econf:bool(),
+	cert_type => econf:enum([ec, rsa])},
       [unique, {return, map}]);
 opt_type(allow_contrib_modules) ->
     econf:bool();
@@ -232,6 +234,8 @@ opt_type(oauth_expire) ->
     econf:non_neg_int();
 opt_type(oauth_use_cache) ->
     econf:bool();
+opt_type(oauth_client_id_check) ->
+    econf:enum([allow, deny, db]);
 opt_type(oom_killer) ->
     econf:bool();
 opt_type(oom_queue) ->
@@ -409,7 +413,9 @@ opt_type(jwt_key) ->
                   {error, Reason} ->
                       econf:fail({read_file, Reason, Path})
               end
-      end).
+      end);
+opt_type(jwt_auth_only_rule) ->
+    econf:atom().
 
 %% We only define the types of options that cannot be derived
 %% automatically by tools/opt_type.sh script
@@ -542,6 +548,7 @@ options() ->
      {oauth_expire, 4294967},
      {oauth_use_cache,
       fun(Host) -> ejabberd_config:get_option({use_cache, Host}) end},
+     {oauth_client_id_check, allow},
      {oom_killer, true},
      {oom_queue, 10000},
      {oom_watermark, 80},
@@ -635,7 +642,8 @@ options() ->
      {websocket_origin, []},
      {websocket_ping_interval, timer:seconds(60)},
      {websocket_timeout, timer:minutes(5)},
-     {jwt_key, undefined}].
+     {jwt_key, undefined},
+     {jwt_auth_only_rule, none}].
 
 -spec globals() -> [atom()].
 globals() ->
