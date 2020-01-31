@@ -5,7 +5,7 @@
 %%% Created : 29 May 2007 by Badlop <badlop@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2019   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2020   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -495,7 +495,7 @@ report_not_jid(From, Packet, Dests) ->
 	      || Dest <- Dests],
     [route_error(
        xmpp:set_from_to(Packet, From, From), jid_malformed,
-       str:format(?T("This service can not process the address: ~ts"), [D]))
+       str:format(?T("This service can not process the address: ~s"), [D]))
      || D <- Dests2].
 
 %%%-------------------------

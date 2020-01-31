@@ -5,7 +5,7 @@
 %%% Created : 15 Aug 2014 by Evgeny Khramtsov <ekhramtsov@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2014-2019   ProcessOne
+%%% ejabberd, Copyright (C) 2014-2020   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -217,8 +217,8 @@ log_and_disconnect(#{ip := {Addr, _}, lang := Lang} = State, Attempts, UnbanTS) 
     UnbanDate = format_date(
 		  calendar:now_to_universal_time(msec_to_now(UnbanTS))),
     Format = ?T("Too many (~p) failed authentications "
-		"from this IP address (~ts). The address "
-		"will be unblocked at ~ts UTC"),
+		"from this IP address (~s). The address "
+		"will be unblocked at ~s UTC"),
     Args = [Attempts, IP, UnbanDate],
     ?WARNING_MSG("Connection attempt from blacklisted IP ~ts: ~ts",
 		 [IP, io_lib:fwrite(Format, Args)]),

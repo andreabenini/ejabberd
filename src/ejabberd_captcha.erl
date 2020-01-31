@@ -5,7 +5,7 @@
 %%% Created : 26 Apr 2008 by Evgeniy Khramtsov <xramtsov@gmail.com>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2019   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2020   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -94,8 +94,8 @@ create_captcha(SID, From, To, Lang, Limiter, Args) ->
 		   Lang, [challenge]),
 	    X = #xdata{type = form, fields = Fs},
 	    Captcha = #xcaptcha{xdata = X},
-	    BodyString = {?T("Your subscription request and/or messages to ~ts have been blocked. "
-			     "To unblock your subscription request, visit ~ts"), [JID, get_url(Id)]},
+	    BodyString = {?T("Your subscription request and/or messages to ~s have been blocked. "
+			     "To unblock your subscription request, visit ~s"), [JID, get_url(Id)]},
 	    Body = xmpp:mk_text(BodyString, Lang),
 	    OOB = #oob_x{url = get_url(Id)},
 	    Hint = #hint{type = 'no-store'},

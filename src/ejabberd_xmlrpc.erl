@@ -5,7 +5,7 @@
 %%% Created : 21 Aug 2007 by Badlop <badlop@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2019   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2020   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -375,7 +375,7 @@ format_result(Code, {Name, rescode}) ->
 format_result({Code, Text}, {Name, restuple}) ->
     {struct,
      [{Name, make_status(Code)},
-      {text, io_lib:format("~ts", [Text])}]};
+      {text, io_lib:format("~s", [Text])}]};
 format_result(Elements, {Name, {list, ElementsDef}}) ->
     FormattedList = lists:map(fun (Element) ->
 				      format_result(Element, ElementsDef)

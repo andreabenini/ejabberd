@@ -5,7 +5,7 @@
 %%% Created : 20 Aug 2015 by Holger Weiss <holger@zedat.fu-berlin.de>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2015-2019   ProcessOne
+%%% ejabberd, Copyright (C) 2015-2020   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -320,7 +320,7 @@ mod_doc() ->
                      "used for file uploads. The keyword @HOST@ is replaced "
                      "with the virtual host name. NOTE: different virtual "
                      "hosts cannot use the same PUT URL. "
-                     "The default value is \"http://@HOST@:5444\".")}},
+                     "The default value is \"https://@HOST@:5443\".")}},
            {get_url,
             #{value => ?T("URL"),
               desc =>
