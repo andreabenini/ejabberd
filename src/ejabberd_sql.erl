@@ -253,7 +253,7 @@ to_list(EscapeFun, Val) ->
 
 to_array(EscapeFun, Val) ->
     Escaped = lists:join(<<",">>, lists:map(EscapeFun, Val)),
-    [<<"{">>, Escaped, <<"}">>].
+    lists:flatten([<<"{">>, Escaped, <<"}">>]).
 
 to_string_literal(odbc, S) ->
     <<"'", (escape(S))/binary, "'">>;
@@ -736,11 +736,11 @@ pgsql_sql_query_format(SQLQuery) ->
 pgsql_escape() ->
     #sql_escape{string = fun(X) -> <<"E'", (escape(X))/binary, "'">> end,
 		integer = fun(X) -> misc:i2l(X) end,
-		boolean = fun(true) -> <<"1">>;
-                             (false) -> <<"0">>
+		boolean = fun(true) -> <<"'t'">>;
+                             (false) -> <<"'f'">>
                           end,
 		in_array_string = fun(X) -> <<"E'", (escape(X))/binary, "'">> end,
-                like_escape = fun() -> <<"">> end
+                like_escape = fun() -> <<"ESCAPE E'\\\\'">> end
                }.
 
 sqlite_sql_query(SQLQuery) ->
@@ -776,11 +776,13 @@ pgsql_prepare(SQLQuery, State) ->
                          like_escape = fun() -> escape end},
     {RArgs, _} =
         lists:foldl(
-          fun(arg, {Acc, I}) ->
-                  {[<<$$, (integer_to_binary(I))/binary>> | Acc], I + 1};
-             (escape, {Acc, I}) ->
-                  {[<<"">> | Acc], I}
-          end, {[], 1}, (SQLQuery#sql_query.args)(Escape)),
+	    fun(arg, {Acc, I}) ->
+		{[<<$$, (integer_to_binary(I))/binary>> | Acc], I + 1};
+	       (escape, {Acc, I}) ->
+		   {[<<"ESCAPE E'\\\\'">> | Acc], I};
+	       (List, {Acc, I}) when is_list(List) ->
+		   {[<<$$, (integer_to_binary(I))/binary>> | Acc], I + 1}
+	    end, {[], 1}, (SQLQuery#sql_query.args)(Escape)),
     Args = lists:reverse(RArgs),
     %N = length((SQLQuery#sql_query.args)(Escape)),
     %Args = [<<$$, (integer_to_binary(I))/binary>> || I <- lists:seq(1, N)],
@@ -1001,12 +1003,18 @@ pgsql_execute_to_odbc(_) -> {updated, undefined}.
 
 %% part of init/1
 %% Open a database connection to MySQL
-mysql_connect(Server, Port, DB, Username, Password, ConnectTimeout,  _, _) ->
+mysql_connect(Server, Port, DB, Username, Password, ConnectTimeout, Transport, _) ->
+    SSLOpts = case Transport of
+		  ssl ->
+		      [ssl_required];
+		  _ ->
+		      []
+	      end,
     case p1_mysql_conn:start(binary_to_list(Server), Port,
 			     binary_to_list(Username),
 			     binary_to_list(Password),
 			     binary_to_list(DB),
-			     ConnectTimeout, fun log/3)
+			     ConnectTimeout, fun log/3, SSLOpts)
 	of
 	{ok, Ref} ->
 	    p1_mysql_conn:fetch(
@@ -1111,6 +1119,8 @@ db_opts(Host) ->
 warn_if_ssl_unsupported(tcp, _) ->
     ok;
 warn_if_ssl_unsupported(ssl, pgsql) ->
+    ok;
+warn_if_ssl_unsupported(ssl, mysql) ->
     ok;
 warn_if_ssl_unsupported(ssl, Type) ->
     ?WARNING_MSG("SSL connection is not supported for ~ts", [Type]).
