@@ -36,14 +36,14 @@ doc() ->
      {listen,
       #{value => "[Options, ...]",
         desc =>
-            ?T("The option for listeners configuration. See "
-               "<<listeners,Listeners>> section of this document "
+            ?T("The option for listeners configuration. See the "
+               "http://../listen/[Listen Modules] section "
                "for details.")}},
      {modules,
       #{value => "{Module: Options}",
         desc =>
             ?T("The option for modules configuration. See "
-               "<<modules,Modules>> section of this document "
+               "http://../modules/[Modules] section "
                "for details.")}},
      {loglevel,
       #{value =>
@@ -60,32 +60,49 @@ doc() ->
       #{value => "timeout()",
         desc =>
             ?T("The time of a cached item to keep in cache. "
-               "Once it's expired, the corresponding item is "
-               "erased from cache. The default value is 'one hour'.")}},
+	       "Once it's expired, the corresponding item is "
+	       "erased from cache. The default value is 'one hour'. "
+	       "Several modules have a similar option; and some core "
+	       "ejabberd parts support similar options too, see "
+	       "'auth_cache_life_time', 'oauth_cache_life_time', "
+	       "'router_cache_life_time', and 'sm_cache_life_time'.")}},
      {cache_missed,
       #{value => "true | false",
         desc =>
             ?T("Whether or not to cache missed lookups. When there is "
-               "an attempt to lookup for a value in a database and "
-               "this value is not found and the option is set to 'true', "
-               "this attempt will be cached and no attempts will be "
-               "performed until the cache expires (see 'cache_life_time'). "
-               "Usually you don't want to change it. Default is 'true'.")}},
+	       "an attempt to lookup for a value in a database and "
+	       "this value is not found and the option is set to 'true', "
+	       "this attempt will be cached and no attempts will be "
+	       "performed until the cache expires (see 'cache_life_time'). "
+	       "Usually you don't want to change it. Default is 'true'. "
+	       "Several modules have a similar option; and some core "
+	       "ejabberd parts support similar options too, see "
+	       "'auth_cache_missed', 'oauth_cache_missed', "
+	       "'router_cache_missed', and 'sm_cache_missed'.")}},
      {cache_size,
       #{value => "pos_integer() | infinity",
         desc =>
-            ?T("A maximum number of items (not memory!) in cache. "
-               "The rule of thumb, for all tables except rosters, "
-               "you should set it to the number of maximum online "
-               "users you expect. For roster multiply this number "
-               "by 20 or so. If the cache size reaches this threshold, "
-               "it's fully cleared, i.e. all items are deleted, and "
-               "the corresponding warning is logged. You should avoid "
-               "frequent cache clearance, because this degrades "
-               "performance. The default value is '1000'.")}},
+	    ?T("A maximum number of items (not memory!) in cache. "
+	       "The rule of thumb, for all tables except rosters, "
+	       "you should set it to the number of maximum online "
+	       "users you expect. For roster multiply this number "
+	       "by 20 or so. If the cache size reaches this threshold, "
+	       "it's fully cleared, i.e. all items are deleted, and "
+	       "the corresponding warning is logged. You should avoid "
+	       "frequent cache clearance, because this degrades "
+	       "performance. The default value is '1000'. "
+	       "Several modules have a similar option; and some core "
+	       "ejabberd parts support similar options too, see "
+	       "'auth_cache_size', 'oauth_cache_size', "
+	       "'router_cache_size', and 'sm_cache_size'.")}},
      {use_cache,
       #{value => "true | false",
-        desc => ?T("Enable or disable cache. The default is 'true'.")}},
+        desc =>
+	    ?T("Enable or disable cache. The default is 'true'. "
+	       "Several modules have a similar option; and some core "
+	       "ejabberd parts support similar options too, see "
+	       "'auth_use_cache', 'oauth_use_cache', 'router_use_cache', "
+	       "and 'sm_use_cache'.")}},
      {default_db,
       #{value => "mnesia | sql",
         desc =>
@@ -300,6 +317,13 @@ doc() ->
                "'sasl_anon' means that the SASL Anonymous method will be used. "
                "'both' means that SASL Anonymous and login anonymous are both "
                "enabled. The default value is 'sasl_anon'.")}},
+     {api_permissions,
+      #{value => "[Permission, ...]",
+        desc =>
+            ?T("Define the permissions for API access. Please consult the "
+               "ejabberd Docs web -> For Developers -> ejabberd ReST API -> "
+               "https://docs.ejabberd.im/developer/ejabberd-api/permissions/"
+               "[API Permissions].")}},
      {append_host_config,
       #{value => "{Host: Options}",
         desc =>
@@ -330,6 +354,13 @@ doc() ->
                "considered successful as long as authentication of "
                "at least one of the methods succeeds. "
                "The default value is '[mnesia]'.")}},
+     {auth_opts,
+      #{value => "[Option, ...]",
+        desc =>
+            ?T("This is used by the contributed module "
+	       "'ejabberd_auth_http' that can be installed from the "
+	       "'ejabberd-contrib' Git repository. Please refer to that "
+	       "module's README file for details.")}},
      {auth_password_format,
       #{value => "plain | scram",
         desc =>
@@ -415,7 +446,8 @@ doc() ->
                "any given JID. The option is intended to protect the server "
                "from CAPTCHA DoS. The default value is 'infinity'.")}},
      {captcha_host,
-      #{desc => ?T("Deprecated. Use 'captcha_url' instead.")}},
+      #{value => "String",
+        desc => ?T("Deprecated. Use 'captcha_url' instead.")}},
      {captcha_url,
       #{value => ?T("URL"),
         desc =>
@@ -516,6 +548,11 @@ doc() ->
         #{value => "2..1000",
           desc =>
               ?T("The number of components to balance.")}}]},
+     {extauth_pool_name,
+      #{value => ?T("Name"),
+        desc =>
+            ?T("Define the pool name appendix, so the full pool name will be "
+               "'extauth_pool_Name'. The default value is the hostname.")}},
      {extauth_pool_size,
       #{value => ?T("Size"),
         desc =>
@@ -527,6 +564,28 @@ doc() ->
         desc =>
             ?T("Indicate in this option the full path to the external "
                "authentication script. The script must be executable by ejabberd.")}},
+     {ext_api_headers,
+      #{value => "Headers",
+        desc =>
+            ?T("String of headers (separated with commas ',') that will be "
+               "provided by ejabberd when sending ReST requests. "
+               "The default value is an empty string of headers: '\"\"'.")}},
+     {ext_api_http_pool_size,
+      #{value => "pos_integer()",
+        desc =>
+            ?T("Define the size of the HTTP pool, that is, the maximum number "
+               "of sessions that the ejabberd ReST service will handle "
+               "simultaneously. The default value is: '100'.")}},
+     {ext_api_path_oauth,
+      #{value => "Path",
+        desc =>
+            ?T("Define the base URI path when performing OAUTH ReST requests. "
+               "The default value is: '\"/oauth\"'.")}},
+     {ext_api_url,
+      #{value => "URL",
+        desc =>
+            ?T("Define the base URI when performing ReST requests. "
+               "The default value is: '\"http://localhost/api\"'.")}},
      {fqdn,
       #{value => ?T("Domain"),
         desc =>
@@ -577,6 +636,26 @@ doc() ->
                  "file 'Filename'. The options that do not match this "
                  "criteria are not accepted. The default value is to include "
                  "all options.")}}]},
+     {jwt_auth_only_rule,
+      #{value => ?T("AccessName"),
+        desc =>
+            ?T("This ACL rule defines accounts that can use only this auth "
+               "method, even if others are also defined in the ejabberd "
+               "configuration file. In other words: if there are several auth "
+               "methods enabled for this host (JWT, SQL, ...), users that "
+               "match this rule can only use JWT. "
+               "The default value is 'none'.")}},
+     {jwt_jid_field,
+      #{value => ?T("FieldName"),
+        desc =>
+            ?T("By default, the JID is defined in the '\"jid\"' JWT field. "
+               "This option allows to specify other JWT field name "
+               "where the JID is defined.")}},
+     {jwt_key,
+      #{value => ?T("FilePath"),
+        desc =>
+            ?T("Path to the file that contains the JWK Key. "
+               "The default value is 'undefined'.")}},
      {language,
       #{value => ?T("Language"),
         desc =>
@@ -780,6 +859,12 @@ doc() ->
         desc =>
             ?T("Same as 'cache_size', but applied to OAuth cache "
                "only. If not set, the value from 'cache_size' will be used.")}},
+     {oauth_client_id_check,
+      #{value => "allow | db | deny",
+        desc =>
+            ?T("Define whether the client authentication is always allowed, "
+               "denied, or it will depend if the client ID is present in the "
+               "database. The default value is 'allow'.")}},
      {oauth_use_cache,
       #{value => "true | false",
         desc =>
@@ -1144,6 +1229,11 @@ doc() ->
             ?T("The port where the SQL server is accepting connections. "
                "The default is '3306' for MySQL, '5432' for PostgreSQL and "
                "'1433' for MSSQL. The option has no effect for SQLite.")}},
+     {sql_prepared_statements,
+      #{value => "true | false",
+        desc =>
+	    ?T("This option is 'true' by default, and is useful to disable "
+	       "prepared statements. The option is valid for PostgreSQL.")}},
      {sql_query_timeout,
       #{value => "timeout()",
         desc =>
