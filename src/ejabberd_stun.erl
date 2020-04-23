@@ -46,7 +46,8 @@ start_link(_, _, _) ->
     fail().
 -else.
 -export([tcp_init/2, udp_init/2, udp_recv/5, start/3,
-	 start_link/3, accept/1, listen_opt_type/1, listen_options/0]).
+	 start_link/3, accept/1, listen_opt_type/1, listen_options/0,
+	 get_password/2]).
 
 -include("logger.hrl").
 
@@ -74,6 +75,21 @@ start_link(_SockMod, Socket, Opts) ->
 accept(_Pid) ->
     ok.
 
+get_password(User, Realm) ->
+    case ejabberd_hooks:run_fold(stun_get_password, <<>>, [User, Realm]) of
+	Password when byte_size(Password) > 0 ->
+	    Password;
+	<<>> ->
+	    case ejabberd_auth:get_password_s(User, Realm) of
+		Password when is_binary(Password) ->
+		    Password;
+		_ ->
+		    ?INFO_MSG("Cannot use hashed password of ~s@~s for "
+			      "STUN/TURN authentication", [User, Realm]),
+		    <<>>
+	    end
+    end.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
@@ -85,15 +101,17 @@ prepare_turn_opts(Opts, _UseTurn = false) ->
     set_certfile(Opts);
 prepare_turn_opts(Opts, _UseTurn = true) ->
     NumberOfMyHosts = length(ejabberd_option:hosts()),
-    case proplists:get_value(turn_ip, Opts) of
-	undefined ->
-	    ?WARNING_MSG("Option 'turn_ip' is undefined, "
-			 "most likely the TURN relay won't be working "
-			 "properly", []);
+    case {proplists:get_value(turn_ip, Opts),
+	  proplists:get_value(turn_ip, listen_options())} of
+	{undefined, {127, _, _, _}} ->
+	    ?WARNING_MSG("Option 'turn_ip' is undefined and the server's "
+			 "hostname doesn't resolve to a public IPv4 address, "
+			 "most likely the TURN relay won't be working properly",
+			 []);
 	_ ->
 	    ok
     end,
-    AuthFun = fun ejabberd_auth:get_password_s/2,
+    AuthFun = fun ejabberd_stun:get_password/2,
     Shaper = proplists:get_value(shaper, Opts, none),
     AuthType = proplists:get_value(auth_type, Opts, user),
     Realm = case proplists:get_value(auth_realm, Opts) of
@@ -158,7 +176,7 @@ listen_opt_type(certfile) ->
 listen_options() ->
     [{shaper, none},
      {use_turn, false},
-     {turn_ip, undefined},
+     {turn_ip, misc:get_my_ip()},
      {auth_type, user},
      {auth_realm, undefined},
      {tls, false},
