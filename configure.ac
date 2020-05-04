@@ -103,8 +103,8 @@ esac],[full_xml=false])
 AC_ARG_ENABLE(mssql,
 [AC_HELP_STRING([--enable-mssql], [use Microsoft SQL Server database (default: no, requires --enable-odbc)])],
 [case "${enableval}" in
-  yes) db_type=mssql ;;
-  no)  db_type=generic ;;
+  yes) db_type=mssql; mssql=true ;;
+  no)  db_type=generic; mssql=false ;;
   *) AC_MSG_ERROR(bad value ${enableval} for --enable-mssql) ;;
 esac],[db_type=generic])
 
@@ -197,7 +197,7 @@ AC_ARG_ENABLE(debug,
 esac],[if test "x$debug" = "x"; then debug=true; fi])
 
 AC_ARG_ENABLE(latest_deps,
-[AC_HELP_STRING([--enable-latest-deps], [makes rebar use latest commits for dependences instead of tagged versions (default: no)])],
+[AC_HELP_STRING([--enable-latest-deps], [makes rebar use latest commits for dependencies instead of tagged versions (default: no)])],
 [case "${enableval}" in
   yes) latest_deps=true ;;
   no)  latest_deps=false ;;
@@ -205,7 +205,7 @@ AC_ARG_ENABLE(latest_deps,
 esac],[if test "x$latest_deps" = "x"; then latest_deps=false; fi])
 
 AC_ARG_ENABLE(system_deps,
-[AC_HELP_STRING([--enable-system-deps], [makes rebar use localy installed dependences instead of downloading them (default: no)])],
+[AC_HELP_STRING([--enable-system-deps], [makes rebar use locally installed dependencies instead of downloading them (default: no)])],
 [case "${enableval}" in
   yes) system_deps=true ;;
   no)  system_deps=false ;;
@@ -213,12 +213,12 @@ AC_ARG_ENABLE(system_deps,
 esac],[if test "x$system_deps" = "x"; then system_deps=false; fi])
 
 AC_ARG_ENABLE(stun,
-[AC_HELP_STRING([--enable-stun], [enable STUN/TURN support (default: no)])],
+[AC_HELP_STRING([--enable-stun], [enable STUN/TURN support (default: yes)])],
 [case "${enableval}" in
   yes) stun=true ;;
   no)  stun=false ;;
   *) AC_MSG_ERROR(bad value ${enableval} for --enable-stun) ;;
-esac],[if test "x$stun" = "x"; then stun=false; fi])
+esac],[if test "x$stun" = "x"; then stun=true; fi])
 
 AC_ARG_ENABLE(sip,
 [AC_HELP_STRING([--enable-sip], [enable SIP support (default: no)])],
@@ -267,7 +267,7 @@ if test "$sqlite" = "true"; then
 fi
 
 enabled_backends=""
-for backend in odbc mysql pgsql sqlite redis; do
+for backend in odbc mysql pgsql sqlite redis mssql; do
     if eval test x\${$backend} = xtrue; then
        if test "x$enabled_backends" = "x"; then
           enabled_backends=$backend
