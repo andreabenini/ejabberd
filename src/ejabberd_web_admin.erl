@@ -283,7 +283,7 @@ get_auth_account2(HostOfRule, AccessRule, User, Server,
 make_xhtml(Els, Host, Lang, JID, Level) ->
     make_xhtml(Els, Host, cluster, Lang, JID, Level).
 
-%% @spec (Els, Host, Node, Lang, JID) -> {200, [html], xmlelement()}
+%% @spec (Els, Host, Node, Lang, JID, Level::integer()) -> {200, [html], xmlelement()}
 %% where Host = global | string()
 %%       Node = cluster | atom()
 %%       JID = jid()
@@ -340,6 +340,7 @@ make_xhtml(Els, Host, Node, Lang, JID, Level) ->
 			   [?XAE(<<"div">>, [{<<"id">>, <<"copyright">>}],
 				 [?XE(<<"p">>,
 				  [?AC(<<"https://www.ejabberd.im/">>, <<"ejabberd">>),
+				   ?C(<<" ">>), ?C(ejabberd_option:version()),
 				   ?C(<<" (c) 2002-2020 ">>),
 				   ?AC(<<"https://www.process-one.net/">>, <<"ProcessOne, leader in messaging and push solutions">>)]
                                  )])])])]}}.
@@ -1742,12 +1743,12 @@ pretty_string_int(String) when is_binary(String) ->
 %%%==================================
 %%%% navigation menu
 
-%% @spec (Host, Node, Lang, JID::jid()) -> [LI]
+%% @spec (Host, Node, Lang, JID::jid(), Level::integer()) -> [LI]
 make_navigation(Host, Node, Lang, JID, Level) ->
     Menu = make_navigation_menu(Host, Node, Lang, JID, Level),
     make_menu_items(Lang, Menu).
 
-%% @spec (Host, Node, Lang, JID::jid()) -> Menu
+%% @spec (Host, Node, Lang, JID::jid(), Level::integer()) -> Menu
 %% where Host = global | string()
 %%       Node = cluster | string()
 %%       Lang = string()
