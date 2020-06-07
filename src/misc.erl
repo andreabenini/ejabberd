@@ -40,8 +40,9 @@
 	 read_css/1, read_img/1, read_js/1, read_lua/1, try_url/1,
 	 intersection/2, format_val/1, cancel_timer/1, unique_timestamp/0,
 	 is_mucsub_message/1, best_match/2, pmap/2, peach/2, format_exception/4,
-	 get_my_ip/0, parse_ip_mask/1, match_ip_mask/3, format_hosts_list/1,
-	 format_cycle/1, delete_dir/1]).
+	 get_my_ipv4_address/0, get_my_ipv6_address/0, parse_ip_mask/1,
+	 crypto_hmac/3, crypto_hmac/4, uri_parse/1,
+	 match_ip_mask/3, format_hosts_list/1, format_cycle/1, delete_dir/1]).
 
 %% Deprecated functions
 -export([decode_base64/1, encode_base64/1]).
@@ -53,6 +54,34 @@
 -include_lib("kernel/include/file.hrl").
 
 -type distance_cache() :: #{{string(), string()} => non_neg_integer()}.
+
+-ifdef(USE_OLD_HTTP_URI).
+uri_parse(URL) when is_binary(URL) ->
+    uri_parse(binary_to_list(URL));
+uri_parse(URL) ->
+    {ok, {Scheme, _UserInfo, Host, Port, Path, _Query}} = http_uri:parse(URL),
+    {ok, Scheme, Host, Port, Path}.
+-else.
+uri_parse(URL) when is_binary(URL) ->
+    uri_parse(binary_to_list(URL));
+uri_parse(URL) ->
+    case uri_string:parse(URL) of
+	#{scheme := Scheme, host := Host, port := Port, path := Path} ->
+	    {ok, Scheme, Host, Port, Path};
+	#{scheme := "https", host := Host, path := Path} ->
+	    {ok, "https", Host, 443, Path};
+	#{scheme := "http", host := Host, path := Path} ->
+	    {ok, "http", Host, 80, Path}
+    end.
+-endif.
+
+-ifdef(USE_OLD_CRYPTO_HMAC).
+crypto_hmac(Type, Key, Data) -> crypto:hmac(Type, Key, Data).
+crypto_hmac(Type, Key, Data, MacL) -> crypto:hmac(Type, Key, Data, MacL).
+-else.
+crypto_hmac(Type, Key, Data) -> crypto:mac(hmac, Type, Key, Data).
+crypto_hmac(Type, Key, Data, MacL) -> crypto:macN(hmac, Type, Key, Data, MacL).
+-endif.
 
 %%%===================================================================
 %%% API
@@ -328,7 +357,7 @@ try_url(URL0) ->
 	V when is_binary(V) -> binary_to_list(V);
 	_ -> URL0
     end,
-    case http_uri:parse(URL) of
+    case uri_parse(URL) of
 	{ok, {Scheme, _, _, _, _, _}} when Scheme /= http, Scheme /= https ->
 	    ?ERROR_MSG("Unsupported URI scheme: ~ts", [URL]),
 	    erlang:error(badarg);
@@ -509,12 +538,20 @@ format_exception(Level, Class, Reason, Stacktrace) ->
       end).
 -endif.
 
--spec get_my_ip() -> inet:ip_address().
-get_my_ip() ->
+-spec get_my_ipv4_address() -> inet:ip4_address().
+get_my_ipv4_address() ->
     {ok, MyHostName} = inet:gethostname(),
     case inet:getaddr(MyHostName, inet) of
 	{ok, Addr} -> Addr;
 	{error, _} -> {127, 0, 0, 1}
+    end.
+
+-spec get_my_ipv6_address() -> inet:ip6_address().
+get_my_ipv6_address() ->
+    {ok, MyHostName} = inet:gethostname(),
+    case inet:getaddr(MyHostName, inet6) of
+	{ok, Addr} -> Addr;
+	{error, _} -> {0, 0, 0, 0, 0, 0, 0, 1}
     end.
 
 -spec parse_ip_mask(binary()) -> {ok, {inet:ip4_address(), 0..32}} |

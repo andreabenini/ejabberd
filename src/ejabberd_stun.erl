@@ -101,20 +101,20 @@ prepare_turn_opts(Opts, _UseTurn = false) ->
     set_certfile(Opts);
 prepare_turn_opts(Opts, _UseTurn = true) ->
     NumberOfMyHosts = length(ejabberd_option:hosts()),
-    TurnIP = case proplists:get_value(turn_ip, Opts) of
+    TurnIP = case proplists:get_value(turn_ipv4_address, Opts) of
 		 undefined ->
-		     MyIP = misc:get_my_ip(),
+		     MyIP = misc:get_my_ipv4_address(),
 		     case MyIP of
 			 {127, _, _, _} ->
-			     ?WARNING_MSG("Option 'turn_ip' is undefined and "
-					  "the server's hostname doesn't "
-					  "resolve to a public IPv4 address, "
-					  "most likely the TURN relay won't be "
-					  "working properly", []);
+			     ?WARNING_MSG("Option 'turn_ipv4_address' is "
+					  "undefined and the server's hostname "
+					  "doesn't resolve to a public IPv4 "
+					  "address, most likely the TURN relay "
+					  "won't be working properly", []);
 			 _ ->
 			     ok
 		     end,
-		     [{turn_ip, MyIP}];
+		     [{turn_ipv4_address, MyIP}];
 		 _ ->
 		     []
 	     end,
@@ -160,9 +160,11 @@ set_certfile(Opts) ->
 listen_opt_type(use_turn) ->
     econf:bool();
 listen_opt_type(ip) ->
+    econf:ip();
+listen_opt_type(turn_ipv4_address) ->
     econf:ipv4();
-listen_opt_type(turn_ip) ->
-    econf:ipv4();
+listen_opt_type(turn_ipv6_address) ->
+    econf:ipv6();
 listen_opt_type(auth_type) ->
     econf:enum([anonymous, user]);
 listen_opt_type(auth_realm) ->
@@ -175,6 +177,8 @@ listen_opt_type(turn_max_allocations) ->
     econf:pos_int(infinity);
 listen_opt_type(turn_max_permissions) ->
     econf:pos_int(infinity);
+listen_opt_type(turn_blacklist) ->
+    econf:list_or_single(econf:ip_mask());
 listen_opt_type(server_name) ->
     econf:binary();
 listen_opt_type(certfile) ->
@@ -183,7 +187,8 @@ listen_opt_type(certfile) ->
 listen_options() ->
     [{shaper, none},
      {use_turn, false},
-     {turn_ip, undefined},
+     {turn_ipv4_address, undefined},
+     {turn_ipv6_address, undefined},
      {auth_type, user},
      {auth_realm, undefined},
      {tls, false},
@@ -192,5 +197,6 @@ listen_options() ->
      {turn_max_port, 65535},
      {turn_max_allocations, 10},
      {turn_max_permissions, 10},
+     {turn_blacklist, [<<"2001::/32">>, <<"2002::/16">>]}, % Teredo, 6to4.
      {server_name, <<"ejabberd">>}].
 -endif.

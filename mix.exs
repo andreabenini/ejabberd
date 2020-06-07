@@ -90,7 +90,7 @@ defmodule Ejabberd.Mixfile do
      {:stringprep, "~> 1.0"},
      {:fast_yaml, "~> 1.0"},
      {:fast_tls, "~> 1.1"},
-     {:stun, "~> 1.0"},
+     {:stun, git: "https://github.com/processone/stun", ref: "35cdef8b0ae35daa797a292c57dbd5ee62b45876", override: true},
      {:esip, "~> 1.0.32"},
      {:p1_mysql, "~> 1.0"},
      {:mqtree, "~> 1.0"},
@@ -102,7 +102,7 @@ defmodule Ejabberd.Mixfile do
      {:ex_doc, ">= 0.0.0", only: :dev},
      {:eimp, "~> 1.0"},
      {:base64url, "~> 0.0.1"},
-     {:yconf, "~> 1.0"},
+     {:yconf, git: "https://github.com/processone/yconf", ref: "60e431a1f1e4504ccc9e329a9202b88c26b341ae"},
      {:jose, "~> 1.8"},
      {:idna, "~> 6.0"},
      {:p1_acme, "~> 1.0"}]

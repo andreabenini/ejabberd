@@ -448,7 +448,7 @@ delete_group(Host, Group) ->
 get_group_opts(Host1, Group1) ->
     {Host, Group} = split_grouphost(Host1, Group1),
     Mod = gen_mod:db_mod(Host, ?MODULE),
-    case use_cache(Mod, Host) of
+    Res = case use_cache(Mod, Host) of
 	true ->
 	    ets_cache:lookup(
 		?GROUP_OPTS_CACHE, {Host, Group},
@@ -460,12 +460,17 @@ get_group_opts(Host1, Group1) ->
 		end);
 	false ->
 	    Mod:get_group_opts(Host, Group)
+    end,
+    case Res of
+        {ok, Opts} -> Opts;
+        error -> error
     end.
 
 set_group_opts(Host, Group, Opts) ->
     Mod = gen_mod:db_mod(Host, ?MODULE),
     case use_cache(Mod, Host) of
 	true ->
+	    ets_cache:delete(?GROUP_OPTS_CACHE, {Host, Group}, cache_nodes(Mod, Host)),
 	    ets_cache:insert(?GROUP_OPTS_CACHE, {Host, Group}, Opts, cache_nodes(Mod, Host)),
 	    ets_cache:clear(?SPECIAL_GROUPS_CACHE, cache_nodes(Mod, Host));
 	_ ->
