@@ -37,7 +37,7 @@
 	 now_to_usec/1, usec_to_now/1, encode_pid/1, decode_pid/2,
 	 compile_exprs/2, join_atoms/2, try_read_file/1, get_descr/2,
 	 css_dir/0, img_dir/0, js_dir/0, msgs_dir/0, sql_dir/0, lua_dir/0,
-	 read_css/1, read_img/1, read_js/1, read_lua/1, try_url/1,
+	 read_css/1, read_img/1, read_js/1, read_lua/1,
 	 intersection/2, format_val/1, cancel_timer/1, unique_timestamp/0,
 	 is_mucsub_message/1, best_match/2, pmap/2, peach/2, format_exception/4,
 	 get_my_ipv4_address/0, get_my_ipv6_address/0, parse_ip_mask/1,
@@ -345,29 +345,6 @@ try_read_file(Path) ->
 	    iolist_to_binary(Path);
 	{error, Why} ->
 	    ?ERROR_MSG("Failed to read ~ts: ~ts", [Path, file:format_error(Why)]),
-	    erlang:error(badarg)
-    end.
-
-%% @doc Checks if the URL is valid HTTP(S) URL and converts its name to binary.
-%%      Fails with `badarg' otherwise. The function is intended for usage
-%%      in configuration validators only.
--spec try_url(binary() | string()) -> binary().
-try_url(URL0) ->
-    URL = case URL0 of
-	V when is_binary(V) -> binary_to_list(V);
-	_ -> URL0
-    end,
-    case uri_parse(URL) of
-	{ok, {Scheme, _, _, _, _, _}} when Scheme /= http, Scheme /= https ->
-	    ?ERROR_MSG("Unsupported URI scheme: ~ts", [URL]),
-	    erlang:error(badarg);
-	{ok, {_, _, Host, _, _, _}} when Host == ""; Host == <<"">> ->
-	    ?ERROR_MSG("Invalid URL: ~ts", [URL]),
-	    erlang:error(badarg);
-	{ok, _} ->
-	    iolist_to_binary(URL);
-	{error, _} ->
-	    ?ERROR_MSG("Invalid URL: ~ts", [URL]),
 	    erlang:error(badarg)
     end.
 
