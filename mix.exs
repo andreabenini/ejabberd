@@ -3,7 +3,7 @@ defmodule Ejabberd.Mixfile do
 
   def project do
     [app: :ejabberd,
-     version: "20.4.0",
+     version: "20.7.0",
      description: description(),
      elixir: "~> 1.4",
      elixirc_paths: ["lib"],
@@ -66,7 +66,10 @@ defmodule Ejabberd.Mixfile do
              cond_options() ++
              Enum.map(includes, fn (path) -> {:i, path} end) ++
              if_version_above('20', [{:d, :DEPRECATED_GET_STACKTRACE}]) ++
+             if_version_below('21', [{:d, :USE_OLD_HTTP_URI}]) ++
              if_version_below('22', [{:d, :LAGER}]) ++
+             if_version_below('23', [{:d, :USE_OLD_CRYPTO_HMAC}]) ++
+             if_version_below('23', [{:d, :USE_OLD_PG2}]) ++
              if_function_exported(:erl_error, :format_exception, 6, [{:d, :HAVE_ERL_ERROR}])
     defines = for {:d, value} <- result, do: {:d, value}
     result ++ [{:d, :ALL_DEFS, defines}]
@@ -102,7 +105,7 @@ defmodule Ejabberd.Mixfile do
      {:ex_doc, ">= 0.0.0", only: :dev},
      {:eimp, "~> 1.0"},
      {:base64url, "~> 0.0.1"},
-     {:yconf, git: "https://github.com/processone/yconf", ref: "60e431a1f1e4504ccc9e329a9202b88c26b341ae"},
+     {:yconf, "~> 1.0"},
      {:jose, "~> 1.8"},
      {:idna, "~> 6.0"},
      {:p1_acme, "~> 1.0"}]
@@ -142,7 +145,7 @@ defmodule Ejabberd.Mixfile do
 
   defp package do
     [# These are the default files included in the package
-      files: ["lib", "src", "priv", "mix.exs", "include", "README.md", "COPYING"],
+      files: ["lib", "src", "priv", "mix.exs", "include", "README.md", "COPYING", "rebar.config", "rebar.config.script"],
       maintainers: ["ProcessOne"],
       licenses: ["GPLv2"],
       links: %{"Site" => "https://www.ejabberd.im",
