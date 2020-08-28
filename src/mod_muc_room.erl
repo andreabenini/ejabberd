@@ -223,7 +223,7 @@ unsubscribe(Pid, JID) ->
 	    {error, ?T("Conference room does not exist")}
     end.
 
--spec is_subscribed(pid(), jid()) -> {true, [binary()]} | false.
+-spec is_subscribed(pid(), jid()) -> {true, binary(), [binary()]} | false.
 is_subscribed(Pid, JID) ->
     try p1_fsm:sync_send_all_state_event(Pid, {is_subscribed, JID})
     catch _:{_, {p1_fsm, _, _}} -> false
@@ -282,6 +282,7 @@ init([Host, ServerHost, Access, Room, HistorySize,
 	      [Room, Host, jid:encode(Creator)]),
     add_to_log(room_existence, created, State1),
     add_to_log(room_existence, started, State1),
+    ejabberd_hooks:run(start_room, ServerHost, [ServerHost, Room, Host]),
     {ok, normal_state, reset_hibernate_timer(State1)};
 init([Host, ServerHost, Access, Room, HistorySize, RoomShaper, Opts, QueueType]) ->
     process_flag(trap_exit, true),
@@ -296,6 +297,7 @@ init([Host, ServerHost, Access, Room, HistorySize, RoomShaper, Opts, QueueType])
 				  room_queue = RoomQueue,
 				  room_shaper = Shaper}),
     add_to_log(room_existence, started, State),
+    ejabberd_hooks:run(start_room, ServerHost, [ServerHost, Room, Host]),
     {ok, normal_state, reset_hibernate_timer(State)}.
 
 normal_state({route, <<"">>,
@@ -759,7 +761,7 @@ handle_sync_event({muc_unsubscribe, From}, _From, StateName,
     end;
 handle_sync_event({is_subscribed, From}, _From, StateName, StateData) ->
     IsSubs = try maps:get(jid:split(From), StateData#state.subscribers) of
-		 #subscriber{nodes = Nodes} -> {true, Nodes}
+		 #subscriber{nick = Nick, nodes = Nodes} -> {true, Nick, Nodes}
 	     catch _:{badkey, _} -> false
 	     end,
     {reply, IsSubs, StateName, StateData};
@@ -4059,7 +4061,7 @@ make_disco_info(_From, StateData) ->
 	   end,
     #disco_info{identities = [#identity{category = <<"conference">>,
 					type = <<"text">>,
-					name = get_title(StateData)}],
+					name = (StateData#state.config)#config.title}],
 		features = Feats}.
 
 -spec process_iq_disco_info(jid(), iq(), state()) ->
@@ -4312,7 +4314,7 @@ process_iq_mucsub(From, #iq{type = get, lang = Lang,
 		     fun(_, #subscriber{jid = J, nick = N, nodes = Nodes}, Acc) ->
 			 case ShowJid of
 			     true ->
-				 [#muc_subscription{jid = J, events = Nodes}|Acc];
+				 [#muc_subscription{jid = J, nick = N, events = Nodes}|Acc];
 			     _ ->
 				 [#muc_subscription{nick = N, events = Nodes}|Acc]
 			 end
