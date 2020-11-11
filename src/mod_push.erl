@@ -119,7 +119,9 @@ reload(Host, NewOpts, OldOpts) ->
 	    NewMod:init(Host, NewOpts);
        true ->
 	    ok
-    end.
+    end,
+    init_cache(NewMod, Host, NewOpts),
+    ok.
 
 -spec depends(binary(), gen_mod:opts()) -> [{module(), hard | soft}].
 depends(_Host, _Opts) ->
@@ -241,9 +243,9 @@ delete_old_sessions(Days) ->
 	[] ->
 	    ?INFO_MSG("Deleted push sessions older than ~B days", [Days]),
 	    ok;
-	[NotOk | _] ->
-	    ?ERROR_MSG("Error while deleting old push sessions: ~p", [NotOk]),
-	    NotOk
+	[{error, Reason} | _] ->
+	    ?ERROR_MSG("Error while deleting old push sessions: ~p", [Reason]),
+	    Reason
     end.
 
 %%--------------------------------------------------------------------

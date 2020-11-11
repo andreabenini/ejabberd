@@ -920,6 +920,18 @@ doc() ->
             ?T("Specify which address families to try, in what order. "
                "The default is '[ipv4, ipv6]' which means it first tries "
                "connecting with IPv4, if that fails it tries using IPv6.")}},
+     {outgoing_s2s_ipv4_address,
+      #{value => "Address",
+        desc =>
+            ?T("Specify the IPv4 address that will be used when establishing "
+               "an outgoing S2S IPv4 connection, for example \"127.0.0.1\". "
+               "The default value is 'undefined'.")}},
+     {outgoing_s2s_ipv6_address,
+      #{value => "Address",
+        desc =>
+            ?T("Specify the IPv6 address that will be used when establishing "
+               "an outgoing S2S IPv6 connection, for example "
+               "\"::FFFF:127.0.0.1\". The default value is 'undefined'.")}},
      {outgoing_s2s_port,
       #{value => "1..65535",
         desc =>
@@ -1219,6 +1231,13 @@ doc() ->
             ?T("An interval to make a dummy SQL request to keep alive the "
                "connections to the database. There is no default value, so no "
                "keepalive requests are made.")}},
+     {sql_odbc_driver,
+      #{value => "Path",
+        desc =>
+            ?T("Path to the ODBC driver to use to connect to a Microsoft SQL "
+               "Server database. This option is only valid if the 'sql_type' "
+               "option is set to 'mssql'. "
+               "The default value is: 'libtdsodbc.so'")}},
      {sql_password,
       #{value => ?T("Password"),
         desc =>
