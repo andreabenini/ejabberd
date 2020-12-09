@@ -180,6 +180,9 @@ count_users(Server, _) ->
 
 get_password(User, Server) ->
     case mnesia:dirty_read(passwd, {User, Server}) of
+	[#passwd{password = {scram, SK, SEK, Salt, IC}}] ->
+	    {cache, {ok, #scram{storedkey = SK, serverkey = SEK,
+				salt = Salt, hash = sha, iterationcount = IC}}};
 	[#passwd{password = Password}] ->
 	    {cache, {ok, Password}};
 	_ ->
@@ -255,7 +258,7 @@ transform(#passwd{us = {U, S}, password = Password} = P)
 			       [U, S]),
 		    P;
 		_ ->
-		    Scram = ejabberd_auth:password_to_scram(Password),
+		    Scram = ejabberd_auth:password_to_scram(global, Password),
 		    P#passwd{password = Scram}
 	    end;
 	plain ->
