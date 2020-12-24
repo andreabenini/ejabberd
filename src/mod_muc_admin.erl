@@ -890,13 +890,13 @@ decide_room(unused, {_Room_name, _Host, ServerHost, Room_pid}, Last_allowed) ->
     {Just_created, Num_users} =
     case Room_pid of
 	Pid when is_pid(Pid) andalso OnlyHibernated ->
-	    {0, 0};
+	    {erlang:system_time(microsecond), 0};
 	Pid when is_pid(Pid) ->
 	    case mod_muc_room:get_state(Room_pid) of
-		#state{just_created = JD, users = U} ->
-		    {JD, maps:size(U)};
+		{ok, #state{just_created = JC, users = U}} ->
+		    {JC, maps:size(U)};
 		_ ->
-		    {0, 0}
+		    {erlang:system_time(microsecond), 0}
 	    end;
 	Opts ->
 	    case lists:keyfind(hibernation_time, 1, Opts) of
@@ -1108,7 +1108,7 @@ format_room_option(OptionString, ValueString) ->
     {Option, Value}.
 
 %% @doc Get the Pid of an existing MUC room, or 'room_not_found'.
--spec get_room_pid(binary(), binary()) -> {ok, pid()} | room_not_found | invalid_service.
+-spec get_room_pid(binary(), binary()) -> pid() | room_not_found | invalid_service.
 get_room_pid(Name, Service) ->
     try get_room_serverhost(Service) of
 	ServerHost ->
@@ -1244,7 +1244,7 @@ set_room_affiliation(Name, Service, JID, AffiliationString) ->
 	    case mod_muc_room:change_item(Pid, jid:decode(JID), affiliation, Affiliation, <<"">>) of
 		{ok, _} ->
 		    ok;
-		{error, not_found} ->
+		{error, notfound} ->
 		    throw({error, "Room doesn't exists"});
 		{error, _} ->
 		    throw({error, "Unable to perform change"})
