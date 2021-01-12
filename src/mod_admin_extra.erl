@@ -135,7 +135,7 @@ get_commands_spec() ->
 	"* ORG ORGUNIT  - Work: Department\n",
 
     VcardXEP = "For a full list of vCard fields check XEP-0054: vcard-temp at "
-	"http://www.xmpp.org/extensions/xep-0054.html",
+	"https://xmpp.org/extensions/xep-0054.html",
 
     [
      #ejabberd_commands{name = compile, tags = [erlang],
@@ -1478,7 +1478,7 @@ srg_user_del(User, Host, Group, GroupHost) ->
 %%% Stanza
 %%%
 
-%% @doc Send a message to a Jabber account.
+%% @doc Send a message to an XMPP account.
 %% @spec (Type::binary(), From::binary(), To::binary(), Subject::binary(), Body::binary()) -> ok
 send_message(Type, From, To, Subject, Body) ->
     CodecOpts = ejabberd_config:codec_options(),

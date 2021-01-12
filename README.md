@@ -53,7 +53,7 @@ Key Features
   - Support for IDNA.
 
 - **Open Standards**  
-  ejabberd is the first Open Source Jabber server claiming to fully comply to
+  ejabberd is the first Open Source XMPP server claiming to fully comply to
   the XMPP standard.
   - Fully XMPP-compliant.
   - XML-based protocol.
@@ -168,6 +168,17 @@ To start ejabberd in development mode from the repository directory, you can
 type a command like:
 
     EJABBERD_CONFIG_PATH=ejabberd.yml erl -pa ebin -pa deps/*/ebin -pa test -pa deps/elixir/lib/*/ebin/ -s ejabberd
+
+
+Translation
+-----------
+
+Using any gettext editor, you can improve the translation files found in
+`priv/msgs/*.po`, and then submit your changes.
+
+Alternatively, a simple way to improve translations is using our Weblate project:
+https://hosted.weblate.org/projects/ejabberd/ejabberd/
+
 
 Links
 -----

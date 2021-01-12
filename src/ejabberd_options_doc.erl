@@ -770,7 +770,7 @@ doc() ->
             ?T("An LDAP filter as defined in "
                "https://tools.ietf.org/html/rfc4515[RFC4515]. "
                "There is no default value. Example: "
-               "\"(&(objectClass=shadowAccount)(memberOf=Jabber Users))\". "
+               "\"(&(objectClass=shadowAccount)(memberOf=XMPP Users))\". "
                "NOTE: don't forget to close brackets and don't use superfluous "
                "whitespaces. Also you must not use \"uid\" attribute in the "
                "filter because this attribute will be appended to the filter "
@@ -800,10 +800,11 @@ doc() ->
             ?T("The number of rotated log files to keep. "
                "The default value is '1'.")}},
      {log_rotate_size,
-      #{value => ?T("Size"),
+      #{value => "pos_integer() | infinity",
         desc =>
             ?T("The size (in bytes) of a log file to trigger rotation. "
-               "The default value is '10485760' (10 Mb).")}},
+               "If set to 'infinity', log rotation is disabled. "
+               "The default value is '10485760' (that is, 10 Mb).")}},
      {max_fsm_queue,
       #{value => ?T("Size"),
         desc =>
@@ -1261,7 +1262,7 @@ doc() ->
         desc =>
             ?T("The port where the SQL server is accepting connections. "
                "The default is '3306' for MySQL, '5432' for PostgreSQL and "
-               "'1433' for MSSQL. The option has no effect for SQLite.")}},
+               "'1433' for MS SQL. The option has no effect for SQLite.")}},
      {sql_prepared_statements,
       #{value => "true | false",
         desc =>
