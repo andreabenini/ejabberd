@@ -115,7 +115,7 @@ process([<<"new">>],
       {success, ok, {Username, Host, _Password}} ->
 	  Jid = jid:make(Username, Host),
           mod_register:send_registration_notifications(?MODULE, Jid, Ip),
-	  Text = translate:translate(Lang, ?T("Your XMPP account was successfully created.")),
+	  Text = translate:translate(Lang, ?T("Your XMPP account was successfully registered.")),
 	  {200, [], Text};
       Error ->
 	  ErrorText =
@@ -128,7 +128,7 @@ process([<<"delete">>],
 		 host = _HTTPHost}) ->
     case form_del_post(Q) of
       {atomic, ok} ->
-	  Text = translate:translate(Lang, ?T("Your XMPP account was successfully deleted.")),
+	  Text = translate:translate(Lang, ?T("Your XMPP account was successfully unregistered.")),
 	  {200, [], Text};
       Error ->
 	  ErrorText =
@@ -249,9 +249,9 @@ form_new_get2(Host, Lang, CaptchaEls) ->
 		  {<<"style">>, <<"text-align:center;">>}],
 		 ?T("Register an XMPP account")),
 	   ?XCT(<<"p">>,
-		?T("This page allows to create an XMPP "
+		?T("This page allows to register an XMPP "
 		   "account in this XMPP server. Your "
-		   "JID (Jabber IDentifier) will be of the "
+		   "JID (Jabber ID) will be of the "
 		   "form: username@server. Please read carefully "
 		   "the instructions to fill correctly the "
 		   "fields.")),
@@ -608,7 +608,7 @@ get_error_text({error, not_allowed}) ->
 get_error_text({error, account_doesnt_exist}) ->
     ?T("Account doesn't exist");
 get_error_text({error, account_exists}) ->
-    ?T("The account was not deleted");
+    ?T("The account was not unregistered");
 get_error_text({error, password_not_changed}) ->
     ?T("The password was not changed");
 get_error_text({error, passwords_not_identical}) ->
@@ -624,7 +624,7 @@ mod_doc() ->
           [?T("This module provides a web page where users can:"), "",
            ?T("- Register a new account on the server."), "",
            ?T("- Change the password from an existing account on the server."), "",
-           ?T("- Delete an existing account on the server."), "",
+           ?T("- Unregister an existing account on the server."), "",
 	   ?T("This module supports CAPTCHA image to register a new account. "
 	      "To enable this feature, configure the options 'captcha\_cmd' "
 	      "and 'captcha\_url', which are documented in the section with "
