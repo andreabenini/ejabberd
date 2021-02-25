@@ -5,7 +5,7 @@
 %%% Created : 10 Aug 2008 by Badlop <badlop@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2020   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2021   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -1243,23 +1243,42 @@ update_vcard_els(Data, ContentList, Els1) ->
 %%%
 
 add_rosteritem(LocalUser, LocalServer, User, Server, Nick, Group, Subs) ->
-    Jid = jid:make(LocalUser, LocalServer),
-    RosterItem = build_roster_item(User, Server, {add, Nick, Subs, Group}),
-    case mod_roster:set_item_and_notify_clients(Jid, RosterItem, true) of
-	ok -> ok;
-	_ -> error
+    case {jid:make(LocalUser, LocalServer), jid:make(User, Server)} of
+	{error, _} ->
+	    throw({error, "Invalid 'localuser'/'localserver'"});
+	{_, error} ->
+	    throw({error, "Invalid 'user'/'server'"});
+	{Jid, _Jid2} ->
+	    RosterItem = build_roster_item(User, Server, {add, Nick, Subs, Group}),
+	    case mod_roster:set_item_and_notify_clients(Jid, RosterItem, true) of
+		ok -> ok;
+		_ -> error
+	    end
     end.
 
 subscribe(LU, LS, User, Server, Nick, Group, Subscription, _Xattrs) ->
-    ItemEl = build_roster_item(User, Server, {add, Nick, Subscription, Group}),
-    mod_roster:set_items(LU, LS, #roster_query{items = [ItemEl]}).
+    case {jid:make(LU, LS), jid:make(User, Server)} of
+	{error, _} ->
+	    throw({error, "Invalid 'localuser'/'localserver'"});
+	{_, error} ->
+	    throw({error, "Invalid 'user'/'server'"});
+	{_Jid, _Jid2} ->
+	    ItemEl = build_roster_item(User, Server, {add, Nick, Subscription, Group}),
+	    mod_roster:set_items(LU, LS, #roster_query{items = [ItemEl]})
+    end.
 
 delete_rosteritem(LocalUser, LocalServer, User, Server) ->
-    Jid = jid:make(LocalUser, LocalServer),
-    RosterItem = build_roster_item(User, Server, remove),
-    case mod_roster:set_item_and_notify_clients(Jid, RosterItem, true) of
-	ok -> ok;
-	_ -> error
+    case {jid:make(LocalUser, LocalServer), jid:make(User, Server)} of
+	{error, _} ->
+	    throw({error, "Invalid 'localuser'/'localserver'"});
+	{_, error} ->
+	    throw({error, "Invalid 'user'/'server'"});
+	{Jid, _Jid2} ->
+	    RosterItem = build_roster_item(User, Server, remove),
+	    case mod_roster:set_item_and_notify_clients(Jid, RosterItem, true) of
+		ok -> ok;
+		_ -> error
+	    end
     end.
 
 %% -----------------------------
@@ -1267,8 +1286,13 @@ delete_rosteritem(LocalUser, LocalServer, User, Server) ->
 %% -----------------------------
 
 get_roster(User, Server) ->
-    Items = ejabberd_hooks:run_fold(roster_get, Server, [], [{User, Server}]),
-    make_roster_xmlrpc(Items).
+    case jid:make(User, Server) of
+	error ->
+	    throw({error, "Invalid 'user'/'server'"});
+	#jid{luser = U, lserver = S} ->
+	    Items = ejabberd_hooks:run_fold(roster_get, S, [], [{U, S}]),
+	    make_roster_xmlrpc(Items)
+    end.
 
 %% Note: if a contact is in several groups, the contact is returned
 %% several times, each one in a different group.
@@ -1494,10 +1518,10 @@ send_message(Type, From, To, Subject, Body) ->
                       #xmlel{name = <<"body">>,
                              children = [{xmlcdata, Body}]}]},
           ?NS_CLIENT, CodecOpts) of
-        #message{from = JID, subject = Subject, body = Body} = Msg ->
-            Msg2 = case {xmpp:get_text(Subject), xmpp:get_text(Body)} of
-                       {_, <<>>} -> Msg;
-                       {<<>>, _} -> Msg#message{subject = []};
+        #message{from = JID, subject = SubjectEl, body = BodyEl} = Msg ->
+            Msg2 = case {xmpp:get_text(SubjectEl), xmpp:get_text(BodyEl)} of
+                       {Subject, <<>>} -> Msg;
+                       {<<>>, Body} -> Msg#message{subject = []};
                        _ -> Msg
                    end,
             State = #{jid => JID},

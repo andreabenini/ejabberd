@@ -5,7 +5,7 @@
 %%% Created : 19 Feb 2015 by Christophe Romain <christophe.romain@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2006-2020   ProcessOne
+%%% ejabberd, Copyright (C) 2006-2021   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -569,8 +569,15 @@ compile_result(Results) ->
         [Error|_] -> Error
     end.
 
+maybe_define_lager_macro() ->
+    case list_to_integer(erlang:system_info(otp_release)) < 22 of
+        true -> [{d, 'LAGER'}];
+        false -> []
+    end.
+
 compile_options() ->
     [verbose, report_errors, report_warnings, debug_info, ?ALL_DEFS]
+    ++ maybe_define_lager_macro()
     ++ [{i, filename:join(app_dir(App), "include")}
         || App <- [fast_xml, xmpp, p1_utils, ejabberd]]
     ++ [{i, filename:join(mod_dir(Mod), "include")}

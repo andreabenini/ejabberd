@@ -5,7 +5,7 @@
 %%% Created : 7 Oct 2006 by Magnus Henoch <henoch@dtek.chalmers.se>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2020   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2021   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -226,40 +226,52 @@ disco_info(Acc, _, _, _Node, _Lang) ->
 -spec c2s_presence_in(ejabberd_c2s:state(), presence()) -> ejabberd_c2s:state().
 c2s_presence_in(C2SState,
 		#presence{from = From, to = To, type = Type} = Presence) ->
-    {Subscription, _, _} = ejabberd_hooks:run_fold(
-			     roster_get_jid_info, To#jid.lserver,
-			     {none, none, []},
-			     [To#jid.luser, To#jid.lserver, From]),
     ToSelf = (From#jid.luser == To#jid.luser)
-	       and (From#jid.lserver == To#jid.lserver),
-    Insert = (Type == available)
-	       and ((Subscription == both) or (Subscription == from) or ToSelf),
-    Delete = (Type == unavailable) or (Type == error),
-    if Insert or Delete ->
-	   LFrom = jid:tolower(From),
-	   Rs = maps:get(caps_resources, C2SState, gb_trees:empty()),
-	   Caps = read_caps(Presence),
-	   NewRs = case Caps of
-		     nothing when Insert == true -> Rs;
-		     _ when Insert == true ->
-			 case gb_trees:lookup(LFrom, Rs) of
-			   {value, Caps} -> Rs;
-			   none ->
-				ejabberd_hooks:run(caps_add, To#jid.lserver,
-						   [From, To,
-						    get_features(To#jid.lserver, Caps)]),
-				gb_trees:insert(LFrom, Caps, Rs);
-			   _ ->
-				ejabberd_hooks:run(caps_update, To#jid.lserver,
-						   [From, To,
-						    get_features(To#jid.lserver, Caps)]),
-				gb_trees:update(LFrom, Caps, Rs)
-			 end;
-		     _ -> gb_trees:delete_any(LFrom, Rs)
-		   end,
-	    C2SState#{caps_resources => NewRs};
-       true ->
-	    C2SState
+	       andalso (From#jid.lserver == To#jid.lserver),
+    Caps = read_caps(Presence),
+    Operation =
+    case {Type, ToSelf, Caps} of
+	{unavailable, _, _} -> delete;
+	{error, _, _} -> delete;
+	{available, _, nothing} -> skip;
+	{available, true, _} -> insert;
+	{available, _, _} ->
+	    {Subscription, _, _} = ejabberd_hooks:run_fold(
+		roster_get_jid_info, To#jid.lserver,
+		{none, none, []},
+		[To#jid.luser, To#jid.lserver, From]),
+	    case Subscription of
+		from -> insert;
+		both -> insert;
+		_ -> skip
+	    end;
+	_ ->
+	    skip
+    end,
+    case Operation of
+	skip ->
+	    C2SState;
+	delete ->
+	    LFrom = jid:tolower(From),
+	    Rs = maps:get(caps_resources, C2SState, gb_trees:empty()),
+	    C2SState#{caps_resources => gb_trees:delete_any(LFrom, Rs)};
+	insert ->
+	    LFrom = jid:tolower(From),
+	    Rs = maps:get(caps_resources, C2SState, gb_trees:empty()),
+	    NewRs = case gb_trees:lookup(LFrom, Rs) of
+			{value, Caps} -> Rs;
+			none ->
+			    ejabberd_hooks:run(caps_add, To#jid.lserver,
+					       [From, To,
+						get_features(To#jid.lserver, Caps)]),
+			    gb_trees:insert(LFrom, Caps, Rs);
+			_ ->
+			    ejabberd_hooks:run(caps_update, To#jid.lserver,
+					       [From, To,
+						get_features(To#jid.lserver, Caps)]),
+			    gb_trees:update(LFrom, Caps, Rs)
+		    end,
+	    C2SState#{caps_resources => NewRs}
     end.
 
 -spec depends(binary(), gen_mod:opts()) -> [{module(), hard | soft}].

@@ -33,7 +33,7 @@
 %%% NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 %%% POSSIBILITY OF SUCH DAMAGE.
 %%% ==========================================================================================================
-%%% ejabberd, Copyright (C) 2002-2020   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2021   ProcessOne
 %%%----------------------------------------------------------------------
 
 -module(ejabberd_websocket).
@@ -358,7 +358,7 @@ process_frame(#frame_info{unprocessed = none,
                       | Recv],
                      Send};
                 9 -> % Ping
-                    Frame = encode_frame(Unprocessed, 10),
+                    Frame = encode_frame(Unmasked, 10),
                     {FrameInfo3#frame_info{unmasked_msg = UnmaskedMsg}, [ping | Recv],
                      [Frame | Send]};
                 10 -> % Pong

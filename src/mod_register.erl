@@ -5,7 +5,7 @@
 %%% Created :  8 Dec 2002 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2020   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2021   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -654,7 +654,7 @@ mod_doc() ->
             #{value => "true | false",
               desc =>
                   ?T("Protect registrations with CAPTCHA (see section "
-                     "https://docs.ejabberd.im/admin/configuration/#captcha[CAPTCHA] "
+                     "https://docs.ejabberd.im/admin/configuration/basic/#captcha[CAPTCHA] "
                      "of the Configuration Guide). The default is 'false'.")}},
            {ip_access,
             #{value => ?T("AccessName"),

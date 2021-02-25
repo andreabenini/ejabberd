@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %%% @author Evgeny Khramtsov <ekhramtsov@process-one.net>
-%%% @copyright (C) 2002-2020 ProcessOne, SARL. All Rights Reserved.
+%%% @copyright (C) 2002-2021 ProcessOne, SARL. All Rights Reserved.
 %%%
 %%% Licensed under the Apache License, Version 2.0 (the "License");
 %%% you may not use this file except in compliance with the License.
@@ -956,8 +956,7 @@ recv_data({fast_tls, Sock}, Data) ->
     case fast_tls:recv_data(Sock, Data) of
 	{ok, _} = OK -> OK;
 	{error, E} when is_atom(E) -> {error, {socket, E}};
-	{error, E} when is_binary(E) -> {error, {tls, E}};
-	{error, _} = Err -> Err
+	{error, E} when is_binary(E) -> {error, {tls, E}}
     end;
 recv_data(_, Data) ->
     {ok, Data}.

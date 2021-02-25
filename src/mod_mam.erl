@@ -5,7 +5,7 @@
 %%% Created :  4 Jul 2013 by Evgeniy Khramtsov <ekhramtsov@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2013-2020   ProcessOne
+%%% ejabberd, Copyright (C) 2013-2021   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -1286,9 +1286,11 @@ send(Msgs, Count, IsComplete,
     RSMOut = make_rsm_out(Msgs, Count),
     Result = if NS == ?NS_MAM_TMP ->
 		     #mam_query{xmlns = NS, id = QID, rsm = RSMOut};
-		true ->
+	        NS == ?NS_MAM_0 ->
 		     #mam_fin{xmlns = NS, id = QID, rsm = RSMOut,
-			      complete = IsComplete}
+			      complete = IsComplete};
+		true ->
+		     #mam_fin{xmlns = NS, rsm = RSMOut, complete = IsComplete}
 	     end,
     if NS /= ?NS_MAM_0 ->
 	    lists:foreach(

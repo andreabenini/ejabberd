@@ -10,7 +10,7 @@
 
 extract_lang_src2pot ()
 {
-	./tools/extract-tr.sh src deps/xmpp/src > $PO_DIR/ejabberd.pot
+	./tools/extract-tr.sh src $DEPS_DIR/xmpp/src > $PO_DIR/ejabberd.pot
 }
 
 extract_lang_popot2po ()
@@ -48,7 +48,11 @@ extract_lang_po2msg ()
 	msgattrib $PO_PATH --translated --no-fuzzy --no-obsolete --no-location --no-wrap | grep "^msg" | tail --lines=+3 >$MS_PATH
 	grep "^msgid" $PO_PATH.ms | sed 's/^msgid //g' >$MSGID_PATH
 	grep "^msgstr" $PO_PATH.ms | sed 's/^msgstr //g' >$MSGSTR_PATH
-	echo "%% -*- coding: utf-8 -*-" >$MSGS_PATH
+	echo "%% Generated automatically" >$MSGS_PATH
+	echo "%% DO NOT EDIT: run \`make translations\` instead" >>$MSGS_PATH
+	echo "%% To improve translations please read:" >>$MSGS_PATH
+	echo "%%   https://docs.ejabberd.im/developer/extending-ejabberd/localization/" >>$MSGS_PATH
+	echo "" >>$MSGS_PATH
 	paste $MSGID_PATH $MSGSTR_PATH --delimiter=, | awk '{print "{" $0 "}."}' | sort -g >>$MSGS_PATH
 
 	rm $MS_PATH
@@ -99,19 +103,16 @@ extract_lang_updateall ()
 
 EJA_DIR=`pwd`
 PROJECT=ejabberd
+DEPS_DIR=$1
 MSGS_DIR=$EJA_DIR/priv/msgs
 LOG=/tmp/ejabberd-translate-errors.log
-if [ -f $EJA_DIR/deps/ejabberd_po/src/ejabberd.pot ]; then
-    PO_DIR=$EJA_DIR/deps/ejabberd_po/src/
-else
-    if [ -f $EJA_DIR/_build/default/lib/ejabberd_po/src/ejabberd.pot ]; then
-        PO_DIR=$EJA_DIR/_build/default/lib/ejabberd_po/src
-    else
-        echo "Couldn't find the required ejabberd_po repository."
-        echo "Run: ./configure --enable-tools; ./rebar get-deps"
-        exit 1
-    fi
+PO_DIR=$EJA_DIR/$DEPS_DIR/ejabberd_po/src/
+if [ ! -f $EJA_DIR/$DEPS_DIR/ejabberd_po/src/ejabberd.pot ]; then
+    echo "Couldn't find the required ejabberd_po repository in"
+    echo "  $PO_DIR"
+    echo "Run: ./configure --enable-tools; ./rebar get-deps"
+    exit 1
 fi
-echo "Using PO files found in $PO_DIR."
+echo "Using PO files from $PO_DIR."
 
 extract_lang_updateall

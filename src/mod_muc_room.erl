@@ -5,7 +5,7 @@
 %%% Created : 19 Mar 2003 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2020   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2021   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -939,32 +939,43 @@ process_groupchat_message(#message{from = From, lang = Lang} = Packet, StateData
 	of
       true ->
 	  {FromNick, Role} = get_participant_data(From, StateData),
-	  if (Role == moderator) or (Role == participant) or
-	     (IsSubscriber andalso ((StateData#state.config)#config.members_by_default == true)) or
-	       ((StateData#state.config)#config.moderated == false) ->
-		 Subject = check_subject(Packet),
-		 {NewStateData1, IsAllowed} = case Subject of
-						[] -> {StateData, true};
-						_ ->
-						    case
-						      can_change_subject(Role,
-									 IsSubscriber,
-									 StateData)
-							of
-						      true ->
-							  NSD =
-							      StateData#state{subject
-										  =
-										  Subject,
-									      subject_author
-										  =
-										  FromNick},
-							  store_room(NSD),
-							  {NSD, true};
-						      _ -> {StateData, false}
-						    end
-					      end,
-		 case IsAllowed of
+	  #config{moderated = Moderated} = StateData#state.config,
+	  AllowedByModerationRules =
+	  case {Role == moderator orelse Role == participant orelse
+		not Moderated, IsSubscriber} of
+	      {true, _} -> true;
+	      {_, true} ->
+		  case get_default_role(get_affiliation(From, StateData),
+					StateData) of
+		      moderator -> true;
+		      participant -> true;
+		      _ -> false
+		  end;
+	      _ ->
+		  false
+	  end,
+	  if AllowedByModerationRules ->
+	      Subject = check_subject(Packet),
+	      {NewStateData1, IsAllowed} =
+	      case Subject of
+		  [] ->
+		      {StateData, true};
+		  _ ->
+		      case
+			  can_change_subject(Role,
+					     IsSubscriber,
+					     StateData)
+		      of
+			  true ->
+			      NSD =
+			      StateData#state{subject = Subject,
+					      subject_author = FromNick},
+			      store_room(NSD),
+			      {NSD, true};
+			  _ -> {StateData, false}
+		      end
+	      end,
+	      case IsAllowed of
 		   true ->
 		       case
 			 ejabberd_hooks:run_fold(muc_filter_message,
