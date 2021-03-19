@@ -67,14 +67,13 @@ fi
 AC_PREFIX_DEFAULT(/usr/local)
 
 AC_CONFIG_FILES([Makefile
-		 vars.config
-		 src/ejabberd.app.src])
+		 vars.config])
 
 AC_ARG_ENABLE(all,
-[AC_HELP_STRING([--enable-all], [same as --enable-odbc --enable-mysql --enable-pgsql --enable-sqlite --enable-pam --enable-zlib --enable-redis --enable-elixir --enable-stun --enable-sip --enable-debug --enable-tools (useful for Dialyzer checks, default: no)])],
+[AC_HELP_STRING([--enable-all], [same as --enable-odbc --enable-mysql --enable-pgsql --enable-sqlite --enable-pam --enable-zlib --enable-redis --enable-elixir --enable-stun --enable-sip --enable-debug --enable-lua --enable-tools (useful for Dialyzer checks, default: no)])],
 [case "${enableval}" in
-  yes) odbc=true mysql=true pgsql=true sqlite=true pam=true zlib=true redis=true elixir=true stun=true sip=true debug=true tools=true ;;
-  no) odbc=false mysql=false pgsql=false sqlite=false pam=false zlib=false redis=false elixir=false stun=false sip=false debug=false tools=false ;;
+  yes) odbc=true mysql=true pgsql=true sqlite=true pam=true zlib=true redis=true elixir=true stun=true sip=true debug=true lua=true tools=true ;;
+  no) odbc=false mysql=false pgsql=false sqlite=false pam=false zlib=false redis=false elixir=false stun=false sip=false debug=false lua=false tools=false ;;
   *) AC_MSG_ERROR(bad value ${enableval} for --enable-all) ;;
 esac],[])
 
@@ -128,14 +127,6 @@ if test "$ENABLEGROUP" != ""; then
   AC_SUBST([INSTALLGROUP], [$ENABLEGROUP])
 fi
 
-AC_ARG_ENABLE(hipe,
-[AC_HELP_STRING([--enable-hipe], [compile natively with HiPE, not recommended (default: no)])],
-[case "${enableval}" in
-  yes) hipe=true ;;
-  no)  hipe=false ;;
-  *) AC_MSG_ERROR(bad value ${enableval} for --enable-hipe) ;;
-esac],[hipe=false])
-
 AC_ARG_ENABLE(latest_deps,
 [AC_HELP_STRING([--enable-latest-deps], [makes rebar use latest commits for dependencies instead of tagged versions (default: no)])],
 [case "${enableval}" in
@@ -143,6 +134,14 @@ AC_ARG_ENABLE(latest_deps,
   no)  latest_deps=false ;;
   *) AC_MSG_ERROR(bad value ${enableval} for --enable-latest-deps) ;;
 esac],[if test "x$latest_deps" = "x"; then latest_deps=false; fi])
+
+AC_ARG_ENABLE(lua,
+[AC_HELP_STRING([--enable-lua], [enable Lua support, to import from Prosody (default: no)])],
+[case "${enableval}" in
+  yes) lua=true ;;
+  no)  lua=false ;;
+  *) AC_MSG_ERROR(bad value ${enableval} for --enable-lua) ;;
+esac],[if test "x$lua" = "x"; then lua=false; fi])
 
 AC_ARG_ENABLE(mssql,
 [AC_HELP_STRING([--enable-mssql], [use Microsoft SQL Server database (default: no, requires --enable-odbc)])],
@@ -270,25 +269,20 @@ AC_ARG_ENABLE(zlib,
   *) AC_MSG_ERROR(bad value ${enableval} for --enable-zlib) ;;
 esac],[if test "x$zlib" = "x"; then zlib=true; fi])
 
-if test "$sqlite" = "true"; then
-   AX_LIB_SQLITE3([3.6.19])
-   if test "x$SQLITE3_VERSION" = "x"; then
-      AC_MSG_ERROR(SQLite3 library >= 3.6.19 was not found)
-   fi
-fi
-
-enabled_backends=""
-for backend in odbc mysql pgsql sqlite redis mssql; do
-    if eval test x\${$backend} = xtrue; then
-       if test "x$enabled_backends" = "x"; then
-          enabled_backends=$backend
-       else
-          enabled_backends="$enabled_backends, $backend"
-       fi
+case "`uname`" in
+  "Darwin")
+    # Darwin (macos) erlang-sqlite is built using amalgamated lib, so no external dependency
+    ;;
+  *)
+    if test "$sqlite" = "true"; then
+      AX_LIB_SQLITE3([3.6.19])
+      if test "x$SQLITE3_VERSION" = "x"; then
+        AC_MSG_ERROR(SQLite3 library >= 3.6.19 was not found)
+      fi
     fi
-done
+  ;;
+esac
 
-AC_SUBST(hipe)
 AC_SUBST(roster_gateway_workaround)
 AC_SUBST(new_sql_schema)
 AC_SUBST(full_xml)
@@ -305,12 +299,12 @@ AC_SUBST(elixir)
 AC_SUBST(stun)
 AC_SUBST(sip)
 AC_SUBST(debug)
+AC_SUBST(lua)
 AC_SUBST(tools)
 AC_SUBST(latest_deps)
 AC_SUBST(system_deps)
 AC_SUBST(CFLAGS)
 AC_SUBST(CPPFLAGS)
 AC_SUBST(LDFLAGS)
-AC_SUBST(enabled_backends)
 
 AC_OUTPUT

@@ -35,7 +35,7 @@
 	 create_rooms_file/1, destroy_rooms_file/1,
 	 rooms_unused_list/2, rooms_unused_destroy/2,
 	 rooms_empty_list/1, rooms_empty_destroy/1,
-	 get_user_rooms/2, get_room_occupants/2,
+	 get_user_rooms/2, get_user_subscriptions/2, get_room_occupants/2,
 	 get_room_occupants_number/2, send_direct_invitation/5,
 	 change_room_option/4, get_room_options/2,
 	 set_room_affiliation/4, get_room_affiliations/2, get_room_affiliation/3,
@@ -235,6 +235,22 @@ get_commands_spec() ->
 		        result_example = ["room1@muc.example.com", "room2@muc.example.com"],
 			args = [{user, binary}, {host, binary}],
 		        result = {rooms, {list, {room, string}}}},
+     #ejabberd_commands{name = get_user_subscriptions, tags = [muc],
+			desc = "Get the list of rooms where this user is subscribed",
+			module = ?MODULE, function = get_user_subscriptions,
+		        args_desc = ["Username", "Server host"],
+		        args_example = ["tom", "example.com"],
+		        result_example = [{"room1@muc.example.com", "Tommy", ["mucsub:config"]}],
+			args = [{user, binary}, {host, binary}],
+		        result = {rooms,
+                                  {list,
+                                   {room,
+                                    {tuple,
+                                     [{roomjid, string},
+                                      {usernick, string},
+                                      {nodes, {list, {node, string}}}
+                                     ]}}
+                                  }}},
 
      #ejabberd_commands{name = get_room_occupants, tags = [muc_room],
 			desc = "Get the list of occupants of a MUC room",
@@ -443,6 +459,16 @@ get_user_rooms(User, Server) ->
 	      end
       end, ejabberd_option:hosts()).
 
+get_user_subscriptions(User, Server) ->
+    Services = find_services(global),
+    UserJid = jid:make(jid:nodeprep(User), jid:nodeprep(Server)),
+    lists:flatmap(
+      fun(ServerHost) ->
+              {ok, Rooms} = mod_muc:get_subscribed_rooms(ServerHost, UserJid),
+              [{jid:encode(RoomJid), UserNick, Nodes}
+               || {RoomJid, UserNick, Nodes} <- Rooms]
+      end, Services).
+
 %%----------------------------
 %% Ad-hoc commands
 %%----------------------------
@@ -535,7 +561,8 @@ make_rooms_page(Host, Lang, {Sort_direction, Sort_column}) ->
 	      ?T("Persistent"),
 	      ?T("Logging"),
 	      ?T("Just created"),
-	      ?T("Room title")],
+	      ?T("Room title"),
+	      ?T("Node")],
     {Titles_TR, _} =
 	lists:mapfoldl(
 	  fun(Title, Num_column) ->
@@ -581,6 +608,7 @@ build_info_room({Name, Host, _ServerHost, Pid}) ->
     S = get_room_state(Pid),
     Just_created = S#state.just_created,
     Num_participants = maps:size(S#state.users),
+    Node = node(Pid),
 
     History = (S#state.history)#lqueue.queue,
     Ts_last_message =
@@ -600,7 +628,8 @@ build_info_room({Name, Host, _ServerHost, Pid}) ->
      Persistent,
      Logging,
      Just_created,
-     Title}.
+     Title,
+     Node}.
 
 get_queue_last(Queue) ->
     List = p1_queue:to_list(Queue),
@@ -616,7 +645,8 @@ prepare_room_info(Room_info) ->
      Persistent,
      Logging,
      Just_created,
-     Title} = Room_info,
+     Title,
+     Node} = Room_info,
     [NameHost,
      integer_to_binary(Num_participants),
      Ts_last_message,
@@ -624,7 +654,8 @@ prepare_room_info(Room_info) ->
      misc:atom_to_binary(Persistent),
      misc:atom_to_binary(Logging),
      justcreated_to_binary(Just_created),
-     Title].
+     Title,
+     misc:atom_to_binary(Node)].
 
 justcreated_to_binary(J) when is_integer(J) ->
     JNow = misc:usec_to_now(J),
@@ -653,47 +684,21 @@ create_room_with_opts(Name1, Host1, ServerHost1, CustomRoomOpts) ->
 	{_, _, error} ->
 	    throw({error, "Invalid 'serverhost'"});
 	{Name, Host, ServerHost} ->
-	    %% Get the default room options from the muc configuration
-	    DefRoomOpts = mod_muc_opt:default_room_options(ServerHost),
-	    %% Change default room options as required
-	    FormattedRoomOpts = [format_room_option(Opt, Val) || {Opt, Val}<-CustomRoomOpts],
-	    RoomOpts = lists:ukeymerge(1,
-				       lists:keysort(1, FormattedRoomOpts),
-				       lists:keysort(1, DefRoomOpts)),
-
-
-	    %% Get all remaining mod_muc parameters that might be utilized
-	    Access = mod_muc_opt:access(ServerHost),
-	    AcCreate = mod_muc_opt:access_create(ServerHost),
-	    AcAdmin = mod_muc_opt:access_admin(ServerHost),
-	    AcPer = mod_muc_opt:access_persistent(ServerHost),
-	    AcMam = mod_muc_opt:access_mam(ServerHost),
-	    HistorySize = mod_muc_opt:history_size(ServerHost),
-	    RoomShaper = mod_muc_opt:room_shaper(ServerHost),
-	    QueueType = mod_muc_opt:queue_type(ServerHost),
-
-	    %% If the room does not exist yet in the muc_online_room
 	    case get_room_pid(Name, Host) of
 		room_not_found ->
-		    %% Store the room on the server, it is not started yet though at this point
-		    case lists:keyfind(persistent, 1, RoomOpts) of
-			{persistent, true} ->
-			    mod_muc:store_room(ServerHost, Host, Name, RoomOpts);
-			_ ->
-			    ok
-		    end,
-		    %% Start the room
-		    {ok, Pid} = mod_muc_room:start(
-			Host,
-			ServerHost,
-			{Access, AcCreate, AcAdmin, AcPer, AcMam},
-			Name,
-			HistorySize,
-			RoomShaper,
-			RoomOpts,
-			QueueType),
-		    mod_muc:register_online_room(Name, Host, Pid),
-		    ok;
+		    %% Get the default room options from the muc configuration
+		    DefRoomOpts = mod_muc_opt:default_room_options(ServerHost),
+		    %% Change default room options as required
+		    FormattedRoomOpts = [format_room_option(Opt, Val) || {Opt, Val}<-CustomRoomOpts],
+		    RoomOpts = lists:ukeymerge(1,
+					       lists:keysort(1, FormattedRoomOpts),
+					       lists:keysort(1, DefRoomOpts)),
+		    case mod_muc:create_room(Host, Name, RoomOpts) of
+			ok ->
+			    ok;
+			{error, _} ->
+			    throw({error, "Unable to start room"})
+		    end;
 		_ ->
 		    throw({error, "Room already exists"})
 	    end
