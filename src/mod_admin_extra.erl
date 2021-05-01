@@ -275,7 +275,7 @@ get_commands_spec() ->
 			result = {res, rescode},
 			result_example = ok,
 			result_desc = "Status code: 0 on success, 1 otherwise"},
-     #ejabberd_commands{name = status_num_host, tags = [session, stats],
+     #ejabberd_commands{name = status_num_host, tags = [session, statistics],
 			desc = "Number of logged users with this status in host",
 			policy = admin,
 			module = ?MODULE, function = status_num,
@@ -285,7 +285,7 @@ get_commands_spec() ->
 			result = {users, integer},
 			result_example = 23,
 			result_desc = "Number of connected sessions with given status type"},
-     #ejabberd_commands{name = status_num, tags = [session, stats],
+     #ejabberd_commands{name = status_num, tags = [session, statistics],
 			desc = "Number of logged users with this status",
 			policy = admin,
 			module = ?MODULE, function = status_num,
@@ -664,7 +664,8 @@ get_commands_spec() ->
 			"name desc \\\"group1\\\\ngroup2\\\"",
 			module = ?MODULE, function = srg_create,
 			args = [{group, binary}, {host, binary},
-				{name, binary}, {description, binary}, {display, binary}],
+				{label, binary}, {description, binary}, {display, binary}],
+			args_rename = [{name, label}],
 			args_example = [<<"group3">>, <<"myserver.com">>, <<"Group3">>,
 				<<"Third group">>, <<"group1\\\\ngroup2">>],
 			args_desc = ["Group identifier", "Group server name", "Group name",
@@ -770,7 +771,7 @@ get_commands_spec() ->
 			args_desc = ["Username", "Server name", "Query XML element"],
 			result = {res, rescode}},
 
-     #ejabberd_commands{name = stats, tags = [stats],
+     #ejabberd_commands{name = stats, tags = [statistics],
 			desc = "Get statistical value: registeredusers onlineusers onlineusersnode uptimeseconds processes",
 			policy = admin,
 			module = ?MODULE, function = stats,
@@ -780,7 +781,7 @@ get_commands_spec() ->
 			result_example = 6,
 			result_desc = "Integer statistic value",
 			result = {stat, integer}},
-     #ejabberd_commands{name = stats_host, tags = [stats],
+     #ejabberd_commands{name = stats_host, tags = [statistics],
 			desc = "Get statistical value for this host: registeredusers onlineusers",
 			policy = admin,
 			module = ?MODULE, function = stats,
@@ -1456,12 +1457,12 @@ private_set2(Username, Host, Xml) ->
 %%% Shared Roster Groups
 %%%
 
-srg_create(Group, Host, Name, Description, Display) ->
+srg_create(Group, Host, Label, Description, Display) ->
     DisplayList = case Display of
 	<<>> -> [];
 	_ -> ejabberd_regexp:split(Display, <<"\\\\n">>)
     end,
-    Opts = [{name, Name},
+    Opts = [{label, Label},
 	    {displayed_groups, DisplayList},
 	    {description, Description}],
     {atomic, _} = mod_shared_roster:create_group(Host, Group, Opts),
