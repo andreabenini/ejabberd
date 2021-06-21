@@ -107,7 +107,7 @@ defmodule Ejabberd.Mixfile do
      {:p1_pgsql, "~> 1.1"},
      {:p1_utils, "~> 1.0"},
      {:pkix, "~> 1.0"},
-     {:stringprep, "~> 1.0"},
+     {:stringprep, ">= 1.0.26", override: true},
      {:stun, "~> 1.0"},
      {:xmpp, "~> 1.5"},
      {:yconf, "~> 1.0"}]
@@ -130,7 +130,7 @@ defmodule Ejabberd.Mixfile do
     for {:true, dep} <- [{config(:pam), {:epam, "~> 1.0"}},
                          {config(:redis), {:eredis, "~> 1.2.0"}},
                          {config(:zlib), {:ezlib, "~> 1.0"}},
-                         {config(:lua), {:luerl, "~> 0.4.0"}},
+                         {config(:lua), {:luerl, "~> 0.3.1"}},
                          {config(:sqlite), {:sqlite3, "~> 1.1"}}], do:
       dep
   end

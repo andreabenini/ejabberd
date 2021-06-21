@@ -108,9 +108,7 @@ jobs:
       if: matrix.rebar == 3
       uses: actions/cache@v2
       with:
-        path: |
-          ~/.cache/rebar3/
-          _build/default/
+        path: ~/.cache/rebar3/
         key: ${{matrix.otp}}-${{matrix.rebar}}-${{hashFiles('rebar.config')}}
 
     - name: Compile
@@ -171,7 +169,14 @@ jobs:
       if: matrix.otp == 24.0
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: rebar3 as test coveralls send
+      run: |
+        rebar3 as test coveralls send
+        curl -v -k https://coveralls.io/webhook \
+             --header "Content-Type: application/json" \
+             --data '{"repo_name":"$GITHUB_REPOSITORY",
+                      "repo_token":"$GITHUB_TOKEN",
+                      "payload":{"build_num":$GITHUB_RUN_ID,
+                                 "status":"done"}}'
 
   binaries:
     name: Binaries
@@ -200,13 +205,13 @@ jobs:
       with:
         otp-version: ${{ matrix.otp }}
     - name: Get a compatible Rebar3
-      run: wget https://s3.amazonaws.com/rebar3/rebar3 && chmod +x rebar3
+      run: |
+        wget https://github.com/erlang/rebar3/releases/download/3.15.2/rebar3 \
+          && chmod +x rebar3
     - name: Cache Rebar3
       uses: actions/cache@v2
       with:
-        path: |
-          ~/.cache/rebar3/
-          _build/default/lib/
+        path: ~/.cache/rebar3/
         key: ${{matrix.otp}}-${{matrix.rebar}}-${{hashFiles('rebar.config')}}
     - name: Prepare libraries
       run: |
