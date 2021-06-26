@@ -107,6 +107,7 @@ ifeq "$(IS_REBAR3)" "1"
   DEPSBASE=_build
   DEPSDIR=$(DEPSBASE)/default/lib
   EBINDIR=$(DEPSDIR)/ejabberd/ebin
+  REBARREL=as prod tar
 else
   SKIPDEPS=skip_deps=true
   LISTDEPS=-q list-deps
@@ -115,6 +116,7 @@ else
   DEPSBASE=deps
   DEPSDIR=$(DEPSBASE)
   EBINDIR=ebin
+  REBARREL=generate
 endif
 
 all: deps src
@@ -357,8 +359,13 @@ distclean: clean clean-rel
 	rm -f ejabberdctl.example ejabberd.init ejabberd.service
 	[ ! -f ../ChangeLog ] || rm -f ../ChangeLog
 
-rel: all
-	$(REBAR) generate
+rel:
+	$(REBAR) $(REBARREL)
+
+DEV_CONFIG = _build/dev/rel/ejabberd/etc/ejabberd/ejabberd.yml
+
+dev $(DEV_CONFIG):
+	REBAR_PROFILE=dev rebar3 release
 
 TAGS:
 	etags *.erl
@@ -419,3 +426,29 @@ test:
 .PHONY: src edoc dialyzer Makefile TAGS clean clean-rel distclean rel \
 	install uninstall uninstall-binary uninstall-all translations deps test \
 	quicktest erlang_plt deps_plt ejabberd_plt xref hooks options
+
+help:
+	@echo ""
+	@echo "  [all]          Compile dependencies and ejabberd"
+	@echo "  src            Compile ejabberd"
+	@echo "  deps           Get dependencies"
+	@echo "  update         Update dependencies' source code"
+	@echo "  clean          Clean binary files"
+	@echo "  distclean      Clean completely the development files"
+	@echo ""
+	@echo "  install        Install ejabberd to /usr/local"
+	@echo "  uninstall      Uninstall ejabberd (buggy)"
+	@echo "  uninstall-all  Uninstall also configuration, logs, mnesia... (buggy)"
+	@echo ""
+	@echo "  rel            Build a production release"
+	@echo "  dev            Build a development release"
+	@echo ""
+	@echo "  edoc           Generate edoc documentation (unused)"
+	@echo "  options        Generate ejabberd_option.erl"
+	@echo "  translations   Extract translation files (requires --enable-tools)"
+	@echo "  tags           Generate tags file for text editors"
+	@echo ""
+	@echo "  dialyzer       Run Dialyzer static analyzer"
+	@echo "  hooks          Run hooks validator"
+	@echo "  test           Run Common Tests suite"
+	@echo "  xref           Run cross reference analysis"
