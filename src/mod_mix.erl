@@ -24,7 +24,7 @@
 -module(mod_mix).
 -behaviour(gen_mod).
 -behaviour(gen_server).
--protocol({xep, 369, '0.13.0'}).
+-protocol({xep, 369, '0.14.1'}).
 
 %% API
 -export([route/1]).
@@ -166,7 +166,7 @@ process_disco_info(#iq{type = get, to = #jid{luser = <<>>} = To,
 				[ServerHost, ?MODULE, <<"">>, Lang]),
     Name = mod_mix_opt:name(ServerHost),
     Identity = #identity{category = <<"conference">>,
-			 type = <<"text">>,
+			 type = <<"mix">>,
 			 name = translate:translate(Lang, Name)},
     Features = [?NS_DISCO_INFO, ?NS_DISCO_ITEMS,
 		?NS_MIX_CORE_0, ?NS_MIX_CORE_SEARCHABLE_0,
