@@ -3406,7 +3406,7 @@ max_items(Host, Options) ->
 	    case get_option(Options, max_items) of
 		I when is_integer(I), I < 0 -> 0;
 		I when is_integer(I) -> I;
-		_ -> ?MAXITEMS
+		_ -> get_max_items_node(Host)
 	    end;
 	false ->
 	    case get_option(Options, send_last_published_item) of
@@ -3548,7 +3548,8 @@ decode_get_pending(#xdata{fields = Fs}, Lang) ->
 	    {error, xmpp:err_resource_constraint(Txt, Lang)}
     end.
 
--spec check_opt_range(atom(), [proplists:property()], non_neg_integer()) -> boolean().
+-spec check_opt_range(atom(), [proplists:property()],
+		      non_neg_integer() | undefined) -> boolean().
 check_opt_range(_Opt, _Opts, undefined) ->
     true;
 check_opt_range(Opt, Opts, Max) ->
