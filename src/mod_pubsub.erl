@@ -4233,6 +4233,7 @@ delete_expired_items() ->
 get_commands_spec() ->
     [#ejabberd_commands{name = delete_old_pubsub_items, tags = [purge],
 			desc = "Keep only NUMBER of PubSub items per node",
+		        note = "added in 21.12",
 			module = ?MODULE, function = delete_old_items,
 			args_desc = ["Number of items to keep per node"],
 			args = [{number, integer}],
@@ -4242,6 +4243,7 @@ get_commands_spec() ->
 			result_example = ok},
      #ejabberd_commands{name = delete_expired_pubsub_items, tags = [purge],
 			desc = "Delete expired PubSub items",
+		        note = "added in 21.12",
 			module = ?MODULE, function = delete_expired_items,
 			args = [],
 			result = {res, rescode},
@@ -4389,6 +4391,7 @@ mod_doc() ->
 		     "is memory usage, as every item is stored in memory.")}},
 	   {max_item_expire_node,
 	    #{value => "timeout() | infinity",
+	      note => "added in 21.12",
 	      desc =>
 		  ?T("Specify the maximum item epiry time. Default value "
 		     "is: 'infinity'.")}},
@@ -4396,7 +4399,7 @@ mod_doc() ->
 	    #{value => "non_neg_integer() | infinity",
 	      desc =>
 		  ?T("Define the maximum number of items that can be "
-		     "stored in a node. Default value is: '10'.")}},
+		     "stored in a node. Default value is: '1000'.")}},
 	   {max_nodes_discoitems,
 	    #{value => "pos_integer() | infinity",
 	      desc =>

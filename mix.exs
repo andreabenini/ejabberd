@@ -24,6 +24,7 @@ defmodule Ejabberd.MixProject do
     case config(:vsn) do
       :false -> "0.0.0" # ./configure wasn't run: vars.config not created
       '0.0' -> "0.0.0" # the full git repository wasn't downloaded
+      'latest.0' -> "0.0.0" # running 'docker-ejabberd/ecs/build.sh latest'
       [_, _, ?., _, _] = x ->
         head = String.replace(:erlang.list_to_binary(x), ~r/0+([0-9])/, "\\1")
         <<head::binary, ".0">>
@@ -87,6 +88,7 @@ defmodule Ejabberd.MixProject do
              if_version_below('23', [{:d, :USE_OLD_PG2}]) ++
              if_version_below('24', [{:d, :COMPILER_REPORTS_ONLY_LINES}]) ++
              if_version_below('24', [{:d, :SYSTOOLS_APP_DEF_WITHOUT_OPTIONAL}]) ++
+             if_function_exported(:uri_string, :normalize, 1, [{:d, :HAVE_URI_STRING}])
              if_function_exported(:erl_error, :format_exception, 6, [{:d, :HAVE_ERL_ERROR}])
     defines = for {:d, value} <- result, do: {:d, value}
     result ++ [{:d, :ALL_DEFS, defines}]
@@ -124,7 +126,7 @@ defmodule Ejabberd.MixProject do
      {:pkix, "~> 1.0"},
      {:stringprep, ">= 1.0.26"},
      {:stun, "~> 1.0"},
-     {:xmpp, ">= 1.5.5"},
+     {:xmpp, "~> 1.5"},
      {:yconf, "~> 1.0"}]
     ++ cond_deps()
   end
