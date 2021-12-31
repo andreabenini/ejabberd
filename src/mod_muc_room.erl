@@ -50,6 +50,7 @@
 	 set_config/2,
 	 get_state/1,
 	 change_item/5,
+	 change_item_async/5,
 	 config_reloaded/1,
 	 subscribe/4,
 	 unsubscribe/2,
@@ -202,6 +203,11 @@ change_item(Pid, JID, Type, AffiliationOrRole, Reason) ->
 	    {error, notfound}
     end.
 
+-spec change_item_async(pid(), jid(), affiliation | role, affiliation() | role(), binary()) -> ok.
+change_item_async(Pid, JID, Type, AffiliationOrRole, Reason) ->
+    p1_fsm:send_all_state_event(
+      Pid, {process_item_change, {JID, Type, AffiliationOrRole, Reason}, undefined}).
+
 -spec get_state(pid()) -> {ok, state()} | {error, notfound | timeout}.
 get_state(Pid) ->
     try p1_fsm:sync_send_all_state_event(Pid, get_state)
@@ -306,7 +312,8 @@ init([Host, ServerHost, Access, Room, HistorySize, RoomShaper, Opts, QueueType])
 				  room_shaper = Shaper}),
     add_to_log(room_existence, started, State),
     ejabberd_hooks:run(start_room, ServerHost, [ServerHost, Room, Host]),
-    {ok, normal_state, reset_hibernate_timer(State)}.
+    State1 = cleanup_affiliations(State),
+    {ok, normal_state, reset_hibernate_timer(State1)}.
 
 normal_state({route, <<"">>,
 	      #message{from = From, type = Type, lang = Lang} = Packet},
@@ -674,6 +681,16 @@ handle_event({set_affiliations, Affiliations},
 	     StateName, StateData) ->
     NewStateData = set_affiliations(Affiliations, StateData),
     {next_state, StateName, NewStateData};
+handle_event({process_item_change, Item, UJID}, StateName, StateData) ->
+    case process_item_change(Item, StateData, UJID) of
+	{error, _} ->
+            {next_state, StateName, StateData};
+        StateData ->
+            {next_state, StateName, StateData};
+	NSD ->
+	    store_room(NSD),
+            {next_state, StateName, NSD}
+    end;
 handle_event(_Event, StateName, StateData) ->
     {next_state, StateName, StateData}.
 
@@ -722,6 +739,8 @@ handle_sync_event({process_item_change, Item, UJID}, _From, StateName, StateData
     case process_item_change(Item, StateData, UJID) of
 	{error, _} = Err ->
 	    {reply, Err, StateName, StateData};
+        StateData ->
+            {reply, {ok, StateData}, StateName, StateData};
 	NSD ->
 	    store_room(NSD),
 	    {reply, {ok, NSD}, StateName, NSD}
@@ -1618,7 +1637,7 @@ do_get_affiliation_fallback(JID, StateData) ->
 
 -spec get_affiliations(state()) -> affiliations().
 get_affiliations(#state{config = #config{persistent = false}} = StateData) ->
-    get_affiliations_callback(StateData);
+    get_affiliations_fallback(StateData);
 get_affiliations(StateData) ->
     Room = StateData#state.room,
     Host = StateData#state.host,
@@ -1626,13 +1645,13 @@ get_affiliations(StateData) ->
     Mod = gen_mod:db_mod(ServerHost, mod_muc),
     case Mod:get_affiliations(ServerHost, Room, Host) of
 	{error, _} ->
-	    get_affiliations_callback(StateData);
+	    get_affiliations_fallback(StateData);
 	{ok, Affiliations} ->
 	    Affiliations
     end.
 
--spec get_affiliations_callback(state()) -> affiliations().
-get_affiliations_callback(StateData) ->
+-spec get_affiliations_fallback(state()) -> affiliations().
+get_affiliations_fallback(StateData) ->
     StateData#state.affiliations.
 
 -spec get_service_affiliation(jid(), state()) -> owner | none.
@@ -5337,6 +5356,23 @@ muc_subscribers_put(Subscriber, MUCSubscribers) ->
                      subscriber_nodes = NewSubNodes}.
 
 
+cleanup_affiliations(State) ->
+    case mod_muc_opt:cleanup_affiliations_on_start(State#state.server_host) of
+        true ->
+            Affiliations =
+                maps:filter(
+                  fun({LUser, LServer, _}, _) ->
+                          case ejabberd_router:is_my_host(LServer) of
+                              true ->
+                                  ejabberd_auth:user_exists(LUser, LServer);
+                              false ->
+                                  true
+                          end
+                  end, State#state.affiliations),
+            State#state{affiliations = Affiliations};
+        false ->
+            State
+    end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Detect messange stanzas that don't have meaningful content
