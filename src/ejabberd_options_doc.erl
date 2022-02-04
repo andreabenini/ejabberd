@@ -220,7 +220,9 @@ doc() ->
      {access_rules,
       #{value => "{AccessName: {allow|deny: ACLRules|ACLName}}",
         desc =>
-            ?T("The option specifies access rules. Each access rule is "
+            ?T("This option defines "
+               "http://../basic/#access-rules[Access Rules]. "
+               "Each access rule is "
                "assigned a name that can be referenced from other parts "
                "of the configuration file (mostly from 'access' options of "
                "ejabberd modules). Each rule definition may contain "
@@ -387,7 +389,7 @@ doc() ->
      {auth_scram_hash,
       #{value => "sha | sha256 | sha512",
         desc =>
-        ?T("Hash algorith that should be used to store password in SCRAM format. "
+        ?T("Hash algorithm that should be used to store password in SCRAM format. "
            "You shouldn't change this if you already have passwords generated with "
            "a different algorithm - users that have such passwords will not be able "
            "to authenticate. The default value is 'sha'.")}},
@@ -449,7 +451,7 @@ doc() ->
         desc =>
             [?T("Path to a file of CA root certificates. "
                "The default is to use system defined file if possible."), "",
-             ?T("For server conections, this 'ca_file' option is overriden by the http://../toplevel/#s2s-cafile[s2s_cafile] option."), ""
+             ?T("For server connections, this 'ca_file' option is overridden by the http://../toplevel/#s2s-cafile[s2s_cafile] option."), ""
             ]}},
      {captcha_cmd,
       #{value => ?T("Path"),
@@ -1083,9 +1085,10 @@ doc() ->
      {s2s_access,
       #{value => ?T("Access"),
         desc =>
-            ?T("The access rule to restrict server-to-server connections. "
-               "The default value is 'all' which means no restrictions "
-               "are applied.")}},
+            ?T("This http://../basic/#access-rules[Access Rule] defines to "
+               "what remote servers can s2s connections be established. "
+               "The default value is 'all'; no restrictions are applied, it is"
+               " allowed to connect s2s to/from all remote servers.")}},
      {s2s_cafile,
       #{value => ?T("Path"),
         desc =>

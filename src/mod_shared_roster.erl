@@ -150,7 +150,8 @@ depends(_Host, _Opts) ->
 
 -spec init_cache(module(), binary(), gen_mod:opts()) -> ok.
 init_cache(Mod, Host, Opts) ->
-    ets_cache:new(?SPECIAL_GROUPS_CACHE, [{max_size, 4}]),
+    NumHosts = length(ejabberd_option:hosts()),
+    ets_cache:new(?SPECIAL_GROUPS_CACHE, [{max_size, NumHosts * 4}]),
     case use_cache(Mod, Host) of
         true ->
 	    CacheOpts = cache_opts(Opts),
@@ -870,12 +871,15 @@ c2s_self_presence(Acc) ->
     Acc.
 
 -spec unset_presence(binary(), binary(), binary(), binary()) -> ok.
-unset_presence(LUser, LServer, Resource, Status) ->
+unset_presence(User, Server, Resource, Status) ->
+    LUser = jid:nodeprep(User),
+    LServer = jid:nameprep(Server),
+    LResource = jid:resourceprep(Resource),
     Resources = ejabberd_sm:get_user_resources(LUser,
 					       LServer),
     ?DEBUG("Unset_presence for ~p @ ~p / ~p -> ~p "
 	   "(~p resources)",
-	   [LUser, LServer, Resource, Status, length(Resources)]),
+	   [LUser, LServer, LResource, Status, length(Resources)]),
     case length(Resources) of
       0 ->
 	  lists:foreach(
@@ -1272,11 +1276,8 @@ mod_doc() ->
           [{db_type,
             #{value => "mnesia | sql",
               desc =>
-                  ?T("Define the type of storage where the module will create "
-		     "the tables and store user information. The default is "
-		     "the storage defined by the top-level _`default_db`_ option, "
-		     "or 'mnesia' if omitted. If 'sql' value is defined, "
-		     "make sure you have defined the database.")}},
+                  ?T("Same as top-level _`default_db`_ option, "
+                     "but applied to this module only.")}},
            {use_cache,
             #{value => "true | false",
               desc =>
