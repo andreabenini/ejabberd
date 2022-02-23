@@ -26,9 +26,9 @@ defmodule Ejabberd.MixProject do
       '0.0' -> "0.0.0" # the full git repository wasn't downloaded
       'latest.0' -> "0.0.0" # running 'docker-ejabberd/ecs/build.sh latest'
       [_, _, ?., _, _] = x ->
-        head = String.replace(:erlang.list_to_binary(x), ~r/0+([0-9])/, "\\1")
+        head = String.replace(:erlang.list_to_binary(x), ~r/\.0+([0-9])/, ".\\1")
         <<head::binary, ".0">>
-      vsn -> String.replace(:erlang.list_to_binary(vsn), ~r/0+([0-9])/, "\\1")
+      vsn -> String.replace(:erlang.list_to_binary(vsn), ~r/\.0+([0-9])/, ".\\1")
     end
   end
 
@@ -43,9 +43,9 @@ defmodule Ejabberd.MixProject do
      extra_applications: [:mix],
      applications: [:idna, :inets, :kernel, :sasl, :ssl, :stdlib,
                     :base64url, :fast_tls, :fast_xml, :fast_yaml, :jiffy, :jose,
-                    :p1_utils, :stringprep, :stun, :yconf],
+                    :p1_utils, :stringprep, :yconf],
      included_applications: [:lager, :mnesia, :os_mon,
-                             :cache_tab, :eimp, :esip, :mqtree, :p1_acme,
+                             :cache_tab, :eimp, :mqtree, :p1_acme,
                              :p1_oauth2, :pkix, :xmpp]
      ++ cond_apps()]
   end
@@ -78,12 +78,13 @@ defmodule Ejabberd.MixProject do
   defp erlc_options do
     # Use our own includes + includes from all dependencies
     includes = ["include"] ++ deps_include(["fast_xml", "xmpp", "p1_utils"])
-    result = [:debug_info, {:d, :ELIXIR_ENABLED}] ++
+    result = [{:d, :ELIXIR_ENABLED}] ++
              cond_options() ++
              Enum.map(includes, fn (path) -> {:i, path} end) ++
              if_version_above('20', [{:d, :DEPRECATED_GET_STACKTRACE}]) ++
              if_version_below('21', [{:d, :USE_OLD_HTTP_URI}]) ++
              if_version_below('22', [{:d, :LAGER}]) ++
+             if_version_below('21', [{:d, :NO_CUSTOMIZE_HOSTNAME_CHECK}]) ++
              if_version_below('23', [{:d, :USE_OLD_CRYPTO_HMAC}]) ++
              if_version_below('23', [{:d, :USE_OLD_PG2}]) ++
              if_version_below('24', [{:d, :COMPILER_REPORTS_ONLY_LINES}]) ++
@@ -97,7 +98,9 @@ defmodule Ejabberd.MixProject do
   defp cond_options do
     for {:true, option} <- [{config(:sip), {:d, :SIP}},
                             {config(:stun), {:d, :STUN}},
-                            {config(:roster_gateway_workaround), {:d, :ROSTER_GATWAY_WORKAROUND}},
+                            {config(:debug), :debug_info},
+                            {not config(:debug), {:debug_info, false}},
+                            {config(:roster_gateway_workaround), {:d, :ROSTER_GATEWAY_WORKAROUND}},
                             {config(:new_sql_schema), {:d, :NEW_SQL_SCHEMA}}
                            ], do:
     option
@@ -108,7 +111,6 @@ defmodule Ejabberd.MixProject do
      {:cache_tab, "~> 1.0"},
      {:distillery, "~> 2.0"},
      {:eimp, "~> 1.0"},
-     {:esip, "~> 1.0"},
      {:ex_doc, ">= 0.0.0", only: :dev},
      {:fast_tls, "~> 1.1"},
      {:fast_xml, "~> 1.1"},
@@ -119,13 +121,10 @@ defmodule Ejabberd.MixProject do
      {:lager, "~> 3.9.1"},
      {:mqtree, "~> 1.0"},
      {:p1_acme, "~> 1.0"},
-     {:p1_mysql, "~> 1.0"},
      {:p1_oauth2, "~> 0.6"},
-     {:p1_pgsql, "~> 1.1"},
      {:p1_utils, "~> 1.0"},
      {:pkix, "~> 1.0"},
      {:stringprep, ">= 1.0.26"},
-     {:stun, "~> 1.0"},
      {:xmpp, "~> 1.5"},
      {:yconf, "~> 1.0"}]
     ++ cond_deps()
@@ -146,15 +145,22 @@ defmodule Ejabberd.MixProject do
   defp cond_deps do
     for {:true, dep} <- [{config(:pam), {:epam, "~> 1.0"}},
                          {config(:redis), {:eredis, "~> 1.2.0"}},
+                         {config(:sip), {:esip, "~> 1.0"}},
                          {config(:zlib), {:ezlib, "~> 1.0"}},
                          {config(:lua), {:luerl, "~> 1.0"}},
-                         {config(:sqlite), {:sqlite3, "~> 1.1"}}], do:
+                         {config(:mysql), {:p1_mysql, "~> 1.0"}},
+                         {config(:pgsql), {:p1_pgsql, "~> 1.1"}},
+                         {config(:sqlite), {:sqlite3, "~> 1.1"}},
+                         {config(:stun), {:stun, "~> 1.0"}}], do:
       dep
   end
 
   defp cond_apps do
-    for {:true, app} <- [{config(:redis), :eredis},
+    for {:true, app} <- [{config(:pam), :epam},
+                         {config(:lua), :luerl},
+                         {config(:redis), :eredis},
                          {config(:mysql), :p1_mysql},
+                         {config(:sip), :esip},
                          {config(:odbc), :odbc},
                          {config(:pgsql), :p1_pgsql},
                          {config(:sqlite), :sqlite3}], do:

@@ -1,5 +1,5 @@
 --
--- ejabberd, Copyright (C) 2002-2021   ProcessOne
+-- ejabberd, Copyright (C) 2002-2022   ProcessOne
 --
 -- This program is free software; you can redistribute it and/or
 -- modify it under the terms of the GNU General Public License as
@@ -260,6 +260,7 @@ CREATE TABLE muc_room (
 );
 
 CREATE UNIQUE INDEX i_muc_room_name_host ON muc_room (name, host);
+CREATE INDEX i_muc_room_host_created_at ON muc_room (host, created_at);
 
 CREATE TABLE muc_registered (
     jid text NOT NULL,
