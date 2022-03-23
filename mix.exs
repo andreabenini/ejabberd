@@ -5,7 +5,7 @@ defmodule Ejabberd.MixProject do
     [app: :ejabberd,
      version: version(),
      description: description(),
-     elixir: "~> 1.4",
+     elixir: elixir_required_version(),
      elixirc_paths: ["lib"],
      compile_path: ".",
      compilers: [:asn1] ++ Mix.compilers,
@@ -44,19 +44,10 @@ defmodule Ejabberd.MixProject do
      applications: [:idna, :inets, :kernel, :sasl, :ssl, :stdlib,
                     :base64url, :fast_tls, :fast_xml, :fast_yaml, :jiffy, :jose,
                     :p1_utils, :stringprep, :yconf],
-     included_applications: [:lager, :mnesia, :os_mon,
+     included_applications: [:mnesia, :os_mon,
                              :cache_tab, :eimp, :mqtree, :p1_acme,
                              :p1_oauth2, :pkix, :xmpp]
      ++ cond_apps()]
-  end
-
-  defp if_function_exported(mod, fun, arity, okResult) do
-    :code.ensure_loaded(mod)
-    if :erlang.function_exported(mod, fun, arity) do
-      okResult
-    else
-      []
-    end
   end
 
   defp if_version_above(ver, okResult) do
@@ -82,15 +73,15 @@ defmodule Ejabberd.MixProject do
              cond_options() ++
              Enum.map(includes, fn (path) -> {:i, path} end) ++
              if_version_above('20', [{:d, :DEPRECATED_GET_STACKTRACE}]) ++
+             if_version_above('20', [{:d, :HAVE_URI_STRING}]) ++
+             if_version_above('20', [{:d, :HAVE_ERL_ERROR}]) ++
              if_version_below('21', [{:d, :USE_OLD_HTTP_URI}]) ++
              if_version_below('22', [{:d, :LAGER}]) ++
              if_version_below('21', [{:d, :NO_CUSTOMIZE_HOSTNAME_CHECK}]) ++
              if_version_below('23', [{:d, :USE_OLD_CRYPTO_HMAC}]) ++
              if_version_below('23', [{:d, :USE_OLD_PG2}]) ++
              if_version_below('24', [{:d, :COMPILER_REPORTS_ONLY_LINES}]) ++
-             if_version_below('24', [{:d, :SYSTOOLS_APP_DEF_WITHOUT_OPTIONAL}]) ++
-             if_function_exported(:uri_string, :normalize, 1, [{:d, :HAVE_URI_STRING}])
-             if_function_exported(:erl_error, :format_exception, 6, [{:d, :HAVE_ERL_ERROR}])
+             if_version_below('24', [{:d, :SYSTOOLS_APP_DEF_WITHOUT_OPTIONAL}])
     defines = for {:d, value} <- result, do: {:d, value}
     result ++ [{:d, :ALL_DEFS, defines}]
   end
@@ -109,16 +100,13 @@ defmodule Ejabberd.MixProject do
   defp deps do
     [{:base64url, "~> 1.0"},
      {:cache_tab, "~> 1.0"},
-     {:distillery, "~> 2.0"},
      {:eimp, "~> 1.0"},
-     {:ex_doc, ">= 0.0.0", only: :dev},
      {:fast_tls, "~> 1.1"},
      {:fast_xml, "~> 1.1"},
      {:fast_yaml, "~> 1.0"},
      {:idna, "~> 6.0"},
-     {:jiffy, "~> 1.0.5"},
+     {:jiffy, "~> 1.1.1"},
      {:jose, "~> 1.11.1"},
-     {:lager, "~> 3.9.1"},
      {:mqtree, "~> 1.0"},
      {:p1_acme, "~> 1.0"},
      {:p1_oauth2, "~> 0.6"},
@@ -147,6 +135,7 @@ defmodule Ejabberd.MixProject do
                          {config(:redis), {:eredis, "~> 1.2.0"}},
                          {config(:sip), {:esip, "~> 1.0"}},
                          {config(:zlib), {:ezlib, "~> 1.0"}},
+                         {if_version_below('22', true), {:lager, "~> 3.9.1"}},
                          {config(:lua), {:luerl, "~> 1.0"}},
                          {config(:mysql), {:p1_mysql, "~> 1.0"}},
                          {config(:pgsql), {:p1_pgsql, "~> 1.1"}},
@@ -159,6 +148,7 @@ defmodule Ejabberd.MixProject do
     for {:true, app} <- [{config(:pam), :epam},
                          {config(:lua), :luerl},
                          {config(:redis), :eredis},
+                         {if_version_below('22', true), :lager},
                          {config(:mysql), :p1_mysql},
                          {config(:sip), :esip},
                          {config(:odbc), :odbc},
@@ -191,6 +181,35 @@ defmodule Ejabberd.MixProject do
     case vars()[key] do
       nil -> false
       value -> value
+    end
+  end
+
+  defp elixir_required_version do
+    case {System.get_env("RELIVE", "false"),
+          MapSet.member?(MapSet.new(System.argv()), "release")}
+      do
+      {"true", _} ->
+        case Version.match?(System.version(), "~> 1.11") do
+          false ->
+            IO.puts("ERROR: To use 'make relive', Elixir 1.11.0 or higher is required.")
+          _ -> :ok
+        end
+        "~> 1.11"
+      {_, true} ->
+        case Version.match?(System.version(), "~> 1.10") do
+          false ->
+            IO.puts("ERROR: To build releases, Elixir 1.10.0 or higher is required.")
+          _ -> :ok
+        end
+        case Version.match?(System.version(), "< 1.11.4")
+          and :erlang.system_info(:otp_release) > '23' do
+          true ->
+            IO.puts("ERROR: To build releases with Elixir lower than 1.11.4, Erlang/OTP lower than 24 is required.")
+          _ -> :ok
+        end
+        "~> 1.10"
+      _ ->
+        "~> 1.4"
     end
   end
 
@@ -238,7 +257,7 @@ defmodule Ejabberd.MixProject do
     end
 
     # Mix/Elixir lower than 1.11.0 use config/releases.exs instead of runtime.exs
-    case Version.match?(System.version, ">= 1.11.0") do
+    case Version.match?(System.version, "~> 1.11") do
       true ->
         :ok
       false ->
@@ -250,9 +269,10 @@ defmodule Ejabberd.MixProject do
     execute.("sed -e 's|{{\\(\[_a-z\]*\\)}}|<%= @\\1 %>|g' ejabberdctl.example2> ejabberdctl.example2a")
     Mix.Generator.copy_template("ejabberdctl.example2a", "ejabberdctl.example2b", assigns)
     execute.("sed -e 's|{{\\(\[_a-z\]*\\)}}|<%= @\\1 %>|g' ejabberdctl.example2b > ejabberdctl.example3")
-    execute.("sed -e 's|ERLANG_NODE=ejabberd@localhost|ERLANG_NODE=ejabberd|g' ejabberdctl.example3 > ejabberdctl.example4")
-    execute.("sed -e 's|INSTALLUSER=|ERL_OPTIONS=\"-setcookie \\$\\(cat \"\\${SCRIPT_DIR%/*}/releases/COOKIE\")\"\\nINSTALLUSER=|g' ejabberdctl.example4 > ejabberdctl.example5")
-    Mix.Generator.copy_template("ejabberdctl.example5", "#{ro}/bin/ejabberdctl", assigns)
+    execute.("sed -e 's|^ERLANG_NODE=ejabberd@localhost|ERLANG_NODE=ejabberd|g' ejabberdctl.example3 > ejabberdctl.example4")
+    execute.("sed -e 's|^ERLANG_OPTS=\"|ERLANG_OPTS=\"-boot ../releases/#{release.version}/start_clean -boot_var RELEASE_LIB ../lib |' ejabberdctl.example4 > ejabberdctl.example5")
+    execute.("sed -e 's|^INSTALLUSER=|ERL_OPTIONS=\"-setcookie \\$\\(cat \"\\${SCRIPT_DIR%/*}/releases/COOKIE\")\"\\nINSTALLUSER=|g' ejabberdctl.example5 > ejabberdctl.example6")
+    Mix.Generator.copy_template("ejabberdctl.example6", "#{ro}/bin/ejabberdctl", assigns)
     File.chmod("#{ro}/bin/ejabberdctl", 0o755)
 
     File.rm("ejabberdctl.example1")
@@ -262,6 +282,7 @@ defmodule Ejabberd.MixProject do
     File.rm("ejabberdctl.example3")
     File.rm("ejabberdctl.example4")
     File.rm("ejabberdctl.example5")
+    File.rm("ejabberdctl.example6")
 
     suffix = case Mix.env() do
       :dev ->
@@ -274,7 +295,6 @@ defmodule Ejabberd.MixProject do
     Mix.Generator.copy_file("ejabberd.yml.example", "#{ro}/etc/ejabberd/ejabberd.yml#{suffix}")
     Mix.Generator.copy_file("ejabberdctl.cfg.example", "#{ro}/etc/ejabberd/ejabberdctl.cfg#{suffix}")
     Mix.Generator.copy_file("inetrc", "#{ro}/etc/ejabberd/inetrc")
-    Mix.Generator.copy_template("rel/vm.args.mix", "#{ro}/etc/ejabberd/vm.args", assigns)
 
     Enum.each(File.ls!("sql"),
       fn x ->

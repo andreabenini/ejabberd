@@ -25,12 +25,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        otp: ['19.3', '24']
+        otp: ['19.3', '24', '25.0-rc1']
         include:
         - otp: '19.3'
           rebar: 2
           os: ubuntu-18.04
         - otp: '24'
+          rebar: 3
+          os: ubuntu-20.04
+        - otp: '25.0-rc1'
           rebar: 3
           os: ubuntu-20.04
     runs-on: ${{ matrix.os }}
@@ -52,7 +55,7 @@ jobs:
         shellcheck ejabberd.init.template
         shellcheck -x ejabberdctl.template
 
-    - name: Get previous Erlang/OTP
+    - name: Get specific Erlang/OTP
       uses: ErlGang/setup-erlang@master
       if: matrix.otp != 24
       with:
@@ -184,7 +187,8 @@ jobs:
         rebar3 cover
 
     - name: Check results
-      if: always()
+      if: always() && steps.ct.outcome != 'skipped'
+      id: ctresults
       run: |
         [[ -d _build ]] && ln -s _build/test/logs/last/ logs || true
         ln `find logs/ -name suite.log` logs/suite.log
@@ -193,7 +197,7 @@ jobs:
         test $(find logs/ -empty -name error.log)
 
     - name: View logs failures
-      if: failure()
+      if: failure() && steps.ctresults.outcome == 'failure'
       run: |
         cat logs/suite.log | awk \
           'BEGIN{RS="\n=case";FS="\n"} /=result\s*failed/ {print "=case" $0}'
