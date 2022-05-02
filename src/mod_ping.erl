@@ -132,35 +132,51 @@ handle_cast(Msg, State) ->
     ?WARNING_MSG("Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
+handle_info({iq_reply, #iq{type = error} = IQ, JID}, State) ->
+    Timers = case xmpp:get_error(IQ) of
+		 #stanza_error{type=cancel, reason='service-unavailable'} ->
+		     del_timer(JID, State#state.timers);
+		 _ ->
+		     State#state.timers
+	     end,
+    {noreply, State#state{timers = Timers}};
 handle_info({iq_reply, #iq{}, _JID}, State) ->
     {noreply, State};
 handle_info({iq_reply, timeout, JID}, State) ->
     ejabberd_hooks:run(user_ping_timeout, State#state.host,
 		       [JID]),
     Timers = case State#state.timeout_action of
-      kill ->
-	  #jid{user = User, server = Server,
-	       resource = Resource} =
-	      JID,
-	  case ejabberd_sm:get_session_pid(User, Server, Resource)
-	      of
-	    Pid when is_pid(Pid) -> ejabberd_c2s:close(Pid, ping_timeout);
-	    _ -> ok
-	  end,
-	  del_timer(JID, State#state.timers);
-      _ ->
-	  State#state.timers
-    end,
+		 kill ->
+		     #jid{user = User, server = Server,
+			  resource = Resource} =
+			 JID,
+		     case ejabberd_sm:get_session_pid(User, Server, Resource) of
+			 Pid when is_pid(Pid) ->
+			     ejabberd_c2s:close(Pid, ping_timeout);
+			 _ ->
+			     ok
+		     end,
+		     del_timer(JID, State#state.timers);
+		 _ ->
+		     State#state.timers
+	     end,
     {noreply, State#state{timers = Timers}};
 handle_info({timeout, _TRef, {ping, JID}}, State) ->
-    Host = State#state.host,
-    From = jid:make(Host),
-    IQ = #iq{from = From, to = JID, type = get, sub_els = [#ping{}]},
-    ejabberd_router:route_iq(IQ, JID,
-			     gen_mod:get_module_proc(Host, ?MODULE),
-			     State#state.ping_ack_timeout),
-    Timers = add_timer(JID, State#state.ping_interval,
-		       State#state.timers),
+    Timers = case ejabberd_sm:get_session_pid(JID#jid.luser,
+					      JID#jid.lserver,
+					      JID#jid.lresource) of
+		 none ->
+		     del_timer(JID, State#state.timers);
+		 _ ->
+		     Host = State#state.host,
+		     From = jid:make(Host),
+		     IQ = #iq{from = From, to = JID, type = get, sub_els = [#ping{}]},
+		     ejabberd_router:route_iq(IQ, JID,
+					      gen_mod:get_module_proc(Host, ?MODULE),
+					      State#state.ping_ack_timeout),
+		     add_timer(JID, State#state.ping_interval,
+			       State#state.timers)
+	     end,
     {noreply, State#state{timers = Timers}};
 handle_info(Info, State) ->
     ?WARNING_MSG("Unexpected info: ~p", [Info]),
@@ -243,10 +259,10 @@ unregister_iq_handlers(Host) ->
 add_timer(JID, Interval, Timers) ->
     LJID = jid:tolower(JID),
     NewTimers = case maps:find(LJID, Timers) of
-      {ok, OldTRef} ->
-		      misc:cancel_timer(OldTRef),
-          maps:remove(LJID, Timers);
-      _ -> Timers
+		    {ok, OldTRef} ->
+			misc:cancel_timer(OldTRef),
+			maps:remove(LJID, Timers);
+		    _ -> Timers
 		end,
     TRef = erlang:start_timer(Interval, self(), {ping, JID}),
     maps:put(LJID, TRef, NewTimers).
@@ -255,10 +271,10 @@ add_timer(JID, Interval, Timers) ->
 del_timer(JID, Timers) ->
     LJID = jid:tolower(JID),
     case maps:find(LJID, Timers) of
-      {ok, TRef} ->
-	  misc:cancel_timer(TRef),
-    maps:remove(LJID, Timers);
-      _ -> Timers
+	{ok, TRef} ->
+	    misc:cancel_timer(TRef),
+	    maps:remove(LJID, Timers);
+	_ -> Timers
     end.
 
 depends(_Host, _Opts) ->

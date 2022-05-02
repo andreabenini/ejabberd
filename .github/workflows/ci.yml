@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        otp: ['19.3', '24', '25.0-rc1']
+        otp: ['19.3', '24', '25.0-rc3']
         include:
         - otp: '19.3'
           rebar: 2
@@ -33,7 +33,7 @@ jobs:
         - otp: '24'
           rebar: 3
           os: ubuntu-20.04
-        - otp: '25.0-rc1'
+        - otp: '25.0-rc3'
           rebar: 3
           os: ubuntu-20.04
     runs-on: ${{ matrix.os }}
@@ -45,7 +45,7 @@ jobs:
 
     steps:
 
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
     - name: Test shell scripts
       if: matrix.otp == 24
@@ -60,6 +60,13 @@ jobs:
       if: matrix.otp != 24
       with:
         otp-version: ${{ matrix.otp }}
+
+    - name: Get a compatible Rebar
+      if: matrix.rebar == 2
+      run: |
+        rm rebar
+        wget https://github.com/processone/ejabberd/raw/21.12/rebar
+        chmod +x rebar
 
     - name: Prepare databases
       run: |
@@ -106,7 +113,7 @@ jobs:
         echo "{ct_opts, [{verbosity, 20}, {keep_logs, 20}]}." >>rebar.config
 
     - name: Cache rebar
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       with:
         path: |
           deps/
@@ -155,8 +162,8 @@ jobs:
         $RE/bin/ejabberdctl started
         $RE/bin/ejabberdctl stop
         $RE/bin/ejabberdctl stopped
-        cat $RE/var/log/ejabberd/ejabberd.log
-        grep -q "is stopped in" $RE/var/log/ejabberd/ejabberd.log
+        cat $RE/logs/ejabberd.log
+        grep -q "is stopped in" $RE/logs/ejabberd.log
 
     - name: Check Development Release
       if: matrix.rebar == 3
@@ -167,8 +174,8 @@ jobs:
         $RE/bin/ejabberdctl started
         $RE/bin/ejabberdctl stop
         $RE/bin/ejabberdctl stopped
-        cat $RE/var/log/ejabberd/ejabberd.log
-        grep -q "is stopped in" $RE/var/log/ejabberd/ejabberd.log
+        cat $RE/logs/ejabberd.log
+        grep -q "is stopped in" $RE/logs/ejabberd.log
 
     - name: Run tests (OTP 19.3)
       if: matrix.otp == '19.3'
@@ -272,65 +279,3 @@ jobs:
           'BEGIN{RS="\n=case";FS="\n"} /=result\s*failed/ {print "=case" $0}'
         find logs/ -name error.log -exec cat '{}' ';'
         find logs/ -name exunit.log -exec cat '{}' ';'
-
-  binaries:
-    name: Binaries
-    needs: [tests]
-    strategy:
-      fail-fast: false
-      matrix:
-        otp: ['21.3']
-        include:
-        - otp: '21.3'
-          rebar: 3
-          os: ubuntu-20.04
-    runs-on: ${{ matrix.os }}
-    steps:
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 150
-    - name: Get last git tag
-      run: |
-        export TAGLAST=`git ls-remote --tags --refs origin 'refs/tags/2*' \
-          | tail -1 | awk '{print $2}'`
-        git fetch origin "$TAGLAST:$TAGLAST"
-        git describe
-    - name: Get previous Erlang/OTP
-      uses: ErlGang/setup-erlang@master
-      with:
-        otp-version: ${{ matrix.otp }}
-    - name: Get a compatible Rebar3
-      run: |
-        wget https://github.com/erlang/rebar3/releases/download/3.15.2/rebar3 \
-          && chmod +x rebar3
-    - name: Cache Rebar3
-      uses: actions/cache@v2
-      with:
-        path: ~/.cache/rebar3/
-        key: ${{matrix.otp}}-${{matrix.rebar}}-${{hashFiles('rebar.config')}}
-    - name: Prepare libraries
-      run: |
-        sudo apt-get -qq update
-        sudo apt-get -qq install libexpat1-dev libgd-dev libpam0g-dev \
-                                 libsqlite3-dev libwebp-dev libyaml-dev
-    - name: Compile
-      run: |
-        ./autogen.sh
-        ./configure --with-rebar=./rebar3 \
-                    --prefix=/tmp/ejabberd \
-                    --disable-debug \
-                    --enable-all \
-                    --disable-elixir
-        make update
-        make
-    - run: make install -s
-    - name: Strip binaries
-      run: echo 'beam_lib:strip_files(filelib:wildcard(
-                "/tmp/ejabberd/lib/*/ebin/*beam")), init:stop().' \
-                | erl -boot start_clean
-    - name: Upload binaries
-      uses: actions/upload-artifact@v2
-      with:
-        name: ejabberd-binaries
-        path: /tmp/ejabberd/lib
-        retention-days: 7

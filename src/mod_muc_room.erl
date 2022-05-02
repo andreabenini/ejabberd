@@ -85,6 +85,7 @@
 -define(MUC_HAT_LIST_CMD, <<"p1:hats#list">>).
 -define(MAX_HATS_USERS, 100).
 -define(MAX_HATS_PER_USER, 10).
+-define(CLEAN_ROOM_TIMEOUT, 30000).
 
 %-define(DBGFSM, true).
 
@@ -309,6 +310,8 @@ init([Host, ServerHost, Access, Room, HistorySize,
     add_to_log(room_existence, created, State1),
     add_to_log(room_existence, started, State1),
     ejabberd_hooks:run(start_room, ServerHost, [ServerHost, Room, Host]),
+    erlang:send_after(?CLEAN_ROOM_TIMEOUT, self(),
+                      close_room_if_temporary_and_empty),
     {ok, normal_state, reset_hibernate_timer(State1)};
 init([Host, ServerHost, Access, Room, HistorySize, RoomShaper, Opts, QueueType]) ->
     process_flag(trap_exit, true),
@@ -325,6 +328,8 @@ init([Host, ServerHost, Access, Room, HistorySize, RoomShaper, Opts, QueueType])
     add_to_log(room_existence, started, State),
     ejabberd_hooks:run(start_room, ServerHost, [ServerHost, Room, Host]),
     State1 = cleanup_affiliations(State),
+    erlang:send_after(?CLEAN_ROOM_TIMEOUT, self(),
+                      close_room_if_temporary_and_empty),
     {ok, normal_state, reset_hibernate_timer(State1)}.
 
 normal_state({route, <<"">>,
@@ -891,6 +896,8 @@ handle_info({captcha_failed, From}, normal_state,
 		       StateData
 	       end,
     {next_state, normal_state, NewState};
+handle_info(close_room_if_temporary_and_empty, _StateName, StateData) ->
+    close_room_if_temporary_and_empty(StateData);
 handle_info(shutdown, _StateName, StateData) ->
     {stop, shutdown, StateData};
 handle_info({iq_reply, #iq{type = Type, sub_els = Els},
@@ -3829,6 +3836,11 @@ remove_nonmembers(StateData) ->
 -spec set_opts([{atom(), any()}], state()) -> state().
 set_opts([], StateData) ->
     set_vcard_xupdate(StateData);
+set_opts([{vcard, Val} | Opts], StateData)
+  when is_record(Val, vcard_temp) ->
+    %% default_room_options is setting a default room vcard
+    ValRaw = fxml:element_to_binary(xmpp:encode(Val)),
+    set_opts([{vcard, ValRaw} | Opts], StateData);
 set_opts([{Opt, Val} | Opts], StateData) ->
     NSD = case Opt of
 	    title ->
@@ -5133,8 +5145,9 @@ send_subscriptions_change_notifications(From, Nick, Type, State) ->
 		    items = [#ps_item{
 			id = p1_rand:get_string(),
 			sub_els = [Payload1]}]}}]},
+	Packet1a = xmpp:put_meta(Packet1, mucsub_subscriber_jid, From),
 	ejabberd_router_multicast:route_multicast(State#state.jid, State#state.server_host,
-						  WJ, Packet1, false);
+						  WJ, Packet1a, false);
 	true -> ok
     end,
     if WN /= [] ->
@@ -5149,8 +5162,9 @@ send_subscriptions_change_notifications(From, Nick, Type, State) ->
 		    items = [#ps_item{
 			id = p1_rand:get_string(),
 			sub_els = [Payload2]}]}}]},
+	Packet2a = xmpp:put_meta(Packet2, mucsub_subscriber_jid, From),
 	ejabberd_router_multicast:route_multicast(State#state.jid, State#state.server_host,
-					       WN, Packet2, false);
+						  WN, Packet2a, false);
 	true -> ok
     end.
 

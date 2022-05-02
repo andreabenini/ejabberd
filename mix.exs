@@ -235,7 +235,9 @@ defmodule Ejabberd.MixProject do
       libdir: config(:libdir),
       sysconfdir: config(:sysconfdir),
       localstatedir: config(:localstatedir),
-      docdir: config(:docdir),
+      config_dir: config(:config_dir),
+      logs_dir: config(:logs_dir),
+      spool_dir: config(:spool_dir),
       erl: config(:erl),
       epmd: config(:epmd),
       bindir: Path.join([config(:release_dir), "releases", version()]),
@@ -286,22 +288,35 @@ defmodule Ejabberd.MixProject do
 
     suffix = case Mix.env() do
       :dev ->
-        Mix.Generator.copy_file("test/ejabberd_SUITE_data/ca.pem", "#{ro}/etc/ejabberd/ca.pem")
-        Mix.Generator.copy_file("test/ejabberd_SUITE_data/cert.pem", "#{ro}/etc/ejabberd/cert.pem")
+        Mix.Generator.copy_file("test/ejabberd_SUITE_data/ca.pem", "#{ro}/conf/ca.pem")
+        Mix.Generator.copy_file("test/ejabberd_SUITE_data/cert.pem", "#{ro}/conf/cert.pem")
         ".example"
       _ -> ""
     end
 
-    Mix.Generator.copy_file("ejabberd.yml.example", "#{ro}/etc/ejabberd/ejabberd.yml#{suffix}")
-    Mix.Generator.copy_file("ejabberdctl.cfg.example", "#{ro}/etc/ejabberd/ejabberdctl.cfg#{suffix}")
-    Mix.Generator.copy_file("inetrc", "#{ro}/etc/ejabberd/inetrc")
+    Mix.Generator.copy_file("ejabberd.yml.example", "#{ro}/conf/ejabberd.yml#{suffix}")
+    Mix.Generator.copy_file("ejabberdctl.cfg.example", "#{ro}/conf/ejabberdctl.cfg#{suffix}")
+    Mix.Generator.copy_file("inetrc", "#{ro}/conf/inetrc")
 
     Enum.each(File.ls!("sql"),
       fn x ->
         Mix.Generator.copy_file("sql/#{x}", "#{ro}/lib/ejabberd-#{release.version}/priv/sql/#{x}")
       end)
 
-    Mix.Generator.create_directory("#{ro}/var/lib/ejabberd")
+    File.cp_r!("include", "#{ro}/lib/ejabberd-#{release.version}/include")
+    for {name, details} <- Map.to_list(release.applications) do
+      {_, is_otp_app} = List.keyfind(details, :otp_app?, 0)
+      {_, vsn} = List.keyfind(details, :vsn, 0)
+      {_, path} = List.keyfind(details, :path, 0)
+      source_dir = case is_otp_app do
+        :true -> "#{path}/include"
+        :false -> "deps/#{name}/include"
+      end
+      target_dir = "#{ro}/lib/#{name}-#{vsn}/include"
+      File.exists?(source_dir)
+        && File.mkdir_p(target_dir)
+        && File.cp_r!(source_dir, target_dir)
+    end
 
     case Mix.env() do
       :dev -> execute.("REL_DIR_TEMP=$PWD/rel/overlays/ rel/setup-dev.sh")
