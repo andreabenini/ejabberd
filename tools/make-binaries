@@ -357,6 +357,15 @@ add_systemd_unit()
 }
 #.
 
+#' Add CAPTCHA script(s).
+add_captcha_script()
+{
+	local code_dir="$1"
+
+	cp -p 'tools/captcha'*'.sh' "$code_dir/lib"
+}
+#.
+
 #' Use our VT100 to avoid depending on Terminfo, adjust options/paths.
 edit_ejabberdctl()
 {
@@ -367,6 +376,7 @@ edit_ejabberdctl()
 	    -e '/ERL_OPTIONS=/d' \
 	    -e 's|^ERLANG_NODE=ejabberd$|ERLANG_NODE=ejabberd@localhost|' \
 	    -e 's|_DIR:=".*}/|_DIR:="/opt/ejabberd/|' \
+	    -e 's|/database|/database/$ERLANG_NODE|' \
 	    "$code_dir/bin/${rel_name}ctl"
 }
 #.
@@ -727,11 +737,11 @@ build_rel()
 
 	info "Building $rel_name $rel_vsn for $arch ..."
 	./autogen.sh
-	eimp_defs='-DHAVE_GD -DHAVE_WEBP -DHAVE_JPEG -DHAVE_PNG'
+	eimp_cflags='-fcommon'
 	eimp_libs='-lwebp -ljpeg -lpng -lz -lm'
 	export CC="$CC -Wl,-ldl" # Required by (statically linking) epam.
 	export LIBS="$eimp_libs -lcrypto -lpthread -ldl"
-	export CFLAGS="$CFLAGS $eimp_defs"
+	export CFLAGS="$CFLAGS $eimp_cflags"
 	export LDFLAGS="$LDFLAGS $eimp_libs"
 	if [ "$mode" = 'cross' ]
 	then
@@ -747,7 +757,7 @@ build_rel()
 	    --enable-all \
 	    --disable-erlang-version-check
 	make deps
-	sed -i 's/ *-lstdc++ *//g' 'deps/'*'/rebar.config'* # Link statically.
+	sed -i 's/ *-lstdc++//g' 'deps/'*'/rebar.config'* # Link statically.
 	if [ "$mode" = 'cross' ]
 	then
 		ln -s "$prefix/lib/erlang" 'lib/erlang'
@@ -774,6 +784,7 @@ build_rel()
 	tar -C "$target_dst_dir" -xzf "$rel_dir/$rel_tar"
 	create_data_dir "$target_dst_dir" "$target_data_dir"
 	add_systemd_unit "$target_dst_dir"
+	add_captcha_script "$target_dst_dir"
 	edit_ejabberdctl "$target_dst_dir"
 	remove_unused_files "$target_dst_dir"
 	strip_files "$target_dst_dir" "$STRIP"

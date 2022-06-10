@@ -1,4 +1,5 @@
 FROM alpine:3.15.4 AS build
+ARG REPOSITORY=https://github.com/processone/ejabberd.git
 ARG VERSION=master
 
 RUN apk upgrade --update musl \
@@ -30,12 +31,12 @@ RUN mix local.hex --force \
 
 WORKDIR ejabberd
 
-RUN git clone https://github.com/processone/ejabberd.git . \
+RUN git clone $REPOSITORY . \
     && git checkout $VERSION \
     && mv .github/container/ejabberdctl.template . \
     && ./autogen.sh \
     && ./configure --with-rebar=mix --enable-all \
-    && mix deps.get \
+    && make deps \
     && make rel
 
 RUN cp -r _build/prod/rel/ejabberd/ /opt/ejabberd-$VERSION \
@@ -101,10 +102,10 @@ RUN addgroup ejabberd -g 9000 \
     && chown -R ejabberd:ejabberd $HOME
 
 HEALTHCHECK \
-    --interval=5s \
+    --interval=1m \
     --timeout=5s \
     --start-period=5s \
-    --retries=120 \
+    --retries=10 \
     CMD /usr/local/bin/ejabberdctl status
 
 WORKDIR $HOME
