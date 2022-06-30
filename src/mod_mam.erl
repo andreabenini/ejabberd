@@ -89,7 +89,18 @@
     {[{binary(), non_neg_integer(), xmlel()}], boolean(), count()} |
     {error, db_failure}.
 
--optional_callbacks([use_cache/1, cache_nodes/1, select_with_mucsub/6, select/6, select/7]).
+-callback delete_old_messages_batch(binary(), erlang:timestamp(),
+				    all | chat | groupchat,
+				    pos_integer()) ->
+    {ok, non_neg_integer()} | {error, term()}.
+
+-callback delete_old_messages_batch(binary(), erlang:timestamp(),
+				    all | chat | groupchat,
+				    pos_integer(), any()) ->
+    {ok, any(), non_neg_integer()} | {error, term()}.
+
+-optional_callbacks([use_cache/1, cache_nodes/1, select_with_mucsub/6, select/6, select/7,
+    delete_old_messages_batch/5, delete_old_messages_batch/4]).
 
 %%%===================================================================
 %%% API
@@ -581,8 +592,8 @@ delete_old_messages_batch(Server, Type, Days, BatchSize, Rate) when Type == <<"c
 
     case ejabberd_batch:register_task({mam, LServer}, 0, Rate, {LServer, TypeA, TimeStamp, BatchSize, none},
 				      fun({L, T, St, B, IS} = S) ->
-					  case {erlang:function_exported(Mod, remove_old_messages_batch, 4),
-						erlang:function_exported(Mod, remove_old_messages_batch, 5)} of
+					  case {erlang:function_exported(Mod, delete_old_messages_batch, 4),
+						erlang:function_exported(Mod, delete_old_messages_batch, 5)} of
 					      {true, _} ->
 						  case Mod:delete_old_messages_batch(L, St, T, B) of
 						      {ok, Count} ->
@@ -591,7 +602,7 @@ delete_old_messages_batch(Server, Type, Days, BatchSize, Rate) when Type == <<"c
 							  E
 						  end;
 					      {_, true} ->
-						  case Mod:remove_old_messages_batch(L, St, T, B, IS) of
+						  case Mod:delete_old_messages_batch(L, St, T, B, IS) of
 						      {ok, IS2, Count} ->
 							  {ok, {L, St, T, B, IS2}, Count};
 						      {error, _} = E ->
