@@ -74,6 +74,7 @@
 	{db_ref               :: undefined | pid(),
 	 db_type = odbc       :: pgsql | mysql | sqlite | odbc | mssql,
 	 db_version           :: undefined | non_neg_integer(),
+	 reconnect_count = 0  :: non_neg_integer(),
 	 host                 :: binary(),
 	 pending_requests     :: p1_queue:queue(),
 	 overload_reported    :: undefined | integer()}).
@@ -375,7 +376,7 @@ connecting(connect, #state{host = Host} = State) ->
 		    State1 = State#state{db_ref = Ref,
 					 pending_requests = PendingRequests},
 		    State2 = get_db_version(State1),
-		    {next_state, session_established, State2}
+		    {next_state, session_established, State2#state{reconnect_count = 0}}
 	    catch _:Reason ->
 		    handle_reconnect(Reason, State)
 	    end;
@@ -467,15 +468,19 @@ print_state(State) -> State.
 %%%----------------------------------------------------------------------
 %%% Internal functions
 %%%----------------------------------------------------------------------
-handle_reconnect(Reason, #state{host = Host} = State) ->
-    StartInterval = ejabberd_option:sql_start_interval(Host),
+handle_reconnect(Reason, #state{host = Host, reconnect_count = RC} = State) ->
+    StartInterval0 = ejabberd_option:sql_start_interval(Host),
+    StartInterval = case RC of
+			0 -> erlang:min(5000, StartInterval0);
+			_ -> StartInterval0
+		    end,
     ?WARNING_MSG("~p connection failed:~n"
 		 "** Reason: ~p~n"
 		 "** Retry after: ~B seconds",
 		 [State#state.db_type, Reason,
 		  StartInterval div 1000]),
     p1_fsm:send_event_after(StartInterval, connect),
-    {next_state, connecting, State}.
+    {next_state, connecting, State#state{reconnect_count = RC + 1}}.
 
 run_sql_cmd(Command, From, State, Timestamp) ->
     case current_time() >= Timestamp of
@@ -483,9 +488,16 @@ run_sql_cmd(Command, From, State, Timestamp) ->
 	    State1 = report_overload(State),
 	    {next_state, session_established, State1};
 	false ->
-	    put(?NESTING_KEY, ?TOP_LEVEL_TXN),
-	    put(?STATE_KEY, State),
-	    abort_on_driver_error(outer_op(Command), From, Timestamp)
+	    receive
+		{'EXIT', _Pid, Reason} ->
+		    PR = p1_queue:in({sql_cmd, Command, From, Timestamp},
+				     State#state.pending_requests),
+		    handle_reconnect(Reason, State#state{pending_requests = PR})
+	    after 0 ->
+		put(?NESTING_KEY, ?TOP_LEVEL_TXN),
+		put(?STATE_KEY, State),
+		abort_on_driver_error(outer_op(Command), From, Timestamp)
+	    end
     end.
 
 %% @doc Only called by handle_call, only handles top level operations.
@@ -670,11 +682,10 @@ sql_query_internal(Query) ->
 		pgsql_to_odbc(pgsql:squery(State#state.db_ref, Query,
 					   QueryTimeout - 1000));
 	    mysql ->
-		R = mysql_to_odbc(p1_mysql_conn:squery(State#state.db_ref,
+		mysql_to_odbc(p1_mysql_conn:squery(State#state.db_ref,
 						   [Query], self(),
 						   [{timeout, QueryTimeout - 1000},
-						    {result_type, binary}])),
-		  R;
+						    {result_type, binary}]));
 	      sqlite ->
 		  Host = State#state.host,
 		  sqlite_to_odbc(Host, sqlite3:sql_exec(sqlite_db(Host), Query))
@@ -854,11 +865,13 @@ sql_rollback() ->
       [{mssql, [<<"rollback transaction;">>]},
        {any, [<<"rollback;">>]}]).
 
-
 %% Generate the OTP callback return tuple depending on the driver result.
 abort_on_driver_error({error, <<"query timed out">>} = Reply, From, Timestamp) ->
     reply(From, Reply, Timestamp),
     {stop, timeout, get(?STATE_KEY)};
+abort_on_driver_error({error, <<"connection closed">>} = Reply, From, Timestamp) ->
+    reply(From, Reply, Timestamp),
+    handle_reconnect(<<"connection closed">>, get(?STATE_KEY));
 abort_on_driver_error({error, <<"Failed sending data on socket", _/binary>>} = Reply,
 		      From, Timestamp) ->
     reply(From, Reply, Timestamp),
