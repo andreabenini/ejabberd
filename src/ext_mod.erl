@@ -36,7 +36,7 @@
          config_dir/0, get_commands_spec/0]).
 -export([modules_configs/0, module_ebin_dir/1]).
 -export([compile_erlang_file/2, compile_elixir_file/2]).
--export([web_menu_node/3, web_page_node/5]).
+-export([web_menu_node/3, web_page_node/5, get_page/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -805,10 +805,11 @@ get_commit_details2(Path) ->
         {ok, Body} ->
             parse_details(Body);
         _ ->
-            #{sha => <<"1234567890">>,
+            #{sha => unknown_sha,
               date => <<>>,
               message => <<>>,
               html => <<>>,
+              author_name => <<>>,
               commit_html_url => <<>>}
     end.
 
@@ -857,6 +858,12 @@ web_menu_node(Acc, _Node, Lang) ->
     Acc ++ [{<<"contrib">>, translate:translate(Lang, ?T("Contrib Modules"))}].
 
 web_page_node(_, Node, [<<"contrib">>], Query, Lang) ->
+    Res = rpc:call(Node, ?MODULE, get_page, [Node, Query, Lang]),
+    {stop, Res};
+web_page_node(Acc, _, _, _, _) ->
+    Acc.
+
+get_page(Node, Query, Lang) ->
     QueryRes = list_modules_parse_query(Query),
     Title = ?H1GL(translate:translate(Lang, ?T("Contrib Modules")),
                   <<"../../developer/extending-ejabberd/modules/#ejabberd-contrib">>,
@@ -866,10 +873,7 @@ web_page_node(_, Node, [<<"contrib">>], Query, Lang) ->
                  ok -> [?XREST(?T("Submitted"))];
                  nothing -> []
              end,
-    Res = Title ++ Result ++ Contents,
-    {stop, Res};
-web_page_node(Acc, _, _, _, _) ->
-    Acc.
+    Title ++ Result ++ Contents.
 
 get_module_home(Module, Attrs) ->
     case element(2, lists:keyfind(home, 1, Attrs)) of
@@ -891,8 +895,10 @@ get_installed_module_el({ModAtom, Attrs}, Lang) ->
     Summary = list_to_binary(get_module_summary(Attrs)),
     Author = list_to_binary(get_module_author(Attrs)),
     {_, FromPath} = lists:keyfind(path, 1, Attrs),
-    {ok, FromFile} = find_commit_json_path(FromPath),
-
+    FromFile = case find_commit_json_path(FromPath) of
+                   {ok, FF} -> FF;
+                   {error, _} -> "dummypath"
+               end,
     #{sha := CommitSha,
       date := CommitDate,
       message := CommitMessage,
@@ -925,7 +931,7 @@ get_installed_module_el({ModAtom, Attrs}, Lang) ->
     Started =
         case gen_mod:is_loaded(hd(ejabberd_option:hosts()), ModAtom) of
             false ->
-                [?C(<<" - ">>)];
+                [?C(<<" ">>)];
             true ->
                 []
         end,
@@ -942,8 +948,8 @@ get_installed_module_el({ModAtom, Attrs}, Lang) ->
          ?XE(<<"td">>,
              [?INPUTTD(<<"checkbox">>, <<"selected_uninstall">>, Mod),
               ?C(<<" ">>),
-              ?AXC(CommitHtmlUrl, [TitleEl], binary:part(CommitSha, {0, 8})),
-              ?C(<<" ">>)]
+              get_commit_link(CommitHtmlUrl, TitleEl, CommitSha),
+              ?C(<<" - ">>)]
              ++ Started
              ++ Status)
         | UpgradeEls]).
@@ -1006,6 +1012,11 @@ make_home_title_el(Summary, Author) ->
     LinkTitle = <<Summary/binary, "\n", Author/binary>>,
     {<<"title">>, LinkTitle}.
 
+get_commit_link(_CommitHtmlUrl, _TitleErl, unknown_sha) ->
+    ?C(<<"Please Update Specs">>);
+get_commit_link(CommitHtmlUrl, TitleEl, CommitSha) ->
+    ?AXC(CommitHtmlUrl, [TitleEl], binary:part(CommitSha, {0, 8})).
+
 get_content(Node, Query, Lang) ->
     Instruct = translate:translate(Lang, ?T("Type a command in a textbox and click Execute.")),
     {{_CommandCtl}, _Res} =
@@ -1034,7 +1045,7 @@ get_content(Node, Query, Lang) ->
                                       ?XE(<<"tr">>,
                                           [?XE(<<"td">>, [?AC(Html, Dirname)]),
                                            ?XE(<<"td">>,
-                                               [?AXC(CommitHtmlUrl, [TitleEl], binary:part(CommitSha, {0, 8}))]
+                                               [get_commit_link(CommitHtmlUrl, TitleEl, CommitSha)]
                                               ),
                                            ?XE(<<"td">>, [?C(CommitMessage)])
                                           ])
