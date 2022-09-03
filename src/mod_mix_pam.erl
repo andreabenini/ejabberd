@@ -32,11 +32,13 @@
 	 disco_sm_features/5,
 	 remove_user/2,
 	 process_iq/1,
+	 get_mix_roster_items/2,
 	 webadmin_user/4,
 	 webadmin_page/3]).
 
 -include_lib("xmpp/include/xmpp.hrl").
 -include("logger.hrl").
+-include("mod_roster.hrl").
 -include("translate.hrl").
 -include("ejabberd_http.hrl").
 -include("ejabberd_web_admin.hrl").
@@ -65,10 +67,11 @@ start(Host, Opts) ->
 	    ejabberd_hooks:add(bounce_sm_packet, Host, ?MODULE, bounce_sm_packet, 50),
 	    ejabberd_hooks:add(disco_sm_features, Host, ?MODULE, disco_sm_features, 50),
 	    ejabberd_hooks:add(remove_user, Host, ?MODULE, remove_user, 50),
+	    ejabberd_hooks:add(roster_get, Host, ?MODULE, get_mix_roster_items, 50),
 	    ejabberd_hooks:add(webadmin_user, Host, ?MODULE, webadmin_user, 50),
 	    ejabberd_hooks:add(webadmin_page_host, Host, ?MODULE, webadmin_page, 50),
-	    gen_iq_handler:add_iq_handler(ejabberd_sm, Host, ?NS_MIX_PAM_0,
-					  ?MODULE, process_iq);
+	    gen_iq_handler:add_iq_handler(ejabberd_sm, Host, ?NS_MIX_PAM_0, ?MODULE, process_iq),
+	    gen_iq_handler:add_iq_handler(ejabberd_sm, Host, ?NS_MIX_PAM_2, ?MODULE, process_iq);
 	Err ->
 	    Err
     end.
@@ -77,9 +80,11 @@ stop(Host) ->
     ejabberd_hooks:delete(bounce_sm_packet, Host, ?MODULE, bounce_sm_packet, 50),
     ejabberd_hooks:delete(disco_sm_features, Host, ?MODULE, disco_sm_features, 50),
     ejabberd_hooks:delete(remove_user, Host, ?MODULE, remove_user, 50),
+    ejabberd_hooks:delete(roster_get, Host, ?MODULE, get_mix_roster_items, 50),
     ejabberd_hooks:delete(webadmin_user, Host, ?MODULE, webadmin_user, 50),
     ejabberd_hooks:delete(webadmin_page_host, Host, ?MODULE, webadmin_page, 50),
-    gen_iq_handler:remove_iq_handler(ejabberd_sm, Host, ?NS_MIX_PAM_0).
+    gen_iq_handler:remove_iq_handler(ejabberd_sm, Host, ?NS_MIX_PAM_0),
+    gen_iq_handler:remove_iq_handler(ejabberd_sm, Host, ?NS_MIX_PAM_2).
 
 reload(Host, NewOpts, OldOpts) ->
     NewMod = gen_mod:db_mod(NewOpts, ?MODULE),
@@ -176,7 +181,7 @@ bounce_sm_packet(Acc) ->
 disco_sm_features({error, _Error} = Acc, _From, _To, _Node, _Lang) ->
     Acc;
 disco_sm_features(Acc, _From, _To, <<"">>, _Lang) ->
-    {result, [?NS_MIX_PAM_0 |
+    {result, [?NS_MIX_PAM_0, ?NS_MIX_PAM_2 |
 	      case Acc of
 		  {result, Features} -> Features;
 		  empty -> []
@@ -208,6 +213,26 @@ process_iq(#iq{type = set,
 process_iq(IQ) ->
     xmpp:make_error(IQ, unsupported_query_error(IQ)).
 
+-spec get_mix_roster_items([#roster_item{}], {binary(), binary()}) -> [#roster_item{}].
+get_mix_roster_items(Acc, {LUser, LServer}) ->
+    JID = jid:make(LUser, LServer),
+    case get_channels(JID) of
+        {ok, Channels} ->
+            lists:map(
+                fun({ItemJID, Id}) ->
+                    #roster_item{
+                        jid = ItemJID,
+                        name = <<>>,
+                        subscription = both,
+                        ask = undefined,
+                        groups = [<<"Channels">>],
+                        mix_channel = #mix_roster_channel{'participant-id' = Id}
+                    }
+                end, Channels);
+        _ ->
+            []
+    end ++ Acc.
+
 -spec remove_user(binary(), binary()) -> ok | {error, db_failure}.
 remove_user(LUser, LServer) ->
     Mod = gen_mod:db_mod(LServer, ?MODULE),
@@ -237,13 +262,25 @@ remove_user(LUser, LServer) ->
 %%% Internal functions
 %%%===================================================================
 -spec process_join(iq()) -> ignore.
-process_join(#iq{from = From,
+process_join(#iq{from = From, lang = Lang,
 		 sub_els = [#mix_client_join{channel = Channel,
-					     join = Join}]} = IQ) ->
+		                             join = Join}]} = IQ) ->
     ejabberd_router:route_iq(
       #iq{from = jid:remove_resource(From),
 	  to = Channel, type = set, sub_els = [Join]},
-      fun(ResIQ) -> process_join_result(ResIQ, IQ) end),
+      fun(#iq{sub_els = [El]} = ResIQ) ->
+        try xmpp:decode(El) of
+            MixJoin ->
+                process_join_result(ResIQ#iq {
+                    sub_els = [MixJoin]
+                }, IQ)
+        catch
+            _:{xmpp_codec, Reason} ->
+                Txt = xmpp:io_format_error(Reason),
+                Err = xmpp:err_bad_request(Txt, Lang),
+                ejabberd_router:route_error(IQ, Err)
+        end
+      end),
     ignore.
 
 -spec process_leave(iq()) -> iq() | error.
@@ -262,24 +299,40 @@ process_leave(#iq{from = From,
     end.
 
 -spec process_join_result(iq(), iq()) -> ok.
-process_join_result(#iq{from = Channel,
-			type = result, sub_els = [#mix_join{id = ID} = Join]},
+process_join_result(#iq{from = #jid{} = Channel,
+			type = result, sub_els = [#mix_join{id = ID, xmlns = XmlNs} = Join]},
 		    #iq{to = To} = IQ) ->
     case add_channel(To, Channel, ID) of
 	ok ->
+	    % Do roster push
+	    mod_roster:push_item(To, #roster_item{jid = #jid{}}, #roster_item{
+		jid = Channel,
+		name = <<>>,
+		subscription = none,
+		ask = undefined,
+		groups = [],
+		mix_channel = #mix_roster_channel{'participant-id' = ID}
+	    }),
+	    % send IQ result
 	    ChanID = make_channel_id(Channel, ID),
 	    Join1 = Join#mix_join{id = <<"">>, jid = ChanID},
-	    ResIQ = xmpp:make_iq_result(IQ, #mix_client_join{join = Join1}),
+	    ResIQ = xmpp:make_iq_result(IQ, #mix_client_join{join = Join1, xmlns = XmlNs}),
 	    ejabberd_router:route(ResIQ);
 	{error, db_failure} ->
 	    ejabberd_router:route_error(IQ, db_error(IQ))
     end;
-process_join_result(Err, IQ) ->
+process_join_result(#iq{type = error} = Err, IQ) ->
     process_iq_error(Err, IQ).
 
 -spec process_leave_result(iq(), iq()) -> ok.
-process_leave_result(#iq{type = result, sub_els = [#mix_leave{} = Leave]}, IQ) ->
-    ResIQ = xmpp:make_iq_result(IQ, #mix_client_leave{leave = Leave}),
+process_leave_result(#iq{from = Channel, type = result, sub_els = [#mix_leave{xmlns = XmlNs} = Leave]},
+		     #iq{to = User} = IQ) ->
+    % Do roster push
+    mod_roster:push_item(User,
+	#roster_item{jid = Channel, subscription = none},
+	#roster_item{jid = Channel, subscription = remove}),
+    % send iq result
+    ResIQ = xmpp:make_iq_result(IQ, #mix_client_leave{leave = Leave, xmlns = XmlNs}),
     ejabberd_router:route(ResIQ);
 process_leave_result(Err, IQ) ->
     process_iq_error(Err, IQ).
