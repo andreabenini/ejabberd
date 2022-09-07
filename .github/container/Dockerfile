@@ -1,5 +1,4 @@
 FROM alpine:3.15.4 AS build
-ARG REPOSITORY=https://github.com/processone/ejabberd.git
 ARG VERSION=master
 
 RUN apk upgrade --update musl \
@@ -29,11 +28,11 @@ RUN apk upgrade --update musl \
 RUN mix local.hex --force \
     && mix local.rebar --force
 
+COPY . ./ejabberd
+
 WORKDIR ejabberd
 
-RUN git clone $REPOSITORY . \
-    && git checkout $VERSION \
-    && mv .github/container/ejabberdctl.template . \
+RUN mv .github/container/ejabberdctl.template . \
     && ./autogen.sh \
     && ./configure --with-rebar=mix --enable-all \
     && make deps \
@@ -44,7 +43,7 @@ RUN cp -r _build/prod/rel/ejabberd/ /opt/ejabberd-$VERSION \
     && mv /opt/ejabberd-$VERSION/conf /opt/ejabberd/conf
 
 RUN BINPATH=$(dirname $(find /opt -name msgs))/bin/ \
-    && mkdir $BINPATH \
+    && mkdir -p $BINPATH \
     && cp tools/captcha*.sh $BINPATH
 
 RUN export PEM=/opt/ejabberd/conf/server.pem \
@@ -64,6 +63,7 @@ RUN export PEM=/opt/ejabberd/conf/server.pem \
 
 FROM alpine:3.15.4
 ENV HOME=/opt/ejabberd
+ARG VERSION=master
 
 RUN apk upgrade --update musl \
     && apk add \
@@ -93,7 +93,7 @@ RUN echo -e \
     \nexport CONFIG_DIR=/opt/ejabberd/conf \
     \nexport LOGS_DIR=/opt/ejabberd/logs \
     \nexport SPOOL_DIR=/opt/ejabberd/database \
-    \nexec $(find /opt -name ejabberdctl) \"\$@\"" > /usr/local/bin/ejabberdctl \
+    \nexec /opt/ejabberd-$VERSION/bin/ejabberdctl \"\$@\"" > /usr/local/bin/ejabberdctl \
     && chmod +x /usr/local/bin/ejabberdctl
 
 RUN addgroup ejabberd -g 9000 \
