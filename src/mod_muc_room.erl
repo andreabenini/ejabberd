@@ -78,8 +78,6 @@
 -define(MAX_USERS_DEFAULT_LIST,
 	[5, 10, 20, 30, 50, 100, 200, 500, 1000, 2000, 5000]).
 
--define(DEFAULT_MAX_USERS_PRESENCE,1000).
-
 -define(MUC_HAT_ADD_CMD, <<"http://prosody.im/protocol/hats#add">>).
 -define(MUC_HAT_REMOVE_CMD, <<"http://prosody.im/protocol/hats#remove">>).
 -define(MUC_HAT_LIST_CMD, <<"p1:hats#list">>).
@@ -2146,11 +2144,11 @@ add_new_user(From, Nick, Packet, StateData) ->
 	mod_muc_opt:max_user_conferences(StateData#state.server_host),
     Collision = nick_collision(From, Nick, StateData),
     IsSubscribeRequest = not is_record(Packet, presence),
-    case {(ServiceAffiliation == owner orelse
-	     ((Affiliation == admin orelse Affiliation == owner)
+    case {ServiceAffiliation == owner orelse
+	     ((((Affiliation == admin orelse Affiliation == owner)
 	       andalso NUsers < MaxAdminUsers)
 	       orelse NUsers < MaxUsers)
-	    andalso NConferences < MaxConferences,
+	    andalso NConferences < MaxConferences),
 	  Collision,
 	  mod_muc:can_use_nick(StateData#state.server_host,
 			       StateData#state.host, From, Nick),
