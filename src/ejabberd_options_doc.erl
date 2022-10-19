@@ -817,12 +817,14 @@ doc() ->
                "The default value is '10485760' (that is, 10 Mb).")}},
      {log_burst_limit_count,
       #{value => ?T("Number"),
+        note => "added in 22.10",
         desc =>
             ?T("The number of messages to accept in "
                "`log_burst_limit_window_time` period before starting to "
                "drop them. Default 500")}},
      {log_burst_limit_window_time,
       #{value => ?T("Number"),
+        note => "added in 22.10",
         desc =>
             ?T("The time period to rate-limit log messages "
                "by. Defaults to 1 second.")}},
@@ -1170,7 +1172,7 @@ doc() ->
       #{value => "timeout()",
         desc =>
             ?T("A time to wait before closing an idle s2s connection. "
-               "The default value is '10 minutes'.")}},
+               "The default value is '1' hour.")}},
      {s2s_use_starttls,
       #{value => "true | false | optional | required",
         desc =>

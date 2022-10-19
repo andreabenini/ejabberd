@@ -79,6 +79,7 @@
 {"Changing role/affiliation is not allowed","No està permès canviar el rol/afiliació"}.
 {"Channel already exists","El canal ja existeix"}.
 {"Channel does not exist","El canal no existeix"}.
+{"Channel JID","JID del Canal"}.
 {"Channels","Canals"}.
 {"Characters not allowed:","Caràcters no permesos:"}.
 {"Chatroom configuration modified","Configuració de la sala de xat modificada"}.
@@ -98,6 +99,7 @@
 {"Configuration","Configuració"}.
 {"Connected Resources:","Recursos connectats:"}.
 {"Contact Addresses (normally, room owner or owners)","Adreces de contacte (normalment, propietaris de la sala)"}.
+{"Contrib Modules","Mòduls Contrib"}.
 {"Country","Pais"}.
 {"CPU Time:","Temps de CPU:"}.
 {"Current Discussion Topic","Assumpte de discussió actual"}.
@@ -172,6 +174,8 @@
 {"Full List of Room Admins","Llista completa de administradors de la sala"}.
 {"Full List of Room Owners","Llista completa de propietaris de la sala"}.
 {"Full Name","Nom complet"}.
+{"Get List of Online Users","Obté la llista d'usuaris en línia"}.
+{"Get List of Registered Users","Obté la llista d'usuaris registrats"}.
 {"Get Number of Online Users","Obtenir Número d'Usuaris Connectats"}.
 {"Get Number of Registered Users","Obtenir Número d'Usuaris Registrats"}.
 {"Get Pending","Obtenir Pendents"}.
@@ -213,6 +217,8 @@
 {"Incorrect value of 'action' attribute","Valor incorrecte del atribut 'action'"}.
 {"Incorrect value of 'action' in data form","Valor incorrecte de 'action' al formulari de dades"}.
 {"Incorrect value of 'path' in data form","Valor incorrecte de 'path' al formulari de dades"}.
+{"Installed Modules:","Mòduls instal·lats:"}.
+{"Install","Instal·lar"}.
 {"Insufficient privilege","Privilegi insuficient"}.
 {"Internal server error","Error intern del servidor"}.
 {"Invalid 'from' attribute in forwarded message","Atribut 'from' invàlid al missatge reenviat"}.
@@ -229,6 +235,8 @@
 {"January","Gener"}.
 {"JID normalization denied by service policy","S'ha denegat la normalització del JID per política del servei"}.
 {"JID normalization failed","Ha fallat la normalització del JID"}.
+{"Joined MIX channels of ~ts","Canals MIX units de ~ts"}.
+{"Joined MIX channels:","Canals MIX units:"}.
 {"joins the room","entra a la sala"}.
 {"July","Juliol"}.
 {"June","Juny"}.
@@ -349,6 +357,7 @@
 {"Number of registered users","Número d'Usuaris Registrats"}.
 {"Number of seconds after which to automatically purge items, or `max` for no specific limit other than a server imposed maximum","Número de segons després dels quals es purgaran automàticament elements, o `max` per a no tindre altre límit més que el màxim imposat pel servidor"}.
 {"Occupants are allowed to invite others","Els ocupants poden invitar a altres"}.
+{"Occupants are allowed to query others","Els ocupants poden enviar peticions a altres"}.
 {"Occupants May Change the Subject","Els ocupants poden canviar el Tema"}.
 {"October","Octubre"}.
 {"Offline Messages:","Missatges fora de línia:"}.
@@ -375,11 +384,13 @@
 {"Only those on a whitelist may subscribe and retrieve items","Només qui estiga a una llista blanca pot subscriure's i recuperar elements"}.
 {"Organization Name","Nom de la organizació"}.
 {"Organization Unit","Unitat de la organizació"}.
+{"Other Modules Available:","Altres mòduls disponibles:"}.
 {"Outgoing s2s Connections:","Connexions d'eixida s2s:"}.
 {"Outgoing s2s Connections","Connexions s2s d'eixida"}.
 {"Owner privileges required","Es requerixen privilegis de propietari de la sala"}.
 {"Packet relay is denied by service policy","S'ha denegat el reenviament del paquet per política del servei"}.
 {"Packet","Paquet"}.
+{"Participant ID","ID del Participant"}.
 {"Participant","Participant"}.
 {"Password Verification","Verificació de la Contrasenya"}.
 {"Password Verification:","Verificació de la Contrasenya:"}.
@@ -482,6 +493,7 @@
 {"Shut Down Service","Apager el Servei"}.
 {"SOCKS5 Bytestreams","SOCKS5 Bytestreams"}.
 {"Some XMPP clients can store your password in the computer, but you should do this only in your personal computer for safety reasons.","Alguns clients XMPP poden emmagatzemar la teva contrasenya al ordinador, però només hauries de fer això al teu ordinador personal, per raons de seguretat."}.
+{"Sources Specs:","Especificacions de Codi Font:"}.
 {"Specify the access model","Especificar el model d'accés"}.
 {"Specify the event message type","Especifica el tipus de missatge d'event"}.
 {"Specify the publisher model","Especificar el model del publicant"}.
@@ -527,6 +539,8 @@
 {"The JIDs of those to contact with questions","Els JIDs a qui contactar amb preguntes"}.
 {"The JIDs of those with an affiliation of owner","Els JIDs de qui tenen una afiliació de propietaris"}.
 {"The JIDs of those with an affiliation of publisher","Els JIDs de qui tenen una afiliació de publicadors"}.
+{"The list of all online users","La llista de tots els usuaris en línia"}.
+{"The list of all users","La llista de tots els usuaris"}.
 {"The list of JIDs that may associate leaf nodes with a collection","La llista de JIDs que poden associar nodes fulla amb una col·lecció"}.
 {"The maximum number of child nodes that can be associated with a collection, or `max` for no specific limit other than a server imposed maximum","El màxim número de nodes fills que poden associar-se amb una col·lecció, o `max` per a no tindre altre límit més que el màxim imposat pel servidor"}.
 {"The minimum number of milliseconds between sending any two notification digests","El número mínim de mil·lisegons entre l'enviament de dos resums de notificacions"}.
@@ -591,6 +605,7 @@
 {"Unauthorized","No autoritzat"}.
 {"Unexpected action","Acció inesperada"}.
 {"Unexpected error condition: ~p","Condició d'error inesperada: ~p"}.
+{"Uninstall","Desinstal·lar"}.
 {"Unregister an XMPP account","Anul·lar el registre d'un compte XMPP"}.
 {"Unregister","Anul·lar el registre"}.
 {"Unselect All","Deseleccionar tots"}.
@@ -601,7 +616,10 @@
 {"Update ~p","Actualitzar ~p"}.
 {"Update plan","Pla d'actualització"}.
 {"Update script","Script d'actualització"}.
+{"Update specs to get modules source, then install desired ones.","Actualitza les especificacions per obtindre el codi font dels mòduls, després instal·la els que vulgues."}.
+{"Update Specs","Actualitzar Especificacions"}.
 {"Update","Actualitzar"}.
+{"Upgrade","Actualitza"}.
 {"Uptime:","Temps en marxa:"}.
 {"URL for Archived Discussion Logs","URL dels Arxius de Discussions"}.
 {"User already exists","El usuari ja existeix"}.
@@ -624,6 +642,7 @@
 {"Value of '~s' should be integer","El valor de '~s' deuria ser un numero enter"}.
 {"Value 'set' of 'type' attribute is not allowed","El valor 'set' a l'atribut 'type' no és permès"}.
 {"vCard User Search","vCard recerca d'usuari"}.
+{"View joined MIX channels","Vore els canals MIX units"}.
 {"View Queue","Vore Cua"}.
 {"View Roster","Vore Llista de contactes"}.
 {"Virtual Hosts","Hosts virtuals"}.
