@@ -27,7 +27,7 @@
 
 -author('badlop@process-one.net').
 
--protocol({xep, 33, '1.1'}).
+-protocol({xep, 33, '1.1', '15.04', "", ""}).
 
 -behaviour(gen_server).
 
@@ -407,7 +407,7 @@ route_grouped(LServer, LService, From, Groups, RestOfAddresses, Packet) ->
 		route_single ->
 		    route_individual(From, CC, BCC, OtherCC ++ RestOfAddresses, Packet);
 		{route_multicast, Service, Limits} ->
-		    route_multicast(From, Service, CC, BCC, OtherCC ++ RestOfAddresses, Packet, Limits)
+		    route_multicast(From, jid:make(Service), CC, BCC, OtherCC ++ RestOfAddresses, Packet, Limits)
 	    end
 	end, ok, Groups).
 

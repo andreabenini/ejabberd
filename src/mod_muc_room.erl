@@ -27,7 +27,8 @@
 
 -author('alexey@process-one.net').
 
--protocol({xep, 317, '0.1'}).
+-protocol({xep, 317, '0.1', '21.12', "", "conversejs/prosody compatible"}).
+-protocol({xep, 410, '1.1.0', '18.12', "", ""}).
 
 -behaviour(p1_fsm).
 
@@ -4032,6 +4033,7 @@ set_opts([{Opt, Val} | Opts], StateData) ->
                            lists:map(fun({U, H}) -> {U, maps:from_list(H)} end,
                                      Val)),
                   StateData#state{hats_users = Hats};
+	    hibernation_time -> StateData;
 	    Other ->
                   ?INFO_MSG("Unknown MUC room option, will be discarded: ~p", [Other]),
                   StateData

@@ -1005,22 +1005,14 @@ sqlite_to_odbc(_Host, _) ->
 %% Open a database connection to PostgreSQL
 pgsql_connect(Server, Port, DB, Username, Password, ConnectTimeout,
 	      Transport, SSLOpts) ->
-    case pgsql:connect([{host, Server},
-                        {database, DB},
-                        {user, Username},
-                        {password, Password},
-                        {port, Port},
-			{transport, Transport},
-			{connect_timeout, ConnectTimeout},
-                        {as_binary, true}|SSLOpts]) of
-        {ok, Ref} ->
-            pgsql:squery(Ref, [<<"alter database \"">>, DB, <<"\" set ">>,
-                               <<"standard_conforming_strings='off';">>]),
-            pgsql:squery(Ref, [<<"set standard_conforming_strings to 'off';">>]),
-            {ok, Ref};
-        Err ->
-            Err
-    end.
+    pgsql:connect([{host, Server},
+                   {database, DB},
+                   {user, Username},
+                   {password, Password},
+                   {port, Port},
+                   {transport, Transport},
+                   {connect_timeout, ConnectTimeout},
+                   {as_binary, true}|SSLOpts]).
 
 %% Convert PostgreSQL query result to Erlang ODBC result formalism
 pgsql_to_odbc({ok, PGSQLResult}) ->
@@ -1061,10 +1053,10 @@ pgsql_execute_to_odbc(_) -> {updated, undefined}.
 
 %% part of init/1
 %% Open a database connection to MySQL
-mysql_connect(Server, Port, DB, Username, Password, ConnectTimeout, Transport, _) ->
+mysql_connect(Server, Port, DB, Username, Password, ConnectTimeout, Transport, SSLOpts0) ->
     SSLOpts = case Transport of
 		  ssl ->
-		      [ssl_required];
+		      [ssl_required|SSLOpts0];
 		  _ ->
 		      []
 	      end,
@@ -1206,7 +1198,7 @@ get_ssl_opts(ssl, Host) ->
 		    Opts2
 	    end;
 	false ->
-	    Opts2
+	    [{verify, verify_none}|Opts2]
     end;
 get_ssl_opts(tcp, _) ->
     [].

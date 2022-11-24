@@ -29,8 +29,8 @@ robust, scalable and extensible realtime platform built using [Erlang/OTP][erlan
 that includes [XMPP][xmpp] Server, [MQTT][mqtt] Broker and [SIP][sip] Service.
 
 Check the features in [ejabberd.im][im], [ejabberd Docs][features],
-[ejabberd at ProcessOne][p1home], and a list of [supported protocols and XEPs][xeps].
-
+[ejabberd at ProcessOne][p1home], and the list of [supported protocols in ProcessOne][xeps]
+and [XMPP.org][xmppej].
 
 Installation
 ------------
@@ -38,7 +38,7 @@ Installation
 There are several ways to install ejabberd:
 
 - Source code: compile yourself, see [COMPILE](COMPILE.md)
-- Installers from [ejabberd GitHub Releases][releases] (run/deb/rpm for x64 and arm64)
+- Installers from [ProcessOne Download][p1download] or [ejabberd GitHub Releases][releases] (run/deb/rpm for x64 and arm64)
 - Container image from [ejabberd Docker Hub][hubecs], see [ecs README][docker-ecs-readme] (for x64)
 - Container image from [ejabberd Github Packages][packages], see [CONTAINER](CONTAINER.md) (for x64 and arm64)
 - Using your [Operating System package][osp]
@@ -116,6 +116,7 @@ and [ejabberd translations](https://github.com/processone/ejabberd-po/) under MI
 [muc]: xmpp:ejabberd@conference.process-one.net
 [osp]: https://docs.ejabberd.im/admin/installation/#operating-system-packages
 [p1contact]: https://www.process-one.net/en/company/contact/
+[p1download]: https://www.process-one.net/en/ejabberd/downloads/
 [p1home]: https://www.process-one.net/en/ejabberd/
 [packages]: https://github.com/processone/ejabberd/pkgs/container/ejabberd
 [releases]: https://github.com/processone/ejabberd/releases
@@ -124,3 +125,4 @@ and [ejabberd translations](https://github.com/processone/ejabberd-po/) under MI
 [weblate]: https://hosted.weblate.org/projects/ejabberd/ejabberd-po/
 [xeps]: https://www.process-one.net/en/ejabberd/protocols/
 [xmpp]: https://xmpp.org/
+[xmppej]: https://xmpp.org/software/servers/ejabberd/

@@ -67,7 +67,6 @@ process([], #request{method = 'GET', host = Host, raw_path = RawPath}) ->
             {<<"domain_placeholder">>, Domain},
             {<<"registration_domain">>, Domain},
             {<<"assets_path">>, RawPath},
-            {<<"i18n">>, ejabberd_option:language(Host)},
             {<<"view_mode">>, <<"fullscreen">>}
            | ExtraOptions],
     Init2 =
@@ -117,7 +116,9 @@ is_served_file(_) -> false.
 
 serve(Host, LocalPath) ->
     case get_conversejs_resources(Host) of
-        undefined -> ejabberd_web:error(not_found);
+        undefined ->
+            Path = str:join(LocalPath, <<"/">>),
+            {303, [{<<"Location">>, <<"https://cdn.conversejs.org/dist/", Path/binary>>}], <<>>};
         MainPath -> serve2(LocalPath, MainPath)
     end.
 
