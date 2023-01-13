@@ -5,7 +5,7 @@
 %%% Created : 26 Apr 2008 by Evgeniy Khramtsov <xramtsov@gmail.com>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2022   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -76,6 +76,11 @@ mk_ocr_field(Lang, CID, Type) ->
     URI = #media_uri{type = Type, uri = <<"cid:", CID/binary>>},
     [_, F] = captcha_form:encode([{ocr, <<>>}], Lang, [ocr]),
     xmpp:set_els(F, [#media{uri = [URI]}]).
+
+update_captcha_key(_Id, Key, Key) ->
+    ok;
+update_captcha_key(Id, _Key, Key2) ->
+    true = ets:update_element(captcha, Id, [{4, Key2}]).
 
 -spec create_captcha(binary(), jid(), jid(),
                      binary(), any(),
@@ -243,7 +248,8 @@ process(_Handlers,
     case lookup_captcha(Id) of
       {ok, #captcha{key = Key}} ->
 	  case create_image(Addr, Key) of
-	    {ok, Type, _, Img} ->
+	    {ok, Type, Key2, Img} ->
+		update_captcha_key(Id, Key, Key2),
 		{200,
 		 [{<<"Content-Type">>, Type},
 		  {<<"Cache-Control">>, <<"no-cache">>},
@@ -288,7 +294,7 @@ init([]) ->
     case check_captcha_setup() of
 	true ->
 	    register_handlers(),
-	    ejabberd_hooks:add(config_reloaded, ?MODULE, config_reloaded, 50),
+	    ejabberd_hooks:add(config_reloaded, ?MODULE, config_reloaded, 70),
 	    {ok, #state{enabled = true}};
 	false ->
 	    {ok, #state{enabled = false}};
@@ -355,7 +361,7 @@ terminate(_Reason, #state{enabled = Enabled}) ->
     if Enabled -> unregister_handlers();
        true -> ok
     end,
-    ejabberd_hooks:delete(config_reloaded, ?MODULE, config_reloaded, 50).
+    ejabberd_hooks:delete(config_reloaded, ?MODULE, config_reloaded, 70).
 
 register_handlers() ->
     ejabberd_hooks:add(host_up, ?MODULE, host_up, 50),
@@ -392,6 +398,18 @@ create_image(Limiter, Key) ->
 				   {error, image_error()}.
 do_create_image(Key) ->
     FileName = get_prog_name(),
+    case length(binary:split(FileName, <<"/">>)) == 1 of
+        true ->
+            do_create_image(Key, misc:binary_to_atom(FileName));
+        false ->
+            do_create_image(Key, FileName)
+    end.
+
+do_create_image(Key, Module) when is_atom(Module) ->
+    Function = create_image,
+    erlang:apply(Module, Function, [Key]);
+
+do_create_image(Key, FileName) when is_binary(FileName) ->
     Cmd = lists:flatten(io_lib:format("~ts ~ts", [FileName, Key])),
     case cmd(Cmd) of
       {ok,
@@ -545,6 +563,7 @@ return(Port, TRef, Result) ->
 is_feature_available() ->
     case get_prog_name() of
       Prog when is_binary(Prog) -> true;
+      MF when is_list(MF) -> true;
       false -> false
     end.
 

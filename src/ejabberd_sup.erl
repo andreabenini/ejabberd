@@ -5,7 +5,7 @@
 %%% Created : 31 Jan 2003 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2022   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -61,9 +61,9 @@ init([]) ->
 	   simple_supervisor(ejabberd_s2s_out),
 	   worker(ejabberd_s2s),
 	   simple_supervisor(ejabberd_service),
-	   worker(ejabberd_captcha),
 	   worker(ext_mod),
 	   supervisor(ejabberd_gen_mod_sup, gen_mod),
+	   worker(ejabberd_captcha),
 	   worker(ejabberd_acme),
 	   worker(ejabberd_auth),
 	   worker(ejabberd_oauth),

@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %%% @author Evgeny Khramtsov <ekhramtsov@process-one.net>
-%%% @copyright (C) 2002-2022 ProcessOne, SARL. All Rights Reserved.
+%%% @copyright (C) 2002-2023 ProcessOne, SARL. All Rights Reserved.
 %%%
 %%% Licensed under the Apache License, Version 2.0 (the "License");
 %%% you may not use this file except in compliance with the License.
@@ -147,6 +147,7 @@ subscribe({_, S, _} = USR, TopicFilter, SubOpts, ID) ->
 	allow ->
             case check_subscribe_access(TopicFilter, USR) of
                 allow ->
+		    ejabberd_hooks:run(mqtt_subscribe, S, [USR, TopicFilter, SubOpts, ID]),
                     Mod:subscribe(USR, TopicFilter, SubOpts, ID);
                 deny ->
                     {error, subscribe_forbidden}
@@ -158,6 +159,7 @@ subscribe({_, S, _} = USR, TopicFilter, SubOpts, ID) ->
 -spec unsubscribe(jid:ljid(), binary()) -> ok | {error, notfound | db_failure}.
 unsubscribe({U, S, R}, Topic) ->
     Mod = gen_mod:ram_db_mod(S, ?MODULE),
+    ejabberd_hooks:run(mqtt_unsubscribe, S, [{U, S, R}, Topic]),
     Mod:unsubscribe({U, S, R}, Topic).
 
 -spec select_retained(jid:ljid(), binary(), qos(), non_neg_integer()) ->
