@@ -34,6 +34,15 @@
 %%%===================================================================
 start(Host, Opts) ->
     User = mod_mqtt_bridge_opt:replication_user(Opts),
+    start_servers(User, element(1, mod_mqtt_bridge_opt:servers(Opts))),
+    ejabberd_hooks:add(mqtt_publish, Host, ?MODULE, mqtt_publish_hook, 50).
+
+stop(Host) ->
+    ejabberd_hooks:delete(mqtt_publish, Host, ?MODULE, mqtt_publish_hook, 50),
+    stop_servers(element(1, mod_mqtt_bridge_opt:servers(Host))),
+    ok.
+
+start_servers(User, Servers) ->
     lists:foldl(
 	fun({Proc, Transport, HostAddr, Port, Path, Publish, Subscribe, Authentication}, Started) ->
 	    case Started of
@@ -52,31 +61,44 @@ start(Host, Opts) ->
 		    ?DEBUG("Starting ~p ~p", [Proc, Res]),
 		    Started#{Proc => true}
 	    end
-	end, #{}, element(1, mod_mqtt_bridge_opt:servers(Opts))),
-    ejabberd_hooks:add(mqtt_publish, Host, ?MODULE, mqtt_publish_hook, 50).
+	end, #{}, Servers).
 
-stop(Host) ->
-    lists:foldl(
-	fun({Proc, _Transport, _Host, _Port, _Publish, _Subscribe, _Authentication}, _) ->
+stop_servers(Servers) ->
+    lists:foreach(
+	fun({Proc, _Transport, _Host, _Port, _Path, _Publish, _Subscribe, _Authentication}) ->
 	    try p1_server:call(Proc, stop)
 	    catch _:_ -> ok
 	    end,
 	    supervisor:terminate_child(ejabberd_gen_mod_sup, Proc),
 	    supervisor:delete_child(ejabberd_gen_mod_sup, Proc)
-	end, #{}, element(1, mod_mqtt_bridge_opt:servers(Host))),
-    ejabberd_hooks:delete(mqtt_publish, Host, ?MODULE, mqtt_publish_hook, 50).
+	end, Servers).
 
-reload(_Host, _NewOpts, _OldOpts) ->
+reload(_Host, NewOpts, OldOpts) ->
+    OldServers = element(1, mod_mqtt_bridge_opt:servers(OldOpts)),
+    NewServers = element(1, mod_mqtt_bridge_opt:servers(NewOpts)),
+    Deleted = lists:filter(
+	fun(E) -> not lists:keymember(element(1, E), 1, NewServers) end,
+	OldServers),
+    Added = lists:filter(
+	fun(E) -> not lists:keymember(element(1, E), 1, OldServers) end,
+	NewServers),
+    stop_servers(Deleted),
+    start_servers(mod_mqtt_bridge_opt:replication_user(NewOpts), Added),
     ok.
 
 depends(_Host, _Opts) ->
     [{mod_mqtt, hard}].
 
-proc_name(Proto, Host, Port) ->
+proc_name(Proto, Host, Port, Path) ->
     HostB = list_to_binary(Host),
     TransportB = list_to_binary(Proto),
+    PathB = case Path of
+		V when is_list(V) ->
+		    list_to_binary(V);
+		_ -> <<>>
+	    end,
     binary_to_atom(<<"mod_mqtt_bridge_", TransportB/binary, "_", HostB/binary,
-		     "_", (integer_to_binary(Port))/binary>>, utf8).
+		     "_", (integer_to_binary(Port))/binary, PathB/binary>>, utf8).
 
 -spec mqtt_publish_hook(jid:ljid(), publish(), non_neg_integer()) -> ok.
 mqtt_publish_hook({_, S, _}, #publish{topic = Topic} = Pkt, _ExpiryTime) ->
@@ -107,7 +129,7 @@ mod_opt_type(replication_user) ->
     econf:jid();
 mod_opt_type(servers) ->
     econf:and_then(
-	econf:map(econf:url([mqtt, mqtts, mqtt5, mqtt5s, ws, wss]),
+	econf:map(econf:url([mqtt, mqtts, mqtt5, mqtt5s, ws, wss, ws5, wss5]),
 	    econf:options(
 		#{
 		    publish => econf:map(econf:binary(), econf:binary(), [{return, map}]),
@@ -130,12 +152,13 @@ mod_opt_type(servers) ->
 		    {ok, Scheme, _UserInfo, Host, Port, Path, _Query} =
 		    misc:uri_parse(Url, [{mqtt, 1883}, {mqtts, 8883},
 					 {mqtt5, 1883}, {mqtt5s, 8883},
-					 {ws, 80}, {wss, 443}]),
+					 {ws, 80}, {wss, 443},
+					 {ws5, 80}, {wss5, 443}]),
 		    Publish = maps:get(publish, Opts, #{}),
 		    Subscribe = maps:get(subscribe, Opts, #{}),
 		    Authentication = maps:get(authentication, Opts, []),
 		    Proto = list_to_atom(Scheme),
-		    Proc = proc_name(Scheme, Host, Port),
+		    Proc = proc_name(Scheme, Host, Port, Path),
 		    PAcc2 = maps:fold(
 			fun(Topic, _RemoteTopic, Acc) ->
 			    maps:update_with(Topic, fun(V) -> [Proc | V] end, [Proc], Acc)
@@ -150,16 +173,37 @@ mod_opt_type(servers) ->
 %%%===================================================================
 mod_doc() ->
     #{desc =>
-      ?T("This module adds ability to replicate data from or to external servers"),
+      [?T("This module adds ability to synchronize local MQTT topics with data on remote servers"),
+       ?T("It can update topics on remote servers when local user updates local topic, or can subscribe "
+	  "for changes on remote server, and update local copy when remote data is updated."),
+      ?T("It is available since ejabberd 23.01.")],
+      example =>
+      ["modules:",
+       "  ...",
+       "  mod_mqtt_bridge:",
+       "    servers:",
+       "      \"mqtt://server.com\":",
+       "        publish:",
+       "          \"localA\": \"remoteA\" # local changes to 'localA' will be replicated on remote server as 'remoteA'",
+       "          \"topicB\": \"topicB\"",
+       "        subscribe:",
+       "          \"remoteB\": \"localB\" # changes to 'remoteB' on remote server will be stored as 'localB' on local server",
+       "        authentication:",
+       "          certfile: \"/etc/ejabberd/mqtt_server.pem\"",
+       "    replication_user: \"mqtt@xmpp.server.com\"",
+       "  ..."],
       opts =>
       [{servers,
-	#{value => "{ServerUrl: Replication informations}",
+	#{value => "{ServerUrl: {publish: [TopicPairs], subscribe: [TopicPairs], authentication: [AuthInfo]}}",
 	  desc =>
-	  ?T("Main entry point to define which topics should be replicated.")}},
+	  ?T("Declaration of data to share, must contain 'publish' or 'subscribe' or both, and 'authentication' "
+	     "section with username/password field or certfile pointing to client certificate. "
+	     "Accepted urls can use schema mqtt, mqtts (mqtt with tls), mqtt5, mqtt5s (both to trigger v5 protocol), "
+	      "ws, wss, ws5, wss5. Certifcate authentication can be only used with mqtts, mqtt5s, wss, wss5.")}},
        {replication_user,
 	#{value => "JID",
 	  desc =>
-	  ?T("Identifier of a user which will own all local modifications.")}}]}.
+	  ?T("Identifier of a user that will be assigned as owner of local changes.")}}]}.
 
 %%%===================================================================
 %%% Internal functions

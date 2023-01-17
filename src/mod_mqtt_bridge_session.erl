@@ -88,14 +88,17 @@ start_link(Proc, Transport, Host, Port, Path, Publish, Subscribe, Authentication
 %%% gen_server callbacks
 %%%===================================================================
 init([_Proc, Proto, Host, Port, Path, Publish, Subscribe, Authentication, ReplicationUser]) ->
-    {Version, Transport} = case Proto of
-			       mqtt -> {4, gen_tcp};
-			       mqtts -> {4, ssl};
-			       mqtt5 -> {5, gen_tcp};
-			       mqtt5s -> {5, ssl};
-			       ws -> {4, gen_tcp};
-			       wss -> {4, ssl}
-			   end,
+    {Version, Transport, IsWs} =
+    case Proto of
+	mqtt -> {4, gen_tcp, false};
+	mqtts -> {4, ssl, false};
+	mqtt5 -> {5, gen_tcp, false};
+	mqtt5s -> {5, ssl, false};
+	ws -> {4, gen_tcp, true};
+	wss -> {4, ssl, true};
+	ws5 -> {5, gen_tcp, true};
+	wss5 -> {5, ssl, true}
+    end,
     State = #state{version = Version,
 		   id = p1_rand:uniform(65535),
 		   codec = mqtt_codec:new(4096),
@@ -104,15 +107,15 @@ init([_Proc, Proto, Host, Port, Path, Publish, Subscribe, Authentication, Replic
 		   usr = jid:tolower(ReplicationUser),
 		   publish = Publish},
     case Authentication of
-	#{certfile := Cert} when Proto == mqtts; Proto == mqtt5s; Proto == wss ->
+	#{certfile := Cert} when Transport == ssl ->
 	    Sock = ssl:connect(Host, Port, [binary, {active, true}, {certfile, Cert}]),
-	    if Proto == ws orelse Proto == wss ->
+	    if IsWs ->
 		connect_ws(Host, Port, Path, Sock, State, ssl, none);
 		true -> connect(Sock, State, ssl, none)
 	    end;
 	#{username := User, password := Pass} ->
 	    Sock = Transport:connect(Host, Port, [binary, {active, true}]),
-	    if Proto == ws orelse Proto == wss ->
+	    if IsWs ->
 		connect_ws(Host, Port, Path, Sock, State, Transport, {User, Pass});
 		true -> connect(Sock, State, Transport, {User, Pass})
 	    end;
@@ -120,6 +123,8 @@ init([_Proc, Proto, Host, Port, Path, Publish, Subscribe, Authentication, Replic
 	    {stop, {error, <<"Certificate can be only used for encrypted connections">>	}}
     end.
 
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State};
 handle_call(Request, From, State) ->
     ?WARNING_MSG("Unexpected call from ~p: ~p", [From, Request]),
     {noreply, State}.
@@ -200,19 +205,19 @@ handle_info({Tag, TCPSock, TCPData},
     Res2 =
     lists:foldl(
 	fun(_, {stop, _, _} = Res) -> Res;
-	   ({_Op, Data}, {Tag, Res, S}) ->
+	   ({_Op, Data}, {Tag2, Res, S}) ->
 	       case handle_info({tcp_decoded, TCPSock, Data}, S) of
 		   {stop, _, _} = Stop ->
 		       Stop;
 		   {_, NewState} ->
-		       {Tag, Res, NewState}
+		       {Tag2, Res, NewState}
 	       end
 	end, Acc0, Packets),
     case Res2 of
-	{noreply, _, State} ->
-	    {noreply, State};
-	_ ->
-	    Res2
+	{noreply, _, State2} ->
+	    {noreply, State2};
+	{Tag3, Res3, State2} when Tag3 == stop; Tag3 == stop_after ->
+	    {stop, Res3, State2}
     end;
 handle_info({Tag, TCPSock, TCPData},
 	    #state{codec = Codec} = State)

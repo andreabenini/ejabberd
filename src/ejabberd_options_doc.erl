@@ -455,7 +455,7 @@ doc() ->
             ]}},
      {captcha_cmd,
       #{value => ?T("Path | ModuleName"),
-        note => "improved in 23.xx",
+        note => "improved in 23.01",
         desc =>
             ?T("Full path to a script that generates http://../basic/#captcha[CAPTCHA] images. "
                "@VERSION@ is replaced with ejabberd version number in XX.YY format. "
@@ -837,10 +837,10 @@ doc() ->
             ?T("The time period to rate-limit log messages "
                "by. Defaults to 1 second.")}},
      {log_modules_fully,
-      #{value => ?T("Number"),
-        note => "added in 23.xx",
+      #{value => "[Module, ...]",
+        note => "added in 23.01",
         desc =>
-            ?T("The modules listed in this option will log everything "
+            ?T("List of modules that will log everything "
                "independently from the general loglevel option.")}},
      {max_fsm_queue,
       #{value => ?T("Size"),
@@ -966,12 +966,13 @@ doc() ->
                "memory drops below this 'Percent', OOM killer is deactivated. "
                "The default value is '80' percents.")}},
      {outgoing_s2s_families,
-      #{value => "[ipv4 | ipv6, ...]",
+      #{value => "[ipv6 | ipv4, ...]",
+        note => "changed in 23.01",
         desc =>
             ?T("Specify which address families to try, in what order. "
-               "The default is '[ipv4, ipv6]' which means it first tries "
-               "connecting with IPv4, if that fails it tries using IPv6."
-               "This option is obsolete and irrelevant when using ejabberd 23.xx "
+               "The default is '[ipv6, ipv4]' which means it first tries "
+               "connecting with IPv6, if that fails it tries using IPv4. "
+               "This option is obsolete and irrelevant when using ejabberd 23.01 "
                "and Erlang/OTP 22, or newer versions of them.")}},
      {outgoing_s2s_ipv4_address,
       #{value => "Address",
