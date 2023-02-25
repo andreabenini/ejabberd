@@ -294,15 +294,15 @@ init([Host, ServerHost, Access, Room, HistorySize,
     process_flag(trap_exit, true),
     Shaper = ejabberd_shaper:new(RoomShaper),
     RoomQueue = room_queue_new(ServerHost, Shaper, QueueType),
-    State = set_affiliation(Creator, owner,
-	    #state{host = Host, server_host = ServerHost,
-		   access = Access, room = Room,
-		   history = lqueue_new(HistorySize, QueueType),
-		   jid = jid:make(Room, Host),
-		   just_created = true,
-		   room_queue = RoomQueue,
-		   room_shaper = Shaper}),
-    State1 = set_opts(DefRoomOpts, State),
+    State = set_opts(DefRoomOpts,
+		     #state{host = Host, server_host = ServerHost,
+			    access = Access, room = Room,
+			    history = lqueue_new(HistorySize, QueueType),
+			    jid = jid:make(Room, Host),
+			    just_created = true,
+			    room_queue = RoomQueue,
+			    room_shaper = Shaper}),
+    State1 = set_affiliation(Creator, owner, State),
     store_room(State1),
     ?INFO_MSG("Created MUC room ~ts@~ts by ~ts",
 	      [Room, Host, jid:encode(Creator)]),
@@ -1022,12 +1022,8 @@ process_groupchat_message(#message{from = From, lang = Lang} = Packet, StateData
 		not Moderated, IsSubscriber} of
 	      {true, _} -> true;
 	      {_, true} ->
-		  case get_default_role(get_affiliation(From, StateData),
-					StateData) of
-		      moderator -> true;
-		      participant -> true;
-		      _ -> false
-		  end;
+		  % We assume all subscribers are at least members
+		  true;
 	      _ ->
 		  false
 	  end,
@@ -3886,14 +3882,23 @@ remove_nonmembers(StateData) ->
       end, StateData, get_users_and_subscribers(StateData)).
 
 -spec set_opts([{atom(), any()}], state()) -> state().
-set_opts([], StateData) ->
+set_opts(Opts, StateData) ->
+    case lists:keytake(persistent, 1, Opts) of
+	false ->
+	    set_opts2(Opts, StateData);
+	{value, Tuple, Rest} ->
+	    set_opts2([Tuple | Rest], StateData)
+    end.
+
+-spec set_opts2([{atom(), any()}], state()) -> state().
+set_opts2([], StateData) ->
     set_vcard_xupdate(StateData);
-set_opts([{vcard, Val} | Opts], StateData)
+set_opts2([{vcard, Val} | Opts], StateData)
   when is_record(Val, vcard_temp) ->
     %% default_room_options is setting a default room vcard
     ValRaw = fxml:element_to_binary(xmpp:encode(Val)),
-    set_opts([{vcard, ValRaw} | Opts], StateData);
-set_opts([{Opt, Val} | Opts], StateData) ->
+    set_opts2([{vcard, ValRaw} | Opts], StateData);
+set_opts2([{Opt, Val} | Opts], StateData) ->
     NSD = case Opt of
 	    title ->
 		StateData#state{config =
@@ -4042,7 +4047,7 @@ set_opts([{Opt, Val} | Opts], StateData) ->
                         end, muc_subscribers_new(), Val),
                   StateData#state{muc_subscribers = MUCSubscribers};
 	    affiliations ->
-		StateData#state{affiliations = maps:from_list(Val)};
+		set_affiliations(maps:from_list(Val), StateData);
 	    roles ->
 		StateData#state{roles = maps:from_list(Val)};
 	    subject ->
@@ -4062,7 +4067,7 @@ set_opts([{Opt, Val} | Opts], StateData) ->
                   ?INFO_MSG("Unknown MUC room option, will be discarded: ~p", [Other]),
                   StateData
 	  end,
-    set_opts(Opts, NSD).
+    set_opts2(Opts, NSD).
 
 -spec set_vcard_xupdate(state()) -> state().
 set_vcard_xupdate(#state{config =
