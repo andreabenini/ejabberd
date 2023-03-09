@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        otp: ['20.0', '21.3', '24.3', '25']
+        otp: ['20.0', '21.3', '24.3', '25', '26.0-rc1']
     runs-on: ubuntu-20.04
     services:
       redis:
@@ -111,8 +111,7 @@ jobs:
               eimp, epam, esip, ezlib, fast_tls, fast_xml, fast_yaml,
               mqtree, p1_acme, p1_mysql, p1_oauth2, p1_pgsql, p1_utils, pkix,
               sqlite3, stringprep, stun, xmpp, yconf]} ]}.' >>rebar.config
-        echo '{ct_extra_params, "-verbosity 20"}.' >>rebar.config
-        echo "{ct_opts, [{verbosity, 20}, {keep_logs, 20}]}." >>rebar.config
+        echo "{ct_opts, [{keep_logs, 20}]}." >>rebar.config
 
     - name: Remove syntax_tools from release
       run: sed -i 's|, syntax_tools||g' src/ejabberd.app.src.script
@@ -150,6 +149,7 @@ jobs:
     - run: make options
     - run: make xref
     - run: make dialyzer
+      if: matrix.otp != '26.0-rc1'
 
     - name: Check Production Release
       run: |
@@ -177,6 +177,7 @@ jobs:
       id: ct
       run: |
         (cd priv && ln -sf ../sql)
+        sed -i -e 's/ct:pal/ct:log/' test/suite.erl
         COMMIT=`echo $GITHUB_SHA | cut -c 1-7`
         DATE=`date +%s`
         REF_NAME=`echo $GITHUB_REF_NAME | tr "/" "_"`
@@ -311,3 +312,17 @@ jobs:
           'BEGIN{RS="\n=case";FS="\n"} /=result\s*failed/ {print "=case" $0}'
         find logs/ -name error.log -exec cat '{}' ';'
         find logs/ -name exunit.log -exec cat '{}' ';'
+
+    - name: Upload CT logs
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: ejabberd-ct-logs-${{matrix.otp}}
+        #
+        # Appending the wildcard character ("*") is a trick to make
+        # "ejabberd-packages" the root directory of the uploaded ZIP file:
+        #
+        # https://github.com/actions/upload-artifact#upload-using-multiple-paths-and-exclusions
+        #
+        path: _build/test/logs
+        retention-days: 14
