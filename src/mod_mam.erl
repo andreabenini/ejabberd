@@ -28,6 +28,7 @@
 -protocol({xep, 313, '0.6.1', '15.06', "", ""}).
 -protocol({xep, 334, '0.2'}).
 -protocol({xep, 359, '0.5.0'}).
+-protocol({xep, 425, '0.2.1', '23.04', "", ""}).
 -protocol({xep, 441, '0.2.0'}).
 
 -behaviour(gen_mod).
@@ -44,7 +45,8 @@
 	 mod_options/1, remove_mam_for_user_with_peer/3, remove_mam_for_user/2,
 	 is_empty_for_user/2, is_empty_for_room/3, check_create_room/4,
 	 process_iq/3, store_mam_message/7, make_id/0, wrap_as_mucsub/2, select/7,
-	 delete_old_messages_batch/5, delete_old_messages_status/1, delete_old_messages_abort/1]).
+	 delete_old_messages_batch/5, delete_old_messages_status/1, delete_old_messages_abort/1,
+	 remove_message_from_archive/3]).
 
 -include_lib("xmpp/include/xmpp.hrl").
 -include("logger.hrl").
@@ -350,6 +352,19 @@ remove_mam_for_user_with_peer(User, Server, Peer) ->
 	    end
     catch _:_ ->
 	{error, <<"Invalid peer JID">>}
+    end.
+
+-spec remove_message_from_archive(User :: binary(), Server :: binary(), StanzaId :: integer()) ->
+    ok | {error, binary()}.
+remove_message_from_archive(User, Server, StanzaId) ->
+    Mod = gen_mod:db_mod(Server, ?MODULE),
+    case Mod:remove_from_archive(User, Server, StanzaId) of
+	ok ->
+	    ok;
+	{error, Bin} when is_binary(Bin) ->
+	    {error, Bin};
+	{error, _} ->
+	    {error, <<"Db returned error">>}
     end.
 
 get_module_host(LServer) ->
