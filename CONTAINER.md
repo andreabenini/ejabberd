@@ -17,17 +17,16 @@ that includes [XMPP][xmpp] Server, [MQTT][mqtt] Broker and [SIP][sip] Service.
 [mqtt]: https://mqtt.org/
 [sip]: https://en.wikipedia.org/wiki/Session_Initiation_Protocol
 
-This document explains how to use the
-[ejabberd container images](https://github.com/processone/ejabberd/pkgs/container/ejabberd)
-available in the GitHub Container Registry,
+This document explains how to use the `ejabberd` container image available in
+[ghcr.io/processone/ejabberd](https://github.com/processone/ejabberd/pkgs/container/ejabberd),
 built using the files in `.github/container/`.
 
-Alternatively, there are also
-[ejabberd-ecs Docker images](https://hub.docker.com/r/ejabberd/ecs/)
-available in Docker Hub,
+Alternatively, there is also the `ecs` container image available in
+[docker.io/ejabberd/ecs](https://hub.docker.com/r/ejabberd/ecs/),
 built using the
 [docker-ejabberd/ecs](https://github.com/processone/docker-ejabberd/tree/master/ecs)
 repository.
+Check the [differences between `ejabberd` and `ecs` images](https://github.com/processone/docker-ejabberd/blob/master/ecs/HUB-README.md#alternative-image-in-github).
 
 If you are using a Windows operating system, check the tutorials mentioned in
 [ejabberd Docs > Docker Image](https://docs.ejabberd.im/admin/installation/#docker-image).
@@ -206,7 +205,7 @@ explains how to install an additional module using docker-compose.
 ## Commands on start
 
 The ejabberdctl script reads the `CTL_ON_CREATE` environment variable
-the first time the docker container is started,
+the first time the container is started,
 and reads `CTL_ON_START` every time the container is started.
 Those variables can contain one ejabberdctl command,
 or several commands separated with the blankspace and `;` characters.
@@ -259,23 +258,10 @@ Example using environment variables (see full example [docker-compose.yml](https
 ```
 
 
-Generating a Container Image
-============================
-
-> By default, `.github/container/Dockerfile` builds this container by directly compiling ejabberd,
-> it is a fast and direct method.
->
-> However, a problem with QEMU prevents building the container in QEMU using Erlang/OTP 25
-> for the `arm64` architecture.
->
-> Providing `build-args: METHOD=package` is an alternate method to build the container
-> used by the Github Actions workflow that provides `amd64` and `arm64` container images.
-> It first builds an ejabberd binary package, and later installs it in the image.
-> That method avoids using QEMU, so it can build `arm64` container images, but is extremely
-> slow the first time it's used, and consequently not recommended for general use.
+Build a Container Image
+=======================
 
 This container image includes ejabberd as a standalone OTP release built using Elixir.
-
 That OTP release is configured with:
 
 - `mix.exs`: Customize ejabberd release
@@ -283,27 +269,18 @@ That OTP release is configured with:
 - `config/runtime.exs`: Customize ejabberd paths
 - `ejabberd.yml.template`: ejabberd default config file
 
-Build ejabberd Community Server base image from ejabberd master on GitHub:
+## Direct build
+
+Build ejabberd Community Server container image from ejabberd master git repository:
 
 ```bash
-docker build \
+docker buildx build \
     -t personal/ejabberd \
     -f .github/container/Dockerfile \
     .
 ```
 
-Build ejabberd Community Server base image for a given ejabberd version,
-both for amd64 and arm64 architectures:
-
-```bash
-VERSION=22.05
-git checkout $VERSION
-docker buildx build \
-    --platform=linux/amd64,linux/arm64
-    -t personal/ejabberd:$VERSION \
-    -f .github/container/Dockerfile \
-    .
-```
+## Podman build
 
 It's also possible to use podman instead of docker, just notice:
 - `EXPOSE 4369-4399` port range is not supported, remove that in Dockerfile
@@ -322,6 +299,30 @@ podman exec eja1 ejabberdctl status
 podman exec -it eja1 sh
 
 podman stop eja1
+```
+
+## Package build for `arm64`
+
+By default, `.github/container/Dockerfile` builds this container by directly compiling ejabberd,
+it is a fast and direct method.
+However, a problem with QEMU prevents building the container in QEMU using Erlang/OTP 25
+for the `arm64` architecture.
+
+Providing `--build-arg METHOD=package` is an alternate method to build the container
+used by the Github Actions workflow that provides `amd64` and `arm64` container images.
+It first builds an ejabberd binary package, and later installs it in the image.
+That method avoids using QEMU, so it can build `arm64` container images, but is extremely
+slow the first time it's used, and consequently not recommended for general use.
+
+In this case, to build the ejabberd container image for arm64 architecture:
+
+```bash
+docker buildx build \
+    --build-arg METHOD=package \
+    --platform linux/arm64 \
+    -t personal/ejabberd:$VERSION \
+    -f .github/container/Dockerfile \
+    .
 ```
 
 
