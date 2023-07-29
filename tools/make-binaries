@@ -70,16 +70,16 @@ termcap_vsn='1.3.1'
 expat_vsn='2.5.0'
 zlib_vsn='1.2.13'
 yaml_vsn='0.2.5'
-ssl_vsn='1.1.1t'
-otp_vsn='25.3'
-elixir_vsn='1.14.3'
+ssl_vsn='1.1.1u'
+otp_vsn='25.3.2.4'
+elixir_vsn='1.15.4'
 pam_vsn='1.5.2'
-png_vsn='1.6.39'
+png_vsn='1.6.40'
 jpeg_vsn='9e'
-webp_vsn='1.3.0'
+webp_vsn='1.3.1'
 gd_vsn='2.3.3'
 odbc_vsn='2.3.11'
-sqlite_vsn='3410100'
+sqlite_vsn='3420000'
 root_dir="${BUILD_DIR:-$HOME/build}"
 bootstrap_dir="$root_dir/bootstrap"
 ct_prefix_dir="$root_dir/x-tools"
@@ -118,7 +118,6 @@ rel_tar="$rel_name-$mix_vsn.tar.gz"
 ct_jobs=$(nproc)
 src_dir="$root_dir/src"
 platform=$(gcc -dumpmachine)
-platform_libc=$(echo $platform | sed "s/\-/\ /g" | awk '{print $NF}')
 targets='x86_64-linux-gnu aarch64-linux-gnu'
 build_start=$(date '+%F %T')
 have_current_deps='false'
@@ -190,7 +189,7 @@ check_configured_dep_vsns()
 	          'zlib-\([1-9][0-9.]*\)\.tar\.gz'
 	check_vsn 'Expat' "$expat_vsn" \
 	          'https://github.com/libexpat/libexpat/releases' \
-	          '[0-9]\]\([1-9][0-9.]*\)'
+	          '\([1-9]\.[0-9]*\.[0-9]*\)'
 	check_vsn 'Termcap' "$termcap_vsn" \
 	          'https://ftp.gnu.org/gnu/termcap/' \
 	          'termcap-\([1-9][0-9.]*\)\.tar\.gz'
@@ -258,6 +257,7 @@ create_common_config()
 		CT_CC_LANG_CXX=y
 		CT_ARCH_64=y
 		CT_KERNEL_LINUX=y
+		CT_LINUX_V_3_16=y
 		CT_LOG_PROGRESS_BAR=n
 	EOF
 }
@@ -271,9 +271,7 @@ create_gnu_config()
 	create_common_config "$file"
 
 	cat >>"$file" <<-'EOF'
-		CT_LINUX_V_3_16=y
 		CT_GLIBC_V_2_19=y
-		CT_GLIBC_KERNEL_VERSION_NONE=y
 	EOF
 }
 #.
@@ -288,7 +286,6 @@ create_musl_config()
 	cat >>"$file" <<-'EOF'
 		CT_EXPERIMENTAL=y
 		CT_LIBC_MUSL=y
-		CT_MUSL_V_1_2_2=y
 	EOF
 }
 #.
@@ -299,7 +296,6 @@ create_x64_config()
 	local file="$1"
 	local libc="$2"
 
-	create_common_config "$file"
 	create_${libc}_config "$file"
 
 	cat >>"$file" <<-'EOF'
@@ -314,7 +310,6 @@ create_arm64_config()
 	local file="$1"
 	local libc="$2"
 
-	create_common_config "$file"
 	create_${libc}_config "$file"
 
 	cat >>"$file" <<-'EOF'
@@ -351,10 +346,10 @@ add_otp_path()
 
 	if [ "$mode" = 'native' ]
 	then native_otp_bin="$prefix/bin"
-	# for github runners to build for non-native systems
-	# https://github.com/marketplace/actions/setup-erlang-otp-with-optional-elixir-and-mix-and-or-rebar3
-	elif [ ! -z "${INSTALL_DIR_FOR_OTP-}" ] && [ ! -z "${INSTALL_DIR_FOR_ELIXIR-}" ] 
-	then 
+	elif [ -n "${INSTALL_DIR_FOR_OTP+x}" ] && [ -n "${INSTALL_DIR_FOR_ELIXIR+x}" ]
+	then
+		# For github runners to build for non-native systems:
+		# https://github.com/erlef/setup-beam#environment-variables
 		native_otp_bin="$INSTALL_DIR_FOR_OTP/bin"
 		native_elixir_bin="$INSTALL_DIR_FOR_ELIXIR/bin"
 		export PATH="$native_elixir_bin:$PATH"
@@ -476,9 +471,9 @@ build_toolchain()
 {
 	local target="$1"
 	local prefix="$2"
-	local libc="$3"
 	local arch=$(arch_name "$target")
-	
+	local libc="${target##*-}"
+
 	if [ -d "$prefix" ]
 	then
 		info "Using existing toolchain in $prefix ..."
@@ -517,8 +512,8 @@ build_deps()
 	local mode="$1"
 	local target="$2"
 	local prefix="$3"
-	local libc="$4"
 	local arch="$(arch_name "$target")"
+	local libc="${target##*-}"
 	local target_src_dir="$prefix/src"
 	local saved_path="$PATH"
 
@@ -629,7 +624,8 @@ build_deps()
 	info "Building Linux-PAM $pam_vsn for $arch ..."
 	cd "$target_src_dir/$pam_dir"
 	$configure --prefix="$prefix" --includedir="$prefix/include/security" \
-	    --enable-static --disable-shared --disable-doc --enable-db=no \
+	    --enable-static --disable-shared --disable-doc --disable-examples \
+	    --enable-db=no \
 	    CFLAGS="$CFLAGS -O3 -fPIC"
 	make
 	make install
@@ -688,9 +684,6 @@ build_deps()
 		export erl_xcomp_sysroot="$prefix"
 	fi
 	cd "$target_src_dir/$otp_dir"
-	# Don't link against libnsl: https://github.com/erlang/otp/pull/5558
-	sed -i -e '/LIBS="-lnsl/d' -e '/LIBS="-lsocket/d' \
-	    'lib/erl_interface/configure'
 	# The additional CFLAGS/LIBS below are required by --enable-static-nifs.
 	# The "-ldl" flag specifically is only needed for ODBC, though.
 	$configure \
@@ -725,8 +718,8 @@ build_rel()
 	local mode="$1"
 	local target="$2"
 	local prefix="$3"
-	local libc="$4"
 	local arch="$(arch_name "$target")"
+	local libc="${target##*-}"
 	local rel_dir="$PWD/_build/prod"
 	local target_data_dir="$prefix/$rel_name"
 	local target_dst_dir="$prefix/$rel_name-$rel_vsn"
@@ -765,7 +758,7 @@ build_rel()
 	fi
 
 	if [ $have_current_deps = false ]
-	then build_deps "$mode" "$target" "$prefix" "$libc"
+	then build_deps "$mode" "$target" "$prefix"
 	fi
 
 	add_otp_path "$mode" "$prefix"
@@ -912,16 +905,15 @@ export LC_ALL='C.UTF-8' # Elixir insists on a UTF-8 environment.
 
 for target in $targets
 do
-	libc="$(echo $target | sed "s/\-/\ /g" | awk '{print $NF}')"
-	prefix="$build_dir/$(arch_name "$target")-$libc"
+	prefix="$build_dir/$target"
 	toolchain_dir="$ct_prefix_dir/$target"
 
-	if [ "$(uname -m)-linux-$platform_libc" = "$target" ]
+	if [ "$platform" = "$target" ]
 	then mode='native'
 	else mode='cross'
 	fi
-	build_toolchain "$target" "$toolchain_dir" "$libc"
-	build_rel "$mode" "$target" "$prefix" "$libc"
+	build_toolchain "$target" "$toolchain_dir"
+	build_rel "$mode" "$target" "$prefix"
 done
 
 save_built_dep_vsns

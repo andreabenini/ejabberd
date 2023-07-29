@@ -129,8 +129,8 @@ run_cmd()
 exec_cmd()
 {
     case $EXEC_CMD in
-        as_install_user) su -s /bin/sh -c '"$0" "$@"' "$INSTALLUSER" -- "$@" ;;
         as_current_user) exec "$@" ;;
+        as_install_user) su -s /bin/sh -c 'exec "$0" "$@"' "$INSTALLUSER" -- "$@" ;;
     esac
 }
 run_erl()
