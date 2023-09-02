@@ -162,14 +162,15 @@ get_commands_spec() ->
 		       result = {res, rescode}},
      #ejabberd_commands{name = create_room_with_opts, tags = [muc_room],
 		       desc = "Create a MUC room name@service in host with given options",
-		       longdesc = "To set affilitions string value must have format 'Type:JID,Type:JID' "
-				  "for example 'owner:bob@example.com,member:peter@example.com'. Subscribers can be "
-				  "define with string 'JID:Nick:Node1:Node2,JID:Nick:Node3' for example "
-				  "'bob@example.com:Bob:messages:subject,anne@example.com:Anne:messages'.",
+		       longdesc =
+                        "The syntax of `affiliations` is: `Type:JID,Type:JID`. "
+                        "The syntax of `subscribers` is: `JID:Nick:Node:Node2:Node3,JID:Nick:Node`.",
 		       module = ?MODULE, function = create_room_with_opts,
 		       args_desc = ["Room name", "MUC service", "Server host", "List of options"],
 		       args_example = ["room1", "muc.example.com", "localhost",
-				       [{"members_only","true"}, {"subscribers", "bob@example.com:Bob:messages"}]],
+				       [{"members_only","true"},
+                                        {"affiliations", "owner:bob@example.com,member:peter@example.com"},
+                                        {"subscribers", "bob@example.com:Bob:messages:subject,anne@example.com:Anne:messages"}]],
 		       args = [{name, binary}, {service, binary},
 			       {host, binary},
 			       {options, {list,
@@ -191,9 +192,9 @@ get_commands_spec() ->
 		       desc = "List the rooms that are unused for many days in the service",
 		       longdesc = "The room recent history is used, so it's recommended "
 			    " to wait a few days after service start before running this."
-			    " The MUC service argument can be 'global' to get all hosts.",
+			    " The MUC service argument can be `global` to get all hosts.",
 		       module = ?MODULE, function = rooms_unused_list,
-		       args_desc = ["MUC service, or 'global' for all", "Number of days"],
+		       args_desc = ["MUC service, or `global` for all", "Number of days"],
 		       args_example = ["muc.example.com", 31],
 		       result_desc = "List of unused rooms",
 		       result_example = ["room1@muc.example.com", "room2@muc.example.com"],
@@ -204,9 +205,9 @@ get_commands_spec() ->
 		       desc = "Destroy the rooms that are unused for many days in the service",
 		       longdesc = "The room recent history is used, so it's recommended "
 			    " to wait a few days after service start before running this."
-			    " The MUC service argument can be 'global' to get all hosts.",
+			    " The MUC service argument can be `global` to get all hosts.",
 		       module = ?MODULE, function = rooms_unused_destroy,
-		       args_desc = ["MUC service, or 'global' for all", "Number of days"],
+		       args_desc = ["MUC service, or `global` for all", "Number of days"],
 		       args_example = ["muc.example.com", 31],
 		       result_desc = "List of unused rooms that has been destroyed",
 		       result_example = ["room1@muc.example.com", "room2@muc.example.com"],
@@ -216,9 +217,9 @@ get_commands_spec() ->
 
      #ejabberd_commands{name = rooms_empty_list, tags = [muc],
 		       desc = "List the rooms that have no messages in archive",
-		       longdesc = "The MUC service argument can be 'global' to get all hosts.",
+		       longdesc = "The MUC service argument can be `global` to get all hosts.",
 		       module = ?MODULE, function = rooms_empty_list,
-		       args_desc = ["MUC service, or 'global' for all"],
+		       args_desc = ["MUC service, or `global` for all"],
 		       args_example = ["muc.example.com"],
 		       result_desc = "List of empty rooms",
 		       result_example = ["room1@muc.example.com", "room2@muc.example.com"],
@@ -227,9 +228,9 @@ get_commands_spec() ->
 		       result = {rooms, {list, {room, string}}}},
      #ejabberd_commands{name = rooms_empty_destroy, tags = [muc],
 		       desc = "Destroy the rooms that have no messages in archive",
-		       longdesc = "The MUC service argument can be 'global' to get all hosts.",
+		       longdesc = "The MUC service argument can be `global` to get all hosts.",
 		       module = ?MODULE, function = rooms_empty_destroy,
-		       args_desc = ["MUC service, or 'global' for all"],
+		       args_desc = ["MUC service, or `global` for all"],
 		       args_example = ["muc.example.com"],
 		       result_desc = "List of empty rooms that have been destroyed",
 		       result_example = ["room1@muc.example.com", "room2@muc.example.com"],
@@ -294,11 +295,11 @@ get_commands_spec() ->
 			longdesc = "Since ejabberd 20.12, this command is "
                         "asynchronous: the API call may return before the "
                         "server has send all the invitations.\n\n"
-                        "Password and Message can also be: none. "
-                        "Users JIDs are separated with : ",
+                        "Password and Message can also be: `none`. "
+                        "Users JIDs are separated with `:`.",
 			module = ?MODULE, function = send_direct_invitation,
-		        args_desc = ["Room name", "MUC service", "Password, or none",
-			 "Reason text, or none", "Users JIDs separated with : characters"],
+		        args_desc = ["Room name", "MUC service", "Password, or `none`",
+			 "Reason text, or `none`", "Users JIDs separated with `:` characters"],
 			args_example = [<<"room1">>, <<"muc.example.com">>,
 					<<>>, <<"Check this out!">>,
 					"user2@localhost:user3@example.com"],
@@ -332,7 +333,7 @@ get_commands_spec() ->
 			desc = "Subscribe to a MUC conference",
 			module = ?MODULE, function = subscribe_room,
 			args_desc = ["User JID", "a user's nick",
-			    "the room to subscribe", "nodes separated by commas: ,"],
+			    "the room to subscribe", "nodes separated by commas: `,`"],
 			args_example = ["tom@localhost", "Tom", "room1@conference.localhost",
 			    "urn:xmpp:mucsub:nodes:messages,urn:xmpp:mucsub:nodes:affiliations"],
 			result_desc = "The list of nodes that has subscribed",
@@ -344,11 +345,13 @@ get_commands_spec() ->
      #ejabberd_commands{name = subscribe_room_many, tags = [muc_room],
 			desc = "Subscribe several users to a MUC conference",
 			note = "added in 22.05",
-			longdesc = "This command accept up to 50 users at once (this is configurable with `subscribe_room_many_max_users` option)",
+			longdesc = "This command accepts up to 50 users at once "
+                            "(this is configurable with the *`mod_muc_admin`* option "
+                            "`subscribe_room_many_max_users`)",
 			module = ?MODULE, function = subscribe_room_many,
 			args_desc = ["Users JIDs and nicks",
                                      "the room to subscribe",
-                                     "nodes separated by commas: ,"],
+                                     "nodes separated by commas: `,`"],
 			args_example = [[{"tom@localhost", "Tom"},
                                          {"jerry@localhost", "Jerry"}],
                                         "room1@conference.localhost",
@@ -1276,7 +1279,7 @@ room_diagnostics(Name, Service) ->
 change_option(Option, Value, Config) ->
     case Option of
 	allow_change_subj -> Config#config{allow_change_subj = Value};
-	allow_private_messages -> Config#config{allow_private_messages = Value};
+	allowpm -> Config#config{allowpm = Value};
 	allow_private_messages_from_visitors -> Config#config{allow_private_messages_from_visitors = Value};
 	allow_query_users -> Config#config{allow_query_users = Value};
 	allow_subscription -> Config#config{allow_subscription = Value};

@@ -354,11 +354,15 @@ remove_mam_for_user_with_peer(User, Server, Peer) ->
 	{error, <<"Invalid peer JID">>}
     end.
 
--spec remove_message_from_archive(User :: binary(), Server :: binary(), StanzaId :: integer()) ->
+-spec remove_message_from_archive(
+        User :: binary() | {User :: binary(), Host :: binary()},
+        Server :: binary(), StanzaId :: integer()) ->
     ok | {error, binary()}.
-remove_message_from_archive(User, Server, StanzaId) ->
+remove_message_from_archive(User, Server, StanzaId) when is_binary(User) ->
+    remove_message_from_archive({User, Server}, Server, StanzaId);
+remove_message_from_archive({User, Host}, Server, StanzaId) ->
     Mod = gen_mod:db_mod(Server, ?MODULE),
-    case Mod:remove_from_archive(User, Server, StanzaId) of
+    case Mod:remove_from_archive(User, Host, StanzaId) of
 	ok ->
 	    ok;
 	{error, Bin} when is_binary(Bin) ->
@@ -461,6 +465,8 @@ offline_message({_Action, #message{from = Peer, to = To} = Pkt} = Acc) ->
 
 -spec muc_filter_message(message(), mod_muc_room:state(),
 			 binary()) -> message().
+muc_filter_message(#message{meta = #{mam_ignore := true}} = Pkt, _MUCState, _FromNick) ->
+    Pkt;
 muc_filter_message(#message{from = From} = Pkt,
 		   #state{config = Config, jid = RoomJID} = MUCState,
 		   FromNick) ->
@@ -1464,9 +1470,9 @@ get_commands_spec() ->
     [#ejabberd_commands{name = delete_old_mam_messages, tags = [purge],
 			desc = "Delete MAM messages older than DAYS",
 			longdesc = "Valid message TYPEs: "
-				   "\"chat\", \"groupchat\", \"all\".",
+				   "`chat`, `groupchat`, `all`.",
 			module = ?MODULE, function = delete_old_messages,
-			args_desc = ["Type of messages to delete (chat, groupchat, all)",
+			args_desc = ["Type of messages to delete (`chat`, `groupchat`, `all`)",
                                      "Days to keep messages"],
 			args_example = [<<"all">>, 31],
 			args = [{type, binary}, {days, integer}],
@@ -1475,10 +1481,10 @@ get_commands_spec() ->
 			desc = "Delete MAM messages older than DAYS",
 			note = "added in 22.05",
 			longdesc = "Valid message TYPEs: "
-				   "\"chat\", \"groupchat\", \"all\".",
+				   "`chat`, `groupchat`, `all`.",
 			module = ?MODULE, function = delete_old_messages_batch,
 			args_desc = ["Name of host where messages should be deleted",
-				     "Type of messages to delete (chat, groupchat, all)",
+				     "Type of messages to delete (`chat`, `groupchat`, `all`)",
 				     "Days to keep messages",
 				     "Number of messages to delete per batch",
 				     "Desired rate of messages to delete per minute"],

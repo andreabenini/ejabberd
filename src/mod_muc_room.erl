@@ -593,7 +593,7 @@ normal_state({route, ToNick,
 	forget_message ->
 	    {next_state, normal_state, StateData};
 	continue_delivery ->
-	    case {(StateData#state.config)#config.allow_private_messages,
+	    case {is_user_allowed_private_message(From, StateData),
 		  is_user_online(From, StateData) orelse
 		  is_subscriber(From, StateData) orelse
 		  is_user_allowed_message_nonparticipant(From, StateData)} of
@@ -622,15 +622,22 @@ normal_state({route, ToNick,
 					jid:replace_resource(StateData#state.jid,
 							     FromNick),
 				    X = #muc_user{},
-				    PrivMsg = xmpp:set_from(
-						xmpp:set_subtag(Packet, X),
-						FromNickJID),
-				    lists:foreach(
-				      fun(ToJID) ->
-					      ejabberd_router:route(xmpp:set_to(PrivMsg, ToJID))
-				      end, ToJIDs);
+                                    Packet2 = xmpp:set_subtag(Packet, X),
+                                    case ejabberd_hooks:run_fold(muc_filter_message,
+                                                                 StateData#state.server_host,
+								 xmpp:put_meta(Packet2, mam_ignore, true),
+                                                                 [StateData, FromNick]) of
+                                        drop ->
+                                            ok;
+                                        Packet3 ->
+                                            PrivMsg = xmpp:set_from(xmpp:del_meta(Packet3, mam_ignore), FromNickJID),
+                                            lists:foreach(
+                                              fun(ToJID) ->
+                                                      ejabberd_router:route(xmpp:set_to(PrivMsg, ToJID))
+                                              end, ToJIDs)
+                                    end;
 			       true ->
-				    ErrText = ?T("It is not allowed to send private messages"),
+				    ErrText = ?T("You are not allowed to send private messages"),
 				    Err = xmpp:err_forbidden(ErrText, Lang),
 				    ejabberd_router:route_error(Packet, Err)
 			    end
@@ -641,7 +648,7 @@ normal_state({route, ToNick,
 		    Err = xmpp:err_not_acceptable(ErrText, Lang),
 		    ejabberd_router:route_error(Packet, Err);
 		{false, _} ->
-		    ErrText = ?T("It is not allowed to send private messages"),
+		    ErrText = ?T("You are not allowed to send private messages"),
 		    Err = xmpp:err_forbidden(ErrText, Lang),
 		    ejabberd_router:route_error(Packet, Err)
 	    end,
@@ -1053,7 +1060,7 @@ process_groupchat_message(#message{from = From, lang = Lang} = Packet, StateData
 			  true ->
 			      NSD =
 			      StateData#state{subject = Subject,
-					      subject_author = FromNick},
+					      subject_author = {FromNick, From}},
 			      store_room(NSD),
 			      {NSD, true};
 			  _ -> {StateData, false}
@@ -1123,7 +1130,8 @@ process_groupchat_message(#message{from = From, lang = Lang} = Packet, StateData
 
 -spec check_message_for_retractions(Packet :: message(), State :: state()) -> state().
 check_message_for_retractions(Packet,
-			  #state{config = Config, jid = JID, server_host = Server} = State) ->
+			  #state{config = Config, room = Room, host = Host,
+                                 server_host = Server} = State) ->
     case xmpp:get_subtag(Packet, #fasten_apply_to{}) of
 	#fasten_apply_to{id = ID} = F ->
 	    case xmpp:get_subtag(F, #message_retract{}) of
@@ -1133,8 +1141,7 @@ check_message_for_retractions(Packet,
 			{NewState, StanzaId} when is_integer(StanzaId) ->
 			    case Config#config.mam of
 				true ->
-				    JIDs = jid:encode(JID),
-				    mod_mam:remove_message_from_archive(JIDs, Server, StanzaId),
+				    mod_mam:remove_message_from_archive({Room, Host}, Server, StanzaId),
 				    NewState;
 				_ ->
 				    NewState
@@ -1327,6 +1334,24 @@ is_user_allowed_message_nonparticipant(JID,
     case get_service_affiliation(JID, StateData) of
       owner -> true;
       _ -> false
+    end.
+
+-spec is_user_allowed_private_message(jid(), state()) -> boolean().
+is_user_allowed_private_message(JID, StateData) ->
+    case {(StateData#state.config)#config.allowpm,
+            get_role(JID, StateData)} of
+        {anyone, _} ->
+            true;
+        {participants, moderator} ->
+            true;
+        {participants, participant} ->
+            true;
+        {moderators, moderator} ->
+            true;
+        {none, _} ->
+            false;
+        {_, _} ->
+            false
     end.
 
 %% @doc Get information of this participant, or default values.
@@ -2982,14 +3007,24 @@ send_history(JID, History, StateData) ->
       end, History).
 
 -spec send_subject(jid(), state()) -> ok.
-send_subject(JID, #state{subject_author = Nick} = StateData) ->
+send_subject(JID, #state{subject_author = {Nick, AuthorJID}} = StateData) ->
     Subject = case StateData#state.subject of
 		  [] -> [#text{}];
 		  [_|_] = S -> S
 	      end,
-    Packet = #message{from = jid:replace_resource(StateData#state.jid, Nick),
+    Packet = #message{from = AuthorJID,
 		      to = JID, type = groupchat, subject = Subject},
-    ejabberd_router:route(Packet).
+    case ejabberd_hooks:run_fold(muc_filter_message,
+                                 StateData#state.server_host,
+                                 xmpp:put_meta(Packet, mam_ignore, true),
+                                 [StateData, Nick]) of
+        drop ->
+            ok;
+        NewPacket1 ->
+            FromRoomNick = jid:replace_resource(StateData#state.jid, Nick),
+            NewPacket2 = xmpp:set_from(NewPacket1, FromRoomNick),
+            ejabberd_router:route(NewPacket2)
+    end.
 
 -spec check_subject(message()) -> [text()].
 check_subject(#message{subject = [_|_] = Subj, body = [],
@@ -3788,7 +3823,7 @@ get_config(Lang, StateData, From) ->
 	 {moderatedroom, Config#config.moderated},
 	 {members_by_default, Config#config.members_by_default},
 	 {changesubject, Config#config.allow_change_subj},
-	 {allow_private_messages, Config#config.allow_private_messages},
+	 {allowpm, Config#config.allowpm},
 	 {allow_private_messages_from_visitors,
 	  Config#config.allow_private_messages_from_visitors},
 	 {allow_query_users, Config#config.allow_query_users},
@@ -3859,8 +3894,8 @@ set_config(Opts, Config, ServerHost, Lang) ->
 	 ({roomdesc, Desc}, C) -> C#config{description = Desc};
 	 ({changesubject, V}, C) -> C#config{allow_change_subj = V};
 	 ({allow_query_users, V}, C) -> C#config{allow_query_users = V};
-	 ({allow_private_messages, V}, C) ->
-	      C#config{allow_private_messages = V};
+	 ({allowpm, V}, C) ->
+	      C#config{allowpm = V};
 	 ({allow_private_messages_from_visitors, V}, C) ->
 	      C#config{allow_private_messages_from_visitors = V};
 	 ({allow_visitor_status, V}, C) -> C#config{allow_visitor_status = V};
@@ -4026,9 +4061,9 @@ set_opts2([{Opt, Val} | Opts], StateData) ->
 		StateData#state{config =
 				    (StateData#state.config)#config{allow_query_users
 									= Val}};
-	    allow_private_messages ->
+	    allowpm ->
 		StateData#state{config =
-				    (StateData#state.config)#config{allow_private_messages
+				    (StateData#state.config)#config{allowpm
 									= Val}};
 	    allow_private_messages_from_visitors ->
 		StateData#state{config =
@@ -4221,7 +4256,7 @@ make_opts(StateData, Hibernation) ->
     [?MAKE_CONFIG_OPT(#config.title), ?MAKE_CONFIG_OPT(#config.description),
      ?MAKE_CONFIG_OPT(#config.allow_change_subj),
      ?MAKE_CONFIG_OPT(#config.allow_query_users),
-     ?MAKE_CONFIG_OPT(#config.allow_private_messages),
+     ?MAKE_CONFIG_OPT(#config.allowpm),
      ?MAKE_CONFIG_OPT(#config.allow_private_messages_from_visitors),
      ?MAKE_CONFIG_OPT(#config.allow_visitor_status),
      ?MAKE_CONFIG_OPT(#config.allow_visitor_nickchange),
@@ -4276,7 +4311,7 @@ expand_opts(CompactOpts) ->
                           {Pos+1, [{Field, Val}|Opts]}
                   end
           end, {2, []}, Fields),
-    SubjectAuthor = proplists:get_value(subject_author, CompactOpts, <<"">>),
+    SubjectAuthor = proplists:get_value(subject_author, CompactOpts, {<<"">>, #jid{}}),
     Subject = proplists:get_value(subject, CompactOpts, <<"">>),
     Subscribers = proplists:get_value(subscribers, CompactOpts, []),
     HibernationTime = proplists:get_value(hibernation_time, CompactOpts, 0),
@@ -4481,20 +4516,12 @@ process_iq_disco_info(From, #iq{type = get, lang = Lang,
 -spec iq_disco_info_extras(binary(), state(), boolean()) -> xdata().
 iq_disco_info_extras(Lang, StateData, Static) ->
     Config = StateData#state.config,
-    AllowPM = case Config#config.allow_private_messages of
-		  false -> none;
-		  true ->
-		      case Config#config.allow_private_messages_from_visitors of
-			  nobody -> participants;
-			  _ -> anyone
-		      end
-	      end,
     Fs1 = [{roomname, Config#config.title},
 	   {description, Config#config.description},
 	   {changesubject, Config#config.allow_change_subj},
 	   {allowinvites, Config#config.allow_user_invites},
 	   {allow_query_users, Config#config.allow_query_users},
-	   {allowpm, AllowPM},
+	   {allowpm, Config#config.allowpm},
 	   {lang, Config#config.lang}],
     Fs2 = case Config#config.pubsub of
 	      Node when is_binary(Node), Node /= <<"">> ->
@@ -5113,7 +5140,8 @@ process_iq_moderate(_From, #iq{type = get}, _ApplyTo, _Moderate, _StateData) ->
 process_iq_moderate(From, #iq{type = set, lang = Lang},
 		    #fasten_apply_to{id = Id},
 		    #message_moderate{reason = Reason},
-		    #state{config = Config, jid = JID, server_host = Server} = StateData) ->
+		    #state{config = Config, room = Room, host = Host,
+                           jid = JID, server_host = Server} = StateData) ->
     FAffiliation = get_affiliation(From, StateData),
     FRole = get_role(From, StateData),
     IsModerator = FRole == moderator orelse FAffiliation == owner orelse
@@ -5127,18 +5155,23 @@ process_iq_moderate(From, #iq{type = set, lang = Lang},
 		StanzaId ->
 		    case Config#config.mam of
 			true ->
-			    JIDs = jid:encode(JID),
-			    mod_mam:remove_message_from_archive(JIDs, Server, StanzaId);
+			    mod_mam:remove_message_from_archive({Room, Host}, Server, StanzaId);
 			_ ->
 			    ok
 		    end,
 		    By = jid:replace_resource(JID, find_nick_by_jid(From, StateData)),
-		    Packet = #message{type = groupchat,
+		    Packet0 = #message{type = groupchat,
+                                       from = From,
 				      sub_els = [
 					  #fasten_apply_to{id = Id, sub_els = [
 					      #message_moderated{by = By, reason = Reason,
 								 retract = #message_retract{}}
 					  ]}]},
+	            {FromNick, _Role} = get_participant_data(From, StateData),
+                    Packet = ejabberd_hooks:run_fold(muc_filter_message,
+						     StateData#state.server_host,
+						     xmpp:put_meta(Packet0, mam_ignore, true),
+						     [StateData, FromNick]),
 		    send_wrapped_multiple(JID,
 					  get_users_and_subscribers_with_node(?NS_MUCSUB_NODES_MESSAGES, StateData),
 					  Packet, ?NS_MUCSUB_NODES_MESSAGES, StateData),

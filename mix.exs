@@ -8,7 +8,7 @@ defmodule Ejabberd.MixProject do
      elixir: elixir_required_version(),
      elixirc_paths: ["lib"],
      compile_path: ".",
-     compilers: [:asn1] ++ Mix.compilers,
+     compilers: [:asn1] ++ Mix.compilers(),
      erlc_options: erlc_options(),
      erlc_paths: ["asn1", "src"],
      # Elixir tests are starting the part of ejabberd they need
@@ -260,7 +260,7 @@ defmodule Ejabberd.MixProject do
     end
 
     # Mix/Elixir lower than 1.11.0 use config/releases.exs instead of runtime.exs
-    case Version.match?(System.version, "~> 1.11") do
+    case Version.match?(System.version(), "~> 1.11") do
       true ->
         :ok
       false ->
@@ -271,8 +271,7 @@ defmodule Ejabberd.MixProject do
     Mix.Generator.copy_template("ejabberdctl.example1", "ejabberdctl.example2", assigns)
     execute.("sed -e 's|{{\\(\[_a-z\]*\\)}}|<%= @\\1 %>|g' ejabberdctl.example2> ejabberdctl.example2a")
     Mix.Generator.copy_template("ejabberdctl.example2a", "ejabberdctl.example2b", assigns)
-    execute.("sed -e 's|{{\\(\[_a-z\]*\\)}}|<%= @\\1 %>|g' ejabberdctl.example2b > ejabberdctl.example3")
-    execute.("sed -e 's|^ERLANG_NODE=ejabberd@localhost|ERLANG_NODE=ejabberd|g' ejabberdctl.example3 > ejabberdctl.example4")
+    execute.("sed -e 's|{{\\(\[_a-z\]*\\)}}|<%= @\\1 %>|g' ejabberdctl.example2b > ejabberdctl.example4")
     execute.("sed -e 's|^ERLANG_OPTS=\"|ERLANG_OPTS=\"-boot ../releases/#{release.version}/start_clean -boot_var RELEASE_LIB ../lib |' ejabberdctl.example4 > ejabberdctl.example5")
     execute.("sed -e 's|^INSTALLUSER=|ERL_OPTIONS=\"-setcookie \\$\\(cat \"\\${SCRIPT_DIR%/*}/releases/COOKIE\")\"\\nINSTALLUSER=|g' ejabberdctl.example5 > ejabberdctl.example6")
     Mix.Generator.copy_template("ejabberdctl.example6", "#{ro}/bin/ejabberdctl", assigns)
@@ -339,7 +338,7 @@ defmodule Mix.Tasks.Compile.Asn1 do
   def run(args) do
     {opts, _, _} = OptionParser.parse(args, switches: [force: :boolean])
 
-    project      = Mix.Project.config
+    project      = Mix.Project.config()
     source_paths = project[:asn1_paths] || ["asn1"]
     dest_paths    = project[:asn1_target] || ["src"]
     mappings     = Enum.zip(source_paths, dest_paths)
@@ -361,7 +360,7 @@ defmodule Mix.Tasks.Compile.Asn1 do
   end
 
   def manifests, do: [manifest()]
-  defp manifest, do: Path.join(Mix.Project.manifest_path, @manifest)
+  defp manifest, do: Path.join(Mix.Project.manifest_path(), @manifest)
 
   def clean, do: Erlang.clean(manifest())
 end
