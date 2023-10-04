@@ -49,7 +49,7 @@
 -include("translate.hrl").
 -include_lib("xmpp/include/xmpp.hrl").
 
--define(REPOS, "https://github.com/processone/ejabberd-contrib").
+-define(REPOS, "git@github.com:processone/ejabberd-contrib.git").
 
 -record(state, {}).
 
@@ -294,7 +294,7 @@ add_sources(Module, Path) when is_atom(Module), is_list(Path) ->
 add_sources(Package, Path) when is_binary(Package), is_list(Path) ->
     DestDir = sources_dir(),
     RepDir = filename:join(DestDir, module_name(Path)),
-    delete_path(RepDir),
+    delete_path(RepDir, binary_to_list(Package)),
     case filelib:ensure_dir(RepDir) of
         ok ->
             case {string:left(Path, 4), string:right(Path, 2)} of
@@ -357,6 +357,8 @@ geturl(Url) ->
     case httpc:request(get, {Url, [UA]}, User, [{body_format, binary}], ext_mod) of
         {ok, {{_, 200, _}, Headers, Response}} ->
             {ok, Headers, Response};
+        {ok, {{_, 403, Reason}, _Headers, _Response}} ->
+            {error, Reason};
         {ok, {{_, Code, _}, _Headers, Response}} ->
             {error, {Code, Response}};
         {error, Reason} ->
@@ -404,8 +406,9 @@ extract_github_master(Repos, DestDir) ->
     case extract(zip, geturl(Url++"/archive/master.zip"), DestDir) of
         ok ->
             RepDir = filename:join(DestDir, module_name(Repos)),
-            file:rename(RepDir++"-master", RepDir),
-            maybe_write_commit_json(Url, RepDir);
+            RepDirSpec = filename:join(DestDir, module_spec_name(RepDir)),
+            file:rename(RepDir++"-master", RepDirSpec),
+            maybe_write_commit_json(Url, RepDirSpec);
         Error ->
             Error
     end.
@@ -439,6 +442,9 @@ delete_path(Path) ->
         false ->
             file:delete(Path)
     end.
+
+delete_path(Path, Package) ->
+    delete_path(filename:join(filename:dirname(Path), Package)).
 
 modules_dir() ->
     DefaultDir = filename:join(getenv("HOME"), ".ejabberd-modules"),
@@ -477,6 +483,14 @@ module_src_dir(Package) ->
 
 module_name(Id) ->
     filename:basename(filename:rootname(Id)).
+
+module_spec_name(Path) ->
+    case filelib:wildcard(filename:join(Path++"-master", "*.spec")) of
+        "" ->
+            module_name(Path);
+        ModuleName ->
+            filename:basename(ModuleName, ".spec")
+    end.
 
 module(Id) ->
     misc:binary_to_atom(iolist_to_binary(module_name(Id))).
@@ -799,10 +813,14 @@ maybe_write_commit_json(Url, RepDir) ->
 write_commit_json(Url, RepDir) ->
     Url2 = string_replace(Url, "https://github.com", "https://api.github.com/repos"),
     BranchUrl = lists:flatten(Url2 ++ "/branches/master"),
-    {ok, _Headers, Body} = geturl(BranchUrl),
-    {ok, F} = file:open(filename:join(RepDir, "COMMIT.json"), [raw, write]),
-    file:write(F, Body),
-    file:close(F).
+    case geturl(BranchUrl) of
+        {ok, _Headers, Body} ->
+            {ok, F} = file:open(filename:join(RepDir, "COMMIT.json"), [raw, write]),
+            file:write(F, Body),
+            file:close(F);
+        {error, Reason} ->
+            Reason
+    end.
 
 find_commit_json(Attrs) ->
     {_, FromPath} = lists:keyfind(path, 1, Attrs),

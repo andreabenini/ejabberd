@@ -65,21 +65,21 @@ fi
 rel_name='ejabberd'
 rel_vsn=$(git describe --tags | sed -e 's/-g.*//' -e 's/-/./' | tr -d '[:space:]')
 mix_vsn=$(mix_version "$rel_vsn")
-crosstool_vsn='1.25.0'
+crosstool_vsn='1.26.0'
 termcap_vsn='1.3.1'
 expat_vsn='2.5.0'
-zlib_vsn='1.2.13'
+zlib_vsn='1.3'
 yaml_vsn='0.2.5'
-ssl_vsn='1.1.1u'
-otp_vsn='25.3.2.4'
-elixir_vsn='1.15.4'
+ssl_vsn='1.1.1w'
+otp_vsn='26.1.1'
+elixir_vsn='1.15.6'
 pam_vsn='1.5.2'
 png_vsn='1.6.40'
 jpeg_vsn='9e'
-webp_vsn='1.3.1'
+webp_vsn='1.3.2'
 gd_vsn='2.3.3'
-odbc_vsn='2.3.11'
-sqlite_vsn='3420000'
+odbc_vsn='2.3.12'
+sqlite_vsn='3430100'
 root_dir="${BUILD_DIR:-$HOME/build}"
 bootstrap_dir="$root_dir/bootstrap"
 ct_prefix_dir="$root_dir/x-tools"
@@ -367,7 +367,7 @@ create_data_dir()
 	mkdir "$data_dir" "$data_dir/database" "$data_dir/logs"
 	mv "$code_dir/conf" "$data_dir"
 	chmod 'o-rwx' "$data_dir/"*
-	curl --no-progress-meter -o "$data_dir/conf/cacert.pem" 'https://curl.se/ca/cacert.pem'
+	curl -fsS -o "$data_dir/conf/cacert.pem" 'https://curl.se/ca/cacert.pem'
 	sed -i '/^loglevel:/a\
 \
 ca_file: /opt/ejabberd/conf/cacert.pem\
@@ -411,6 +411,7 @@ edit_ejabberdctl()
 	    -e '/ERL_OPTIONS=/d' \
 	    -e 's|_DIR:=".*}/|_DIR:="/opt/ejabberd/|' \
 	    -e 's|/database|/database/$ERLANG_NODE|' \
+	    -e 's|#vt100 ||' \
 	    "$code_dir/bin/${rel_name}ctl"
 }
 #.
@@ -496,8 +497,6 @@ build_toolchain()
 		cd "$root_dir"
 		create_${arch}_config 'defconfig' "$libc"
 		ct-ng defconfig
-		sed -i -e "s|^CT_ZLIB_VERSION=.*|CT_ZLIB_VERSION=\"$zlib_vsn\"|" .config
-		sed -i -e 's|^CT_ZLIB_MIRRORS=.*|CT_ZLIB_MIRRORS="https://github.com/madler/zlib/releases/download/v${CT_ZLIB_VERSION} https://www.zlib.net/ https://www.zlib.net/fossils/"|' .config
 		ct-ng build CT_PREFIX="$ct_prefix_dir" CT_JOBS="$ct_jobs"
 		rm -rf '.config' '.build' 'build.log'
 		cd "$OLDPWD"
@@ -725,16 +724,7 @@ build_rel()
 	local target_dst_tar="$rel_name-$rel_vsn-linux-$libc-$arch.tar.gz"
 	local saved_path="$PATH"
 
-	#
-	# The "$ct_prefix_dir/$target/$target/bin" directory contains cross
-	# compilation tools without "$target-" prefix. We add it to the PATH,
-	# just in case tools are called without prefix somewhere. However, we
-	# try to use the prefixed tools everywhere, so it should be possible to
-	# omit this directory from the path if desired. See also:
-	#
-	# https://stackoverflow.com/a/24243789
-	#
-	export PATH="$ct_prefix_dir/$target/bin:$ct_prefix_dir/$target/$target/bin:$PATH"
+	export PATH="$ct_prefix_dir/$target/bin:$PATH"
 	export CC="$target-gcc"
 	export CXX="$target-g++"
 	export CPP="$target-cpp"
@@ -878,23 +868,23 @@ else
 
 	info 'Downloading dependencies ...'
 	cd "$src_dir"
-	curl --no-progress-meter -LO "https://github.com/crosstool-ng/crosstool-ng/releases/download/$crosstool_dir/$crosstool_tar"
-	curl --no-progress-meter -LO "https://ftp.gnu.org/gnu/termcap/$termcap_tar"
-	curl --no-progress-meter -LO "https://github.com/libexpat/libexpat/releases/download/R_$(printf '%s' "$expat_vsn" | sed 's/\./_/g')/$expat_tar"
-	curl --no-progress-meter -LO "https://zlib.net/fossils/$zlib_tar"
-	curl --no-progress-meter -LO "https://pyyaml.org/download/libyaml/$yaml_tar"
-	curl --no-progress-meter -LO "https://www.openssl.org/source/$ssl_tar"
-	curl --no-progress-meter -LO "https://github.com/erlang/otp/releases/download/OTP-$otp_vsn/$otp_tar"
-	curl --no-progress-meter -LO "https://github.com/elixir-lang/elixir/archive/v$elixir_vsn.tar.gz"
-	curl --no-progress-meter -LO "https://github.com/linux-pam/linux-pam/releases/download/v$pam_vsn/$pam_tar"
-	curl --no-progress-meter -LO "https://download.sourceforge.net/libpng/$png_tar"
-	curl --no-progress-meter -LO "https://www.ijg.org/files/$jpeg_tar"
-	curl --no-progress-meter -LO "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/$webp_tar"
-	curl --no-progress-meter -LO "https://github.com/libgd/libgd/releases/download/gd-$gd_vsn/$gd_tar"
-	curl --no-progress-meter -LO "http://www.unixodbc.org/$odbc_tar"
-	curl --no-progress-meter -LO "https://www.sqlite.org/$(date '+%Y')/$sqlite_tar" \
-	    || curl --no-progress-meter -LO "https://www.sqlite.org/$(date -d '1 year ago' '+%Y')/$sqlite_tar" \
-	    || curl --no-progress-meter -LO "https://www.sqlite.org/$(date -d '2 years ago' '+%Y')/$sqlite_tar"
+	curl -fsSLO "https://github.com/crosstool-ng/crosstool-ng/releases/download/$crosstool_dir/$crosstool_tar"
+	curl -fsSLO "https://ftp.gnu.org/gnu/termcap/$termcap_tar"
+	curl -fsSLO "https://github.com/libexpat/libexpat/releases/download/R_$(printf '%s' "$expat_vsn" | sed 's/\./_/g')/$expat_tar"
+	curl -fsSLO "https://zlib.net/fossils/$zlib_tar"
+	curl -fsSLO "https://pyyaml.org/download/libyaml/$yaml_tar"
+	curl -fsSLO "https://www.openssl.org/source/$ssl_tar"
+	curl -fsSLO "https://github.com/erlang/otp/releases/download/OTP-$otp_vsn/$otp_tar"
+	curl -fsSLO "https://github.com/elixir-lang/elixir/archive/v$elixir_vsn.tar.gz"
+	curl -fsSLO "https://github.com/linux-pam/linux-pam/releases/download/v$pam_vsn/$pam_tar"
+	curl -fsSLO "https://download.sourceforge.net/libpng/$png_tar"
+	curl -fsSLO "https://www.ijg.org/files/$jpeg_tar"
+	curl -fsSLO "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/$webp_tar"
+	curl -fsSLO "https://github.com/libgd/libgd/releases/download/gd-$gd_vsn/$gd_tar"
+	curl -fsSLO "http://www.unixodbc.org/$odbc_tar"
+	curl -fsSLO "https://www.sqlite.org/$(date '+%Y')/$sqlite_tar" \
+	    || curl -fsSLO "https://www.sqlite.org/$(date -d '1 year ago' '+%Y')/$sqlite_tar" \
+	    || curl -fsSLO "https://www.sqlite.org/$(date -d '2 years ago' '+%Y')/$sqlite_tar"
 	cd "$OLDPWD"
 fi
 
