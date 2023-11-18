@@ -81,6 +81,8 @@ opt_type(auth_password_format) ->
     econf:enum([plain, scram]);
 opt_type(auth_scram_hash) ->
     econf:enum([sha, sha256, sha512]);
+opt_type(auth_external_user_exists_check) ->
+    econf:bool();
 opt_type(auth_use_cache) ->
     econf:bool();
 opt_type(c2s_cafile) ->
@@ -257,6 +259,8 @@ opt_type(negotiation_timeout) ->
 opt_type(net_ticktime) ->
     econf:timeout(second);
 opt_type(new_sql_schema) ->
+    econf:bool();
+opt_type(update_sql_schema) ->
     econf:bool();
 opt_type(oauth_access) ->
     econf:acl();
@@ -542,6 +546,7 @@ options() ->
      {auth_opts, []},
      {auth_password_format, plain},
      {auth_scram_hash, sha},
+     {auth_external_user_exists_check, true},
      {auth_use_cache,
       fun(Host) -> ejabberd_config:get_option({use_cache, Host}) end},
      {c2s_cafile, undefined},
@@ -604,6 +609,7 @@ options() ->
      {negotiation_timeout, timer:seconds(30)},
      {net_ticktime, timer:seconds(60)},
      {new_sql_schema, ?USE_NEW_SQL_SCHEMA_DEFAULT},
+     {update_sql_schema, false},
      {oauth_access, none},
      {oauth_cache_life_time,
       fun(Host) -> ejabberd_config:get_option({cache_life_time, Host}) end},
@@ -753,6 +759,7 @@ globals() ->
      negotiation_timeout,
      net_ticktime,
      new_sql_schema,
+     update_sql_schema,
      node_start,
      oauth_cache_life_time,
      oauth_cache_missed,

@@ -12,11 +12,6 @@
 {"A Web Page","Uma página da web"}.
 {"Accept","Aceito"}.
 {"Access denied by service policy","Acesso negado pela política do serviço"}.
-{"Access model of authorize","Modelo de acesso da autorização"}.
-{"Access model of open","Modelo para acesso aberto"}.
-{"Access model of presence","Modelo para acesso presença"}.
-{"Access model of roster","Modelo para acesso lista"}.
-{"Access model of whitelist","Modelo de acesso da lista branca"}.
 {"Access model","Modelo de acesso"}.
 {"Account doesn't exist","A conta não existe"}.
 {"Action on user","Ação no usuário"}.
@@ -53,6 +48,7 @@
 {"Anyone with a presence subscription of both or from may subscribe and retrieve items","Qualquer pessoa com uma assinatura presente dos dois ou de ambos pode se inscrever e recuperar os itens"}.
 {"Anyone with Voice","Qualquer pessoa com voz"}.
 {"Anyone","Qualquer pessoa"}.
+{"Apparently your account has no administration rights in this server. Please check how to grant admin rights in: https://docs.ejabberd.im/admin/installation/#administration-account","Aparentemente, a sua conta não tem direitos de administração neste servidor. Verifique como conceder os direitos administrativos em: https://docs.ejabberd.im/admin/installation/#administration-account"}.
 {"April","Abril"}.
 {"Attribute 'channel' is required for this request","O atributo 'canal' é necessário para esta solicitação"}.
 {"Attribute 'id' is mandatory for MIX messages","O atributo 'id' é obrigatório para mensagens MIX"}.
@@ -182,7 +178,7 @@
 {"Get User Last Login Time","Obter a Data do Último Login"}.
 {"Get User Password","Obter Senha do Usuário"}.
 {"Get User Statistics","Obter Estatísticas do Usuário"}.
-{"Given Name","Sobrenome"}.
+{"Given Name","Prenome"}.
 {"Grant voice to this person?","Dar voz a esta pessoa?"}.
 {"Group","Grupo"}.
 {"Groups that will be displayed to the members","Os grupos que serão exibidos para os membros"}.
@@ -230,7 +226,6 @@
 {"It is not allowed to send error messages to the room. The participant (~s) has sent an error message (~s) and got kicked from the room","Não é permitido o envio de mensagens de erro para a sala. O membro (~s) enviou uma mensagem de erro (~s) e foi expulso da sala"}.
 {"It is not allowed to send private messages of type \"groupchat\"","Não é permitido enviar mensagens privadas do tipo \"groupchat\""}.
 {"It is not allowed to send private messages to the conference","Não é permitido enviar mensagens privadas para a sala de conferência"}.
-{"It is not allowed to send private messages","Não é permitido enviar mensagens privadas"}.
 {"Jabber ID","ID Jabber"}.
 {"January","Janeiro"}.
 {"JID normalization denied by service policy","Normalização JID negada por causa da política de serviços"}.
@@ -250,7 +245,7 @@
 {"Least significant bits of SHA-256 hash of text should equal hexadecimal label","Bits menos significativos do hash sha-256 do texto devem ser iguais ao rótulo hexadecimal"}.
 {"leaves the room","Sair da sala"}.
 {"List of rooms","Lista de salas"}.
-{"List of users with hats","Lista os usuários com chapéus"}.
+{"List of users with hats","Lista dos usuários com chapéus"}.
 {"List users with hats","Lista os usuários com chapéus"}.
 {"Logging","Registrando no log"}.
 {"Low level update script","Script de atualização low level"}.
@@ -351,7 +346,7 @@
 {"Notify subscribers when the node is deleted","Notificar assinantes quando o nó for eliminado se elimine"}.
 {"November","Novembro"}.
 {"Number of answers required","Quantidade de respostas necessárias"}.
-{"Number of occupants","Número de participantes"}.
+{"Number of occupants","Quantidade de ocupantes"}.
 {"Number of Offline Messages","Quantidade das mensagens offline"}.
 {"Number of online users","Número de usuários online"}.
 {"Number of registered users","Número de usuários registrados"}.
@@ -375,6 +370,7 @@
 {"Only members may query archives of this room","Somente os membros podem procurar nos arquivos desta sala"}.
 {"Only moderators and participants are allowed to change the subject in this room","Somente os moderadores e os participamentes podem alterar o assunto desta sala"}.
 {"Only moderators are allowed to change the subject in this room","Somente os moderadores podem alterar o assunto desta sala"}.
+{"Only moderators are allowed to retract messages","Apenas moderadores estão autorizados a retirar mensagens"}.
 {"Only moderators can approve voice requests","Somente moderadores podem aprovar requisições de voz"}.
 {"Only occupants are allowed to send messages to the conference","Somente os ocupantes podem enviar mensagens à sala de conferência"}.
 {"Only occupants are allowed to send queries to the conference","Somente os ocupantes podem enviar consultas à sala de conferência"}.
@@ -398,6 +394,7 @@
 {"Password:","Senha:"}.
 {"Path to Dir","Caminho para o diretório"}.
 {"Path to File","Caminho do arquivo"}.
+{"Payload semantic type information","Informações de tipo semântico de carga útil"}.
 {"Pending","Pendente"}.
 {"Period: ","Período: "}.
 {"Persist items to storage","Persistir elementos ao armazenar"}.
@@ -458,7 +455,7 @@
 {"Room Configuration","Configuração de salas"}.
 {"Room creation is denied by service policy","Sala não pode ser criada devido à política do serviço"}.
 {"Room description","Descrição da Sala"}.
-{"Room Occupants","Número de participantes"}.
+{"Room Occupants","Ocupantes do quarto"}.
 {"Room terminates","Terminação da sala"}.
 {"Room title","Título da sala"}.
 {"Roster groups allowed to subscribe","Listar grupos autorizados"}.
@@ -496,6 +493,7 @@
 {"Specify the access model","Especificar os modelos de acesso"}.
 {"Specify the event message type","Especificar o tipo de mensagem para o evento"}.
 {"Specify the publisher model","Especificar o modelo do publicante"}.
+{"Stanza id is not valid","A Stanza ID não é válido"}.
 {"Stanza ID","ID da estrofe"}.
 {"Statically specify a replyto of the node owner(s)","Defina uma resposta fixa do(s) proprietário(s) do nó"}.
 {"Statistics of ~p","Estatísticas de ~p"}.
@@ -560,6 +558,7 @@
 {"The query is only allowed from local users","Esta consulta só é permitida a partir de usuários locais"}.
 {"The query must not contain <item/> elements","A consulta não pode conter elementos <item/>"}.
 {"The room subject can be modified by participants","O tema da sala pode ser alterada pelos próprios participantes"}.
+{"The semantic type information of data in the node, usually specified by the namespace of the payload (if any)","Informações de tipo semântico dos dados no nó, geralmente especificadas pelo espaço de nomes da carga útil (se houver)"}.
 {"The sender of the last received message","O remetente da última mensagem que foi recebida"}.
 {"The stanza MUST contain only one <active/> element, one <default/> element, or one <list/> element","A instância DEVE conter apenas um elemento <active/>, um elemento <default/>, ou um elemento <list/>"}.
 {"The subscription identifier associated with the subscription request","O identificador da assinatura associado à solicitação da assinatura"}.
@@ -661,6 +660,7 @@
 {"Whether to allow subscriptions","Permitir subscrições"}.
 {"Whether to make all subscriptions temporary, based on subscriber presence","Caso todas as assinaturas devam ser temporárias, com base na presença do assinante"}.
 {"Whether to notify owners about new subscribers and unsubscribes","Caso deva notificar os proprietários sobre os novos assinantes e aqueles que cancelaram a assinatura"}.
+{"Who can send private messages","Quem pode enviar mensagens privadas"}.
 {"Who may associate leaf nodes with a collection","Quem pode associar as folhas dos nós em uma coleção"}.
 {"Wrong parameters in the web formulary","O formulário web está com os parâmetros errados"}.
 {"Wrong xmlns","Xmlns errado"}.
@@ -672,6 +672,7 @@
 {"XMPP Show Value of XA (Extended Away)","XMPP Exiba o valor do XA (Ausência Estendida)"}.
 {"XMPP URI of Associated Publish-Subscribe Node","XMPP URI da publicação do nó associado da assinatura"}.
 {"You are being removed from the room because of a system shutdown","Você está sendo removido da sala por causa do desligamento do sistema"}.
+{"You are not allowed to send private messages","Você não tem permissão para enviar mensagens privadas"}.
 {"You are not joined to the channel","Você não está inscrito no canal"}.
 {"You can later change your password using an XMPP client.","Você pode alterar a sua senha mais tarde usando um cliente XMPP."}.
 {"You have been banned from this room","Você foi banido desta sala"}.

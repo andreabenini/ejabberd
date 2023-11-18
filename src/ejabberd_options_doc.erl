@@ -395,6 +395,14 @@ doc() ->
            "You shouldn't change this if you already have passwords generated with "
            "a different algorithm - users that have such passwords will not be able "
            "to authenticate. The default value is 'sha'.")}},
+     {auth_external_user_exists_check,
+      #{value => "true | false",
+        note => "added in 23.10",
+        desc =>
+        ?T("Supplement check for user existence based on 'mod_last' data, for authentication "
+           "methods that don't have a way to reliable tell if user exists (like is the case for "
+           "'jwt' and certificate based authentication). This helps with processing offline message "
+           "for those users. The default value is 'true'.")}},
      {auth_use_cache,
       #{value => "true | false",
         desc =>
@@ -674,6 +682,7 @@ doc() ->
                  "all options.")}}]},
      {install_contrib_modules,
       #{value => "[Module, ...]",
+        note => "added in 23.10",
         desc =>
             ?T("Modules to install from "
                "https://docs.ejabberd.im/developer/extending-ejabberd/modules/#ejabberd-contrib"
@@ -902,6 +911,11 @@ doc() ->
                 "configuration flag '--enable-new-sql-schema' which is set "
                 "at compile time."),
              [binary:part(ejabberd_config:version(), {0,5})]}}},
+     {update_sql_schema,
+      #{value => "true | false",
+        desc =>
+            ?T("Allow ejabberd to update SQL schema. "
+               "The default value is 'true'.")}},
      {oauth_access,
       #{value => ?T("AccessName"),
         desc => ?T("By default creating OAuth tokens is not allowed. "

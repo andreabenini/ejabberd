@@ -29,7 +29,7 @@
 
 -protocol({xep, 49, '1.2'}).
 -protocol({xep, 411, '0.2.0', '18.12', "", ""}).
--protocol({xep, 402, '1.1.3', '23.09', "", ""}).
+-protocol({xep, 402, '1.1.3', '23.10', "", ""}).
 
 -behaviour(gen_mod).
 
@@ -124,7 +124,11 @@ mod_doc() ->
               "might be anything, as long as it is a valid XML. "
               "One typical usage is storing a bookmark of all user's conferences "
               "(https://xmpp.org/extensions/xep-0048.html"
-              "[XEP-0048: Bookmarks]).")],
+              "[XEP-0048: Bookmarks])."), "",
+           ?T("It also implements the bookmark conversion described in "
+              "https://xmpp.org/extensions/xep-0402.html[XEP-0402: PEP Native Bookmarks]"
+              ", see the command "
+              "https://docs.ejabberd.im/developer/ejabberd-api/admin-api/#bookmarks-to-pep[bookmarks_to_pep].")],
       opts =>
           [{db_type,
             #{value => "mnesia | sql",
@@ -226,7 +230,7 @@ set_data(JID, Data, PublishPepStorageBookmarks, PublishPepXmppBookmarks) ->
 		false -> ok
 	    end,
 	    case PublishPepXmppBookmarks of
-		true -> publish_pep_xmpp_bookmarks(JID, Data);
+		true -> publish_pep_native_bookmarks(JID, Data);
 		false -> ok
 	    end;
 	{error, _} = Err ->
@@ -295,21 +299,31 @@ publish_pep_storage_bookmarks(JID, Data) ->
 	    case lists:keyfind(?NS_STORAGE_BOOKMARKS, 1, Data) of
 		false -> ok;
 		{_, El} ->
-		    PubOpts = [{persist_items, true},
-			       {access_model, whitelist}],
-		    case mod_pubsub:publish_item(
-			   LBJID, LServer, ?NS_STORAGE_BOOKMARKS, JID,
-			   <<"current">>, [El], PubOpts, all) of
-			{result, _} -> ok;
-			{error, _} = Err -> Err
+		    case mod_pubsub:get_items(LBJID, ?NS_STORAGE_BOOKMARKS) of
+			{error, #stanza_error{reason = 'item-not-found'}} ->
+			    PubOpts = [{persist_items, true},
+				       {access_model, whitelist}],
+			    case mod_pubsub:publish_item(
+				LBJID, LServer, ?NS_STORAGE_BOOKMARKS, JID,
+				<<"current">>, [El], PubOpts, all) of
+				{result, _} -> ok;
+				{error, _} = Err -> Err
+			    end;
+			_ ->
+			    case mod_pubsub:publish_item(
+				LBJID, LServer, ?NS_STORAGE_BOOKMARKS, JID,
+				<<"current">>, [El], [], all) of
+				{result, _} -> ok;
+				{error, _} = Err -> Err
+			    end
 		    end
 	    end;
 	false ->
 	    ok
     end.
 
--spec publish_pep_xmpp_bookmarks(jid(), [{binary(), xmlel()}]) -> ok | {error, stanza_error()}.
-publish_pep_xmpp_bookmarks(JID, Data) ->
+-spec publish_pep_native_bookmarks(jid(), [{binary(), xmlel()}]) -> ok | {error, stanza_error()}.
+publish_pep_native_bookmarks(JID, Data) ->
     {_, LServer, _} = LBJID = jid:remove_resource(jid:tolower(JID)),
     case gen_mod:is_loaded(LServer, mod_pubsub) of
 	true ->
@@ -319,12 +333,7 @@ publish_pep_xmpp_bookmarks(JID, Data) ->
 				    #bookmark_storage{conference = C} -> C;
 				    _ -> []
 				end,
-		    PubOpts = [{persist_items, true},
-			       {access_model, whitelist},
-			       {max_items, max},
-			       {notify_retract,true},
-			       {notify_delete,true},
-			       {send_last_published_item, never}],
+		    PubOpts = [{persist_items, true}, {access_model, whitelist}, {max_items, max}, {notify_retract,true}, {notify_delete,true}, {send_last_published_item, never}],
 		    case mod_pubsub:get_items(LBJID, ?NS_PEP_BOOKMARKS) of
 			PepBookmarks when is_list(PepBookmarks) ->
 			    put(mod_private_pep_update, true),
@@ -340,12 +349,12 @@ publish_pep_xmpp_bookmarks(JID, Data) ->
 					    {Map4,
 					     err_ret(Ret2, mod_pubsub:publish_item(
 						 LBJID, LServer, ?NS_PEP_BOOKMARKS, JID,
-						 jid:encode(BookmarkJID), [xmpp:encode(PB)], PubOpts, all))};
+						 jid:encode(BookmarkJID), [xmpp:encode(PB)], [], all))};
 					_ ->
 					    {Map2,
 					     err_ret(Ret2, mod_pubsub:publish_item(
 						 LBJID, LServer, ?NS_PEP_BOOKMARKS, JID,
-						 jid:encode(BookmarkJID), [xmpp:encode(PB)], PubOpts, all))}
+						 jid:encode(BookmarkJID), [xmpp:encode(PB)], [], all))}
 				    end
 				end, {PepBookmarksMap, ok}, Bookmarks),
 			    Ret4 =
@@ -467,7 +476,6 @@ storage_bookmark_to_xmpp_bookmark(#bookmark_conference{name = Name, autojoin = A
 
 -spec pubsub_item_to_map(#pubsub_item{}, map()) -> map().
 pubsub_item_to_map(#pubsub_item{itemid = {Id, _}, payload = [#xmlel{} = B | _]}, Map) ->
-    ?INFO_MSG("DECODING ~p", [B]),
     case xmpp:decode(B) of
 	#pep_bookmarks_conference{} = B2 ->
 	    try jid:decode(Id) of
@@ -519,7 +527,7 @@ bookmarks_to_pep(User, Server) ->
 	    Data = [{?NS_STORAGE_BOOKMARKS, El}],
 	    case publish_pep_storage_bookmarks(jid:make(User, Server), Data) of
 		ok ->
-		    case publish_pep_xmpp_bookmarks(jid:make(User, Server), Data) of
+		    case publish_pep_native_bookmarks(jid:make(User, Server), Data) of
 			ok ->
 			    {ok, <<"Bookmarks exported to PEP node">>};
 			{error, Err} ->

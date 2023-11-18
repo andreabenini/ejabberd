@@ -14,6 +14,7 @@
 -export([auth_cache_life_time/0]).
 -export([auth_cache_missed/0]).
 -export([auth_cache_size/0]).
+-export([auth_external_user_exists_check/0, auth_external_user_exists_check/1]).
 -export([auth_method/0, auth_method/1]).
 -export([auth_opts/0, auth_opts/1]).
 -export([auth_password_format/0, auth_password_format/1]).
@@ -161,6 +162,7 @@
 -export([sql_type/0, sql_type/1]).
 -export([sql_username/0, sql_username/1]).
 -export([trusted_proxies/0]).
+-export([update_sql_schema/0]).
 -export([use_cache/0, use_cache/1]).
 -export([validate_stream/0]).
 -export([version/0]).
@@ -223,6 +225,13 @@ auth_cache_missed() ->
 -spec auth_cache_size() -> 'infinity' | pos_integer().
 auth_cache_size() ->
     ejabberd_config:get_option({auth_cache_size, global}).
+
+-spec auth_external_user_exists_check() -> boolean().
+auth_external_user_exists_check() ->
+    auth_external_user_exists_check(global).
+-spec auth_external_user_exists_check(global | binary()) -> boolean().
+auth_external_user_exists_check(Host) ->
+    ejabberd_config:get_option({auth_external_user_exists_check, Host}).
 
 -spec auth_method() -> [atom()].
 auth_method() ->
@@ -1087,6 +1096,10 @@ sql_username(Host) ->
 -spec trusted_proxies() -> 'all' | [{inet:ip4_address() | inet:ip6_address(),byte()}].
 trusted_proxies() ->
     ejabberd_config:get_option({trusted_proxies, global}).
+
+-spec update_sql_schema() -> boolean().
+update_sql_schema() ->
+    ejabberd_config:get_option({update_sql_schema, global}).
 
 -spec use_cache() -> boolean().
 use_cache() ->

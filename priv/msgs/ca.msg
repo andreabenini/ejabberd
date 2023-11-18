@@ -12,11 +12,6 @@
 {"A Web Page","Una Pàgina Web"}.
 {"Accept","Acceptar"}.
 {"Access denied by service policy","Accés denegat per la política del servei"}.
-{"Access model of authorize","Model d'Accés de autoritzar"}.
-{"Access model of open","Model d'Accés de obert"}.
-{"Access model of presence","Model d'Accés de presència"}.
-{"Access model of roster","Model d'Accés de contactes"}.
-{"Access model of whitelist","Model d'Accés de llista blanca"}.
 {"Access model","Model d'Accés"}.
 {"Account doesn't exist","El compte no existeix"}.
 {"Action on user","Acció en l'usuari"}.
@@ -53,6 +48,7 @@
 {"Anyone with a presence subscription of both or from may subscribe and retrieve items","Qualsevol amb una subscripció de presencia de 'both' o 'from' pot subscriure's i publicar elements"}.
 {"Anyone with Voice","Qualsevol amb Veu"}.
 {"Anyone","Qualsevol"}.
+{"Apparently your account has no administration rights in this server. Please check how to grant admin rights in: https://docs.ejabberd.im/admin/installation/#administration-account","Aparentment el teu compte no te privilegis d'administrador en este servidor. Per favor consulta com obtindre privilegis d'administrador en: https://docs.ejabberd.im/admin/installation/#administration-account"}.
 {"April","Abril"}.
 {"Attribute 'channel' is required for this request","L'atribut 'channel' és necessari per a aquesta petició"}.
 {"Attribute 'id' is mandatory for MIX messages","L'atribut 'id' es necessari per a missatges MIX"}.
@@ -230,7 +226,6 @@
 {"It is not allowed to send error messages to the room. The participant (~s) has sent an error message (~s) and got kicked from the room","No està permés enviar missatges d'error a la sala. El participant (~s) ha enviat un missatge d'error (~s) i ha sigut expulsat de la sala"}.
 {"It is not allowed to send private messages of type \"groupchat\"","No està permés enviar missatges del tipus \"groupchat\""}.
 {"It is not allowed to send private messages to the conference","No està permès l'enviament de missatges privats a la sala"}.
-{"It is not allowed to send private messages","No està permés enviar missatges privats"}.
 {"Jabber ID","ID Jabber"}.
 {"January","Gener"}.
 {"JID normalization denied by service policy","S'ha denegat la normalització del JID per política del servei"}.
@@ -375,6 +370,7 @@
 {"Only members may query archives of this room","Només membres poden consultar l'arxiu de missatges d'aquesta sala"}.
 {"Only moderators and participants are allowed to change the subject in this room","Només els moderadors i participants poden canviar el tema d'aquesta sala"}.
 {"Only moderators are allowed to change the subject in this room","Només els moderadors poden canviar el tema d'aquesta sala"}.
+{"Only moderators are allowed to retract messages","Només els moderadors tenen permís per a retractar missatges"}.
 {"Only moderators can approve voice requests","Només els moderadors poden aprovar les peticions de veu"}.
 {"Only occupants are allowed to send messages to the conference","Sols els ocupants poden enviar missatges a la sala"}.
 {"Only occupants are allowed to send queries to the conference","Sols els ocupants poden enviar sol·licituds a la sala"}.
@@ -398,6 +394,7 @@
 {"Password:","Contrasenya:"}.
 {"Path to Dir","Ruta al directori"}.
 {"Path to File","Ruta al fitxer"}.
+{"Payload semantic type information","Informació sobre el tipus semàntic de la carrega útil"}.
 {"Pending","Pendent"}.
 {"Period: ","Període: "}.
 {"Persist items to storage","Persistir elements al guardar"}.
@@ -496,6 +493,7 @@
 {"Specify the access model","Especificar el model d'accés"}.
 {"Specify the event message type","Especifica el tipus de missatge d'event"}.
 {"Specify the publisher model","Especificar el model del publicant"}.
+{"Stanza id is not valid","L'identificador del paquet no es vàlid"}.
 {"Stanza ID","ID del paquet"}.
 {"Statically specify a replyto of the node owner(s)","Especifica estaticament una adreça on respondre al propietari del node"}.
 {"Statistics of ~p","Estadístiques de ~p"}.
@@ -560,6 +558,7 @@
 {"The query is only allowed from local users","La petició està permesa només d'usuaris locals"}.
 {"The query must not contain <item/> elements","La petició no pot contenir elements <item/>"}.
 {"The room subject can be modified by participants","El tema de la sala pot modificar-lo els participants"}.
+{"The semantic type information of data in the node, usually specified by the namespace of the payload (if any)","La informació semàntica de les dades al node, usualment especificat pel espai de noms de la càrrega util (si n'hi ha)"}.
 {"The sender of the last received message","Qui ha enviat l'ultim missatge rebut"}.
 {"The stanza MUST contain only one <active/> element, one <default/> element, or one <list/> element","El paquet DEU contindre només un element <active/>, un element <default/>, o un element <list/>"}.
 {"The subscription identifier associated with the subscription request","L'identificador de subscripció associat amb la petició de subscripció"}.
@@ -661,6 +660,7 @@
 {"Whether to allow subscriptions","Permetre subscripcions"}.
 {"Whether to make all subscriptions temporary, based on subscriber presence","Si fer totes les subscripcions temporals, basat en la presencia del subscriptor"}.
 {"Whether to notify owners about new subscribers and unsubscribes","Si notificar als propietaris sobre noves subscripcions i desubscripcions"}.
+{"Who can send private messages","Qui pot enviar missatges privats"}.
 {"Who may associate leaf nodes with a collection","Qui pot associar nodes fulla amb una col·lecció"}.
 {"Wrong parameters in the web formulary","Paràmetres incorrectes en el formulari web"}.
 {"Wrong xmlns","El xmlns ès incorrecte"}.
@@ -672,6 +672,7 @@
 {"XMPP Show Value of XA (Extended Away)","Valor 'show' de XMPP: XA (Molt Ausent)"}.
 {"XMPP URI of Associated Publish-Subscribe Node","URI XMPP del Node Associat Publish-Subscribe"}.
 {"You are being removed from the room because of a system shutdown","Has sigut expulsat de la sala perquè el sistema va a apagar-se"}.
+{"You are not allowed to send private messages","No tens permés enviar missatges privats"}.
 {"You are not joined to the channel","No t'has unit al canal"}.
 {"You can later change your password using an XMPP client.","Podràs canviar la teva contrasenya més endavant utilitzant un client XMPP."}.
 {"You have been banned from this room","Has sigut bloquejat en aquesta sala"}.
