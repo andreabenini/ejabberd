@@ -886,7 +886,7 @@ doc() ->
         desc =>
             ?T("Time to wait for an XMPP stream negotiation to complete. "
                "When timeout occurs, the corresponding XMPP stream is closed. "
-               "The default value is '30' seconds.")}},
+               "The default value is '120' seconds.")}},
      {net_ticktime,
       #{value => "timeout()",
         desc =>
@@ -1348,7 +1348,7 @@ doc() ->
         note => "added in 20.01",
         desc =>
 	    ?T("This option is 'true' by default, and is useful to disable "
-	       "prepared statements. The option is valid for PostgreSQL.")}},
+	       "prepared statements. The option is valid for PostgreSQL and MySQL.")}},
      {sql_query_timeout,
       #{value => "timeout()",
         desc =>
