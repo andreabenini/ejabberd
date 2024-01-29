@@ -2,7 +2,7 @@
 %%% Created :  8 Dec 2016 by Evgeny Khramtsov <ekhramtsov@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -43,7 +43,7 @@
 	 handle_recv/3, handle_cdata/2, handle_unbinded_packet/2,
 	 inline_stream_features/1, handle_sasl2_inline/2,
 	 handle_sasl2_inline_post/3, handle_bind2_inline/2,
-	 handle_bind2_inline_post/3]).
+	 handle_bind2_inline_post/3, sasl_options/1]).
 %% Hooks
 -export([handle_unexpected_cast/2, handle_unexpected_call/3,
 	 process_auth_result/3, reject_unauthenticated_packet/2,
@@ -417,6 +417,12 @@ sasl_mechanisms(Mechs, #{lserver := LServer, stream_encrypted := Encrypted} = St
 	 (<<"EXTERNAL">>) -> maps:get(tls_verify, State, false);
 	 (_) -> false
       end, Mechs -- Mechs1).
+
+sasl_options(#{lserver := LServer}) ->
+    case ejabberd_option:disable_sasl_scram_downgrade_protection(LServer) of
+	true -> [{scram_downgrade_protection, false}];
+	_ -> []
+    end.
 
 get_password_fun(_Mech, #{lserver := LServer}) ->
     fun(U) ->

@@ -5,7 +5,7 @@
 %%% Created : 16 Nov 2002 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -39,6 +39,11 @@
 -protocol({xep, 243, '1.0'}).
 -protocol({xep, 270, '1.0'}).
 -protocol({xep, 368, '1.1.0'}).
+-protocol({xep, 386, '0.3.0', '24.01', "", ""}).
+-protocol({xep, 388, '0.4.0', '24.01', "", ""}).
+-protocol({xep, 424, '0.4.0', '24.01', "", ""}).
+-protocol({xep, 440, '0.4.0', '24.01', "", ""}).
+-protocol({xep, 474, '0.3.0', '24.01', "", ""}).
 
 -export([start/0, stop/0, halt/0, start_app/1, start_app/2,
 	 get_pid_file/0, check_apps/0, module_name/1, is_loaded/0]).
@@ -132,7 +137,7 @@ check_apps() ->
       fun() ->
 	      Apps = [ejabberd |
 		      [App || {App, _, _} <- application:which_applications(),
-			      App /= ejabberd]],
+			      App /= ejabberd, App /= hex]],
 	      ?DEBUG("Checking consistency of applications: ~ts",
 		     [misc:join_atoms(Apps, <<", ">>)]),
 	      misc:peach(

@@ -5,7 +5,7 @@
 %%% Created : 19 Mar 2003 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -1679,7 +1679,7 @@ mod_doc() ->
             #{value => ?T("Options"),
               note => "improved in 22.05",
               desc =>
-                  ?T("This option allows to define the desired "
+                  ?T("Define the "
                      "default room options. Note that the creator of a room "
                      "can modify the options of his room at any time using an "
                      "XMPP client with MUC capability. The 'Options' are:")},

@@ -5,7 +5,7 @@
 %%% Created : 12 Mar 2006 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -1043,7 +1043,7 @@ mod_doc() ->
            {dirname,
             #{value => "room_jid | room_name",
               desc =>
-                  ?T("Allows to configure the name of the room directory. "
+                  ?T("Configure the name of the room directory. "
                      "If set to 'room_jid', the room directory name will "
                      "be the full room JID. Otherwise, the room directory "
                      "name will be only the room name, not including the "

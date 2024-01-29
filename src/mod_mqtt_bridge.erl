@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %%% @author Pawel Chmielowski <pawel@process-one.net>
-%%% @copyright (C) 2002-2023 ProcessOne, SARL. All Rights Reserved.
+%%% @copyright (C) 2002-2024 ProcessOne, SARL. All Rights Reserved.
 %%%
 %%% Licensed under the Apache License, Version 2.0 (the "License");
 %%% you may not use this file except in compliance with the License.
@@ -198,7 +198,7 @@ mod_doc() ->
 	  ?T("Declaration of data to share, must contain 'publish' or 'subscribe' or both, and 'authentication' "
 	     "section with username/password field or certfile pointing to client certificate. "
 	     "Accepted urls can use schema mqtt, mqtts (mqtt with tls), mqtt5, mqtt5s (both to trigger v5 protocol), "
-	      "ws, wss, ws5, wss5. Certifcate authentication can be only used with mqtts, mqtt5s, wss, wss5.")}},
+	      "ws, wss, ws5, wss5. Certificate authentication can be only used with mqtts, mqtt5s, wss, wss5.")}},
        {replication_user,
 	#{value => "JID",
 	  desc =>

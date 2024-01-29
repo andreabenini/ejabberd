@@ -5,7 +5,7 @@
 %%% Created : 21 Apr 2014 by Evgeny Khramtsov <ekhramtsov@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2014-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2014-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -390,7 +390,7 @@ mod_doc() ->
             #{value => "true | false",
               desc =>
                   ?T("Always insert \"Record-Route\" header into "
-                     "SIP messages. This approach allows to bypass "
+                     "SIP messages. With this approach it is possible to bypass "
                      "NATs/firewalls a bit more easily. "
                      "The default value is 'true'.")}},
            {flow_timeout_tcp,

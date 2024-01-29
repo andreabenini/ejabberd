@@ -5,7 +5,7 @@
 %%% Created : 20 Mar 2015 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -95,6 +95,7 @@ get_commands_spec() ->
                         desc = "Issue an [OAuth](https://docs.ejabberd.im/developer/ejabberd-api/oauth/) token for the given jid",
                         module = ?MODULE, function = oauth_issue_token,
                         version = 1,
+                        note = "updated in 24.01",
                         args = [{jid, string}, {ttl, integer}, {scopes, {list, {scope, binary}}}],
                         policy = restricted,
                         args_example = ["user@server.com", 3600, ["connected_users_number", "muc_online_rooms"]],

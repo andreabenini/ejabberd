@@ -5,7 +5,7 @@
 %%% Created : 27 Jul 2016 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -34,6 +34,7 @@
 	 lookup_client/1,
 	 store_client/1,
 	 remove_client/1, revoke/1]).
+-export([sql_schemas/0]).
 
 -include("ejabberd_oauth.hrl").
 -include("ejabberd_sql_pt.hrl").
@@ -42,10 +43,10 @@
 
 init() ->
     ejabberd_sql_schema:update_schema(
-      ejabberd_config:get_myname(), ?MODULE, schemas()),
+      ejabberd_config:get_myname(), ?MODULE, sql_schemas()),
     ok.
 
-schemas() ->
+sql_schemas() ->
     [#sql_schema{
         version = 1,
         tables =

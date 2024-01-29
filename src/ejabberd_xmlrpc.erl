@@ -5,7 +5,7 @@
 %%% Created : 21 Aug 2007 by Badlop <badlop@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -321,7 +321,7 @@ format_arg({array, [{struct, Elements}]},
     when is_list(Elements) ->
     FormattedList = format_args(Elements, ElementsDef),
     list_to_tuple(FormattedList);
-%% New ejabberd 24.xx
+%% New ejabberd 24.01
 format_arg({struct, Elements},
 	   {tuple, ElementsDef})
     when is_list(Elements) ->

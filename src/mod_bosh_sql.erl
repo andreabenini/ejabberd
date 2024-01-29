@@ -5,7 +5,7 @@
 %%% Created : 28 Mar 2017 by Evgeny Khramtsov <ekhramtsov@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2017-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2017-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -29,6 +29,7 @@
 
 %% API
 -export([init/0, open_session/2, close_session/1, find_session/1]).
+-export([sql_schemas/0]).
 
 -include("logger.hrl").
 -include("ejabberd_sql_pt.hrl").
@@ -38,7 +39,7 @@
 %%%===================================================================
 init() ->
     ejabberd_sql_schema:update_schema(
-      ejabberd_config:get_myname(), ?MODULE, schemas()),
+      ejabberd_config:get_myname(), ?MODULE, sql_schemas()),
     Node = erlang:atom_to_binary(node(), latin1),
     ?DEBUG("Cleaning SQL 'bosh' table...", []),
     case ejabberd_sql:sql_query(
@@ -50,7 +51,7 @@ init() ->
 	    Err
     end.
 
-schemas() ->
+sql_schemas() ->
     [#sql_schema{
         version = 1,
         tables =

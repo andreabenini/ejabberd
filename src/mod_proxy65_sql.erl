@@ -3,7 +3,7 @@
 %%% Created : 30 Mar 2017 by Evgeny Khramtsov <ekhramtsov@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -26,6 +26,7 @@
 
 %% API
 -export([init/0, register_stream/2, unregister_stream/1, activate_stream/4]).
+-export([sql_schemas/0]).
 
 -include("logger.hrl").
 -include("ejabberd_sql_pt.hrl").
@@ -35,7 +36,7 @@
 %%%===================================================================
 init() ->
     ejabberd_sql_schema:update_schema(
-      ejabberd_config:get_myname(), ?MODULE, schemas()),
+      ejabberd_config:get_myname(), ?MODULE, sql_schemas()),
     NodeS = erlang:atom_to_binary(node(), latin1),
     ?DEBUG("Cleaning SQL 'proxy65' table...", []),
     case ejabberd_sql:sql_query(
@@ -49,7 +50,7 @@ init() ->
 	    Err
     end.
 
-schemas() ->
+sql_schemas() ->
     [#sql_schema{
         version = 1,
         tables =

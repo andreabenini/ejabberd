@@ -8,7 +8,7 @@ defmodule Ejabberd.MixProject do
      elixir: elixir_required_version(),
      elixirc_paths: ["lib"],
      compile_path: ".",
-     compilers: [:asn1] ++ Mix.compilers(),
+     compilers: [:asn1, :yecc] ++ Mix.compilers(),
      erlc_options: erlc_options(),
      erlc_paths: ["asn1", "src"],
      # Elixir tests are starting the part of ejabberd they need
@@ -23,11 +23,11 @@ defmodule Ejabberd.MixProject do
   def version do
     case config(:vsn) do
       :false -> "0.0.0" # ./configure wasn't run: vars.config not created
-      '0.0' -> "0.0.0" # the full git repository wasn't downloaded
-      'latest.0' -> "0.0.0" # running 'docker-ejabberd/ecs/build.sh latest'
+      ~c"0.0" -> "0.0.0" # the full git repository wasn't downloaded
+      ~c"latest.0" -> "0.0.0" # running 'docker-ejabberd/ecs/build.sh latest'
       [_, _, ?., _, _] = x ->
         head = String.replace(:erlang.list_to_binary(x), ~r/\.0+([0-9])/, ".\\1")
-        <<head::binary, ".0">>
+        "#{head}.0"
       vsn -> String.replace(:erlang.list_to_binary(vsn), ~r/\.0+([0-9])/, ".\\1")
     end
   end
@@ -40,14 +40,14 @@ defmodule Ejabberd.MixProject do
 
   def application do
     [mod: {:ejabberd_app, []},
-     extra_applications: [:mix],
-     applications: [:idna, :inets, :kernel, :sasl, :ssl, :stdlib,
+     applications: [:idna, :inets, :kernel, :sasl, :ssl, :stdlib, :mix,
                     :base64url, :fast_tls, :fast_xml, :fast_yaml, :jiffy, :jose,
-                    :p1_utils, :stringprep, :syntax_tools, :yconf],
+                    :p1_utils, :stringprep, :syntax_tools, :yconf]
+     ++ cond_apps(),
      included_applications: [:mnesia, :os_mon,
                              :cache_tab, :eimp, :mqtree, :p1_acme,
                              :p1_oauth2, :pkix, :xmpp]
-     ++ cond_apps()]
+     ++ cond_included_apps()]
   end
 
   defp if_version_above(ver, okResult) do
@@ -68,20 +68,20 @@ defmodule Ejabberd.MixProject do
 
   defp erlc_options do
     # Use our own includes + includes from all dependencies
-    includes = ["include"] ++ deps_include(["fast_xml", "xmpp", "p1_utils"])
+    includes = ["include", deps_include()]
     result = [{:d, :ELIXIR_ENABLED}] ++
              cond_options() ++
              Enum.map(includes, fn (path) -> {:i, path} end) ++
-             if_version_above('20', [{:d, :DEPRECATED_GET_STACKTRACE}]) ++
-             if_version_above('20', [{:d, :HAVE_URI_STRING}]) ++
-             if_version_above('20', [{:d, :HAVE_ERL_ERROR}]) ++
-             if_version_below('21', [{:d, :USE_OLD_HTTP_URI}]) ++
-             if_version_below('22', [{:d, :LAGER}]) ++
-             if_version_below('21', [{:d, :NO_CUSTOMIZE_HOSTNAME_CHECK}]) ++
-             if_version_below('23', [{:d, :USE_OLD_CRYPTO_HMAC}]) ++
-             if_version_below('23', [{:d, :USE_OLD_PG2}]) ++
-             if_version_below('24', [{:d, :COMPILER_REPORTS_ONLY_LINES}]) ++
-             if_version_below('24', [{:d, :SYSTOOLS_APP_DEF_WITHOUT_OPTIONAL}])
+             if_version_above(~c"20", [{:d, :DEPRECATED_GET_STACKTRACE}]) ++
+             if_version_above(~c"20", [{:d, :HAVE_URI_STRING}]) ++
+             if_version_above(~c"20", [{:d, :HAVE_ERL_ERROR}]) ++
+             if_version_below(~c"21", [{:d, :USE_OLD_HTTP_URI}]) ++
+             if_version_below(~c"22", [{:d, :LAGER}]) ++
+             if_version_below(~c"21", [{:d, :NO_CUSTOMIZE_HOSTNAME_CHECK}]) ++
+             if_version_below(~c"23", [{:d, :USE_OLD_CRYPTO_HMAC}]) ++
+             if_version_below(~c"23", [{:d, :USE_OLD_PG2}]) ++
+             if_version_below(~c"24", [{:d, :COMPILER_REPORTS_ONLY_LINES}]) ++
+             if_version_below(~c"24", [{:d, :SYSTOOLS_APP_DEF_WITHOUT_OPTIONAL}])
     defines = for {:d, value} <- result, do: {:d, value}
     result ++ [{:d, :ALL_DEFS, defines}]
   end
@@ -102,8 +102,8 @@ defmodule Ejabberd.MixProject do
      {:cache_tab, "~> 1.0"},
      {:eimp, "~> 1.0"},
      {:ex_doc, ">= 0.0.0", only: :dev},
-     {:fast_tls, git: "https://github.com/processone/fast_tls.git", ref: "34e46e8a122e4dd83730eda1aa8b566ab55eea62", override: true},
-     {:fast_xml, "~> 1.1"},
+     {:fast_tls, ">= 1.1.18"},
+     {:fast_xml, ">= 1.1.51"},
      {:fast_yaml, "~> 1.0"},
      {:idna, "~> 6.0"},
      {:jiffy, "~> 1.1.1"},
@@ -114,13 +114,13 @@ defmodule Ejabberd.MixProject do
      {:p1_utils, "~> 1.0"},
      {:pkix, "~> 1.0"},
      {:stringprep, ">= 1.0.26"},
-     {:xmpp, git: "https://github.com/processone/xmpp.git", ref: "26dd833dcf66ebb790d9afe212b7a26f3a6c2328", override: true},
+     {:xmpp, ">= 1.8.0"},
      {:yconf, "~> 1.0"}]
     ++ cond_deps()
   end
 
-  defp deps_include(deps) do
-    base = if Mix.Project.umbrella?() do
+  defp deps_include() do
+    if Mix.Project.umbrella?() do
       "../../deps"
     else
       case Mix.Project.deps_paths()[:ejabberd] do
@@ -128,7 +128,6 @@ defmodule Ejabberd.MixProject do
         _ -> ".."
       end
     end
-    Enum.map(deps, fn dep -> base<>"/#{dep}/include" end)
   end
 
   defp cond_deps do
@@ -136,9 +135,9 @@ defmodule Ejabberd.MixProject do
                          {config(:redis), {:eredis, "~> 1.2.0"}},
                          {config(:sip), {:esip, "~> 1.0"}},
                          {config(:zlib), {:ezlib, "~> 1.0"}},
-                         {if_version_below('22', true), {:lager, "~> 3.9.1"}},
+                         {if_version_below(~c"22", true), {:lager, "~> 3.9.1"}},
                          {config(:lua), {:luerl, "~> 1.0"}},
-                         {config(:mysql), {:p1_mysql, git: "https://github.com/processone/p1_mysql.git", ref: "f685408b910c425b9905d4ddcdbedba717a5b48c"}},
+                         {config(:mysql), {:p1_mysql, ">= 1.0.23" }},
                          {config(:pgsql), {:p1_pgsql, "~> 1.1"}},
                          {config(:sqlite), {:sqlite3, "~> 1.1"}},
                          {config(:stun), {:stun, "~> 1.0"}}], do:
@@ -146,10 +145,17 @@ defmodule Ejabberd.MixProject do
   end
 
   defp cond_apps do
+    for {:true, app} <- [{config(:stun), :stun},
+                         {config(:tools), :observer},
+                         {config(:tools), :runtime_tools}], do:
+      app
+  end
+
+  defp cond_included_apps do
     for {:true, app} <- [{config(:pam), :epam},
                          {config(:lua), :luerl},
                          {config(:redis), :eredis},
-                         {if_version_below('22', true), :lager},
+                         {if_version_below(~c"22", true), :lager},
                          {config(:mysql), :p1_mysql},
                          {config(:sip), :esip},
                          {config(:odbc), :odbc},
@@ -172,9 +178,15 @@ defmodule Ejabberd.MixProject do
   end
 
   defp vars do
-    case :file.consult("vars.config") do
+    filepath = case Application.fetch_env(:ejabberd, :vars_config_path) do
+      :error ->
+        "vars.config"
+      {:ok, path} ->
+        path
+    end
+    case :file.consult(filepath) do
       {:ok,config} -> config
-      _ -> [zlib: true]
+      _ -> [stun: true, zlib: true]
     end
   end
 
@@ -203,7 +215,7 @@ defmodule Ejabberd.MixProject do
           _ -> :ok
         end
         case Version.match?(System.version(), "< 1.11.4")
-          and :erlang.system_info(:otp_release) > '23' do
+          and :erlang.system_info(:otp_release) > ~c"23" do
           true ->
             IO.puts("ERROR: To build releases with Elixir lower than 1.11.4, Erlang/OTP lower than 24 is required.")
           _ -> :ok
@@ -239,6 +251,8 @@ defmodule Ejabberd.MixProject do
       config_dir: config(:config_dir),
       logs_dir: config(:logs_dir),
       spool_dir: config(:spool_dir),
+      vsn: config(:vsn),
+      iexpath: config(:iexpath),
       erl: config(:erl),
       epmd: config(:epmd),
       bindir: Path.join([config(:release_dir), "releases", version()]),
@@ -253,7 +267,7 @@ defmodule Ejabberd.MixProject do
     execute = fn(command) ->
       case function_exported?(System, :shell, 1) do
         true ->
-          System.shell(command)
+          System.shell(command, into: IO.stream())
         false ->
           :os.cmd(to_charlist(command))
       end
@@ -319,7 +333,7 @@ defmodule Ejabberd.MixProject do
     end
 
     case Mix.env() do
-      :dev -> execute.("REL_DIR_TEMP=$PWD/rel/overlays/ rel/setup-dev.sh")
+      :dev -> execute.("REL_DIR_TEMP=$PWD/rel/overlays/ rel/setup-dev.sh mix")
       _ -> :ok
     end
 

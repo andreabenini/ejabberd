@@ -5,7 +5,7 @@
 %%% Created : 11 Jan 2004 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -156,6 +156,9 @@ process(["mnesia", Arg], _Version) ->
 	Return -> print("~p~n", [Return])
     end,
     ?STATUS_SUCCESS;
+
+process(["print_sql_schema", DBType, DBVersion, NewSchema], _Version) ->
+    ejabberd_sql_schema:print_schema(DBType, DBVersion, NewSchema);
 
 %% The arguments --long and --dual are not documented because they are
 %% automatically selected depending in the number of columns of the shell
@@ -555,7 +558,8 @@ print_usage(HelpMode, MaxC, ShCode, Version) ->
 	 {"status", [], "Get ejabberd status"},
 	 {"stop", [], "Stop ejabberd"},
 	 {"restart", [], "Restart ejabberd"},
-	 {"mnesia", ["[info]"], "show information of Mnesia system"}] ++
+	 {"mnesia", ["[info]"], "show information of Mnesia system"},
+	 {"print_sql_schema", ["db_type", "db_version", "new_schema"], "print SQL schema for the given RDBMS"}] ++
 	get_list_commands(Version),
 
     print(

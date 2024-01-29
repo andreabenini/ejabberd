@@ -5,7 +5,7 @@
 %%% Created :  8 Dec 2002 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -652,7 +652,7 @@ mod_doc() ->
            {access_from,
             #{value => ?T("AccessName"),
               desc =>
-                  ?T("By default, 'ejabberd' doesn't allow to register new accounts "
+                  ?T("By default, 'ejabberd' doesn't allow the client to register new accounts "
                      "from s2s or existing c2s sessions. You can change it by defining "
                      "access rule in this option. Use with care: allowing registration "
                      "from s2s leads to uncontrolled massive accounts creation by rogue users.")}},

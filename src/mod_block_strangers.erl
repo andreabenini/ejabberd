@@ -5,7 +5,7 @@
 %%% Created : 25 Dec 2016 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2023   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -256,7 +256,7 @@ mod_options(_) ->
 
 mod_doc() ->
     #{desc =>
-          ?T("This module allows to block/log messages coming from an "
+          ?T("This module blocks and logs any messages coming from an "
              "unknown entity. If a writing entity is not in your roster, "
              "you can let this module drop and/or log the message. "
              "By default you'll just not receive message from that entity. "
