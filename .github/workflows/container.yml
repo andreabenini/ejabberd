@@ -19,7 +19,7 @@ env:
 jobs:
   container:
     name: Container
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       packages: write
     steps:
@@ -29,14 +29,14 @@ jobs:
           fetch-depth: 0
 
       - name: Cache build directory
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/build/
-          key: ${{runner.os}}-ctr-ct-ng-1.25.0
+          key: ${{runner.os}}-ctr-ct-ng-1.26.0
 
       - name: Get erlang/OTP version for bootstrapping
         run: |
-          echo "OTP_VSN=$(awk '/^otp_vsn=/ {{gsub(/[^0-9.]/, ""); print}}' tools/make-binaries)" >> $GITHUB_ENV
+          echo "OTP_VSN=$(awk '/^otp_vsn=/ {{gsub(/[^0-9.rc-]/, ""); print}}' tools/make-binaries)" >> $GITHUB_ENV
           echo "ELIXIR_VSN=$(awk '/^elixir_vsn=/ {{gsub(/[^0-9.]/, ""); print}}' tools/make-binaries)" >> $GITHUB_ENV
 
       - name: Install prerequisites

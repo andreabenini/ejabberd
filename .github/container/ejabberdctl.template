@@ -15,8 +15,8 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT")" && pwd -P)"
 # shellcheck disable=SC2034
 ERTS_VSN="{{erts_vsn}}"
 ERL="{{erl}}"
-IEX="{{bindir}}/iex"
 EPMD="{{epmd}}"
+IEX="{{iexpath}}"
 COOKIE_FILE="$HOME"/.erlang.cookie
 [ -n "$ERLANG_COOKIE" ] && [ ! -f "$COOKIE_FILE" ] && echo "$ERLANG_COOKIE" > "$COOKIE_FILE" && chmod 400 "$COOKIE_FILE"
 
@@ -60,7 +60,6 @@ done
 # define ejabberd variables if not already defined from the command line
 : "${CONFIG_DIR:="{{config_dir}}"}"
 : "${LOGS_DIR:="{{logs_dir}}"}"
-: "${SPOOL_DIR:="{{spool_dir}}"}"
 : "${EJABBERD_CONFIG_PATH:="$CONFIG_DIR/ejabberd.yml"}"
 : "${EJABBERDCTL_CONFIG_PATH:="$CONFIG_DIR/ejabberdctl.cfg"}"
 # Allows passing extra Erlang command-line arguments in vm.args file
@@ -69,6 +68,7 @@ done
 [ -f "$EJABBERDCTL_CONFIG_PATH" ] && . "$EJABBERDCTL_CONFIG_PATH"
 [ -n "$ERLANG_NODE_ARG" ] && ERLANG_NODE="$ERLANG_NODE_ARG"
 [ "$ERLANG_NODE" = "${ERLANG_NODE%.*}" ] && S="-s"
+: "${SPOOL_DIR:="{{spool_dir}}"}"
 : "${EJABBERD_LOG_PATH:="$LOGS_DIR/ejabberd.log"}"
 
 # define erl parameters
@@ -90,11 +90,12 @@ ERL_CRASH_DUMP="$LOGS_DIR"/erl_crash_$(date "+%Y%m%d-%H%M%S").dump
 ERL_INETRC="$CONFIG_DIR"/inetrc
 
 # define ejabberd parameters
-EJABBERD_OPTS="$EJABBERD_OPTS\
-$(sed '/^log_rotate_size/!d;s/:[ \t]*\([0-9]\{1,\}\).*/ \1/;s/:[ \t]*\(infinity\).*/ \1/;s/^/ /' "$EJABBERD_CONFIG_PATH")\
-$(sed '/^log_rotate_count/!d;s/:[ \t]*\([0-9]*\).*/ \1/;s/^/ /' "$EJABBERD_CONFIG_PATH")\
-$(sed '/^log_burst_limit_count/!d;s/:[ \t]*\([0-9]*\).*/ \1/;s/^/ /' "$EJABBERD_CONFIG_PATH")\
-$(sed '/^log_burst_limit_window_time/!d;s/:[ \t]*\([0-9]*[a-z]*\).*/ \1/;s/^/ /' "$EJABBERD_CONFIG_PATH")"
+EJABBERD_OPTS="\
+$(sed '/^log_rotate_size/!d;s/:[ \t]*\([0-9]\{1,\}\).*/ \1/;s/:[ \t]*\(infinity\).*/ \1 /;s/^/ /' "$EJABBERD_CONFIG_PATH")\
+$(sed '/^log_rotate_count/!d;s/:[ \t]*\([0-9]*\).*/ \1 /;s/^/ /' "$EJABBERD_CONFIG_PATH")\
+$(sed '/^log_burst_limit_count/!d;s/:[ \t]*\([0-9]*\).*/ \1 /;s/^/ /' "$EJABBERD_CONFIG_PATH")\
+$(sed '/^log_burst_limit_window_time/!d;s/:[ \t]*\([0-9]*[a-z]*\).*/ \1 /;s/^/ /' "$EJABBERD_CONFIG_PATH")\
+$EJABBERD_OPTS"
 [ -n "$EJABBERD_OPTS" ] && EJABBERD_OPTS="-ejabberd $EJABBERD_OPTS"
 EJABBERD_OPTS="-mnesia dir \"$SPOOL_DIR\" $MNESIA_OPTIONS $EJABBERD_OPTS -s ejabberd"
 
@@ -199,6 +200,39 @@ livewarning()
     fi
 }
 
+check_etop_result()
+{
+    result=$?
+    if [ $result -eq 1 ] ; then
+        echo ""
+        echo "It seems there was some problem running 'ejabberdctl etop'."
+        echo "Is the error message something like this?"
+        echo "  Failed to load module 'etop' because it cannot be found..."
+        echo "Then probably ejabberd was compiled with development tools disabled."
+        echo "To use 'etop', recompile ejabberd with: ./configure --enable-tools"
+        echo ""
+        exit $result
+    fi
+}
+
+check_iex_result()
+{
+    result=$?
+    if [ $result -eq 127 ] ; then
+        echo ""
+        echo "It seems there was some problem finding 'iex' binary from Elixir."
+        echo "Probably ejabberd was compiled with Rebar3 and Elixir disabled, like:"
+        echo "  ./configure"
+        echo "which is equivalent to:"
+        echo "  ./configure --with-rebar=rebar3 --disable-elixir"
+        echo "To use 'iex', recompile ejabberd enabling Elixir or using Mix:"
+        echo "  ./configure --enable-elixir"
+        echo "  ./configure --with-rebar=mix"
+        echo ""
+        exit $result
+    fi
+}
+
 help()
 {
     echo ""
@@ -227,16 +261,30 @@ help()
 }
 
 # dynamic node name helper
-uid()
-{
-    uuid=$(uuidgen 2>/dev/null)
-    random=$(awk 'BEGIN { srand(); print int(rand()*32768) }' /dev/null)
-    [ -z "$uuid" ] && [ -f /proc/sys/kernel/random/uuid ] && uuid=$(cat /proc/sys/kernel/random/uuid)
-    [ -z "$uuid" ] && uuid=$(printf "%X" "${random:-$$}$(date +%M%S)")
-    uuid=$(printf '%s' $uuid | sed 's/^\(...\).*$/\1/')
-    [ $# -eq 0 ] && echo "${uuid}-${ERLANG_NODE}"
-    [ $# -eq 1 ] && echo "${uuid}-${1}-${ERLANG_NODE}"
-    [ $# -eq 2 ] && echo "${uuid}-${1}@${2}"
+uid() {
+  ERTSVERSION="$("$ERL" -version 2>&1 | sed 's|.*\([0-9][0-9]\).*|\1|g')"
+  if [ $ERTSVERSION -lt 11 ] ; then # otp 23.0 includes erts 11.0
+    # Erlang/OTP lower than 23, which doesn's support dynamic node code
+    N=1
+    PF=$(( $$ % 97 ))
+    while
+      case $# in
+        0) NN="${PF}-${N}-${ERLANG_NODE}"
+          ;;
+        1) NN="${PF}-${N}-${1}-${ERLANG_NODE}"
+          ;;
+        2) NN="${PF}-${N}-${1}@${2}"
+          ;;
+      esac
+      N=$(( N + 1 + ( $$ % 5 ) ))
+      "$EPMD" -names 2>/dev/null | grep -q " ${NN%@*} "
+    do :; done
+    echo $NN
+  else
+    # Erlang/OTP 23 or higher: use native dynamic node code
+    # https://www.erlang.org/patches/otp-23.0#OTP-13812
+    echo undefined
+  fi
 }
 
 # stop epmd if there is no other running node
@@ -283,13 +331,18 @@ post_waiter_loop()
     LIST=$@
     HEAD=${LIST%% ; *}
     TAIL=${LIST#* ; }
-    echo ":> ejabberdctl $HEAD"
-    $0 $HEAD
+    HEAD2=${HEAD#\! *}
+    echo ":> ejabberdctl $HEAD2"
+    $0 $HEAD2
     ctlstatus=$?
     if [ $ctlstatus -ne 0 ] ; then
-        echo ":> FAILURE in command '$HEAD' !!! Stopping ejabberd..."
-        $0 halt > /dev/null
-        exit $ctlstatus
+        if [ "$HEAD" != "$HEAD2" ] ; then
+            echo ":> FAILURE in command '$HEAD2' !!! Ignoring result"
+        else
+            echo ":> FAILURE in command '$HEAD' !!! Stopping ejabberd..."
+            $0 halt > /dev/null
+            exit $ctlstatus
+        fi
     fi
     [ "$HEAD" = "$TAIL" ] || post_waiter_loop $TAIL
 }
@@ -307,7 +360,9 @@ wait_status()
         if [ $timeout -eq 0 ] ; then
             status="$1"
         else
-            run_erl "$(uid ctl)" -hidden -noinput -s ejabberd_ctl \
+            run_erl "$(uid ctl)" -hidden -noinput \
+                     -eval 'net_kernel:connect_node('"'$ERLANG_NODE'"')' \
+                     -s ejabberd_ctl \
                      -extra "$ERLANG_NODE" $NO_TIMEOUT status > /dev/null
             status="$?"
         fi
@@ -350,24 +405,31 @@ case $1 in
         ;;
     etop)
         set_dist_client
-        exec_erl "$(uid top)" -hidden -node "$ERLANG_NODE" -s etop \
-                 -s erlang halt -output text
+        exec_erl "$(uid top)" -hidden -remsh "$ERLANG_NODE" \
+                 -eval 'net_kernel:connect_node('"'$ERLANG_NODE'"')' \
+                 -s etop \
+                 -output text
+        check_etop_result
         ;;
     iexdebug)
         debugwarning
         set_dist_client
         exec_iex "$(uid debug)" --remsh "$ERLANG_NODE"
+        check_iex_result
         ;;
     iexlive)
         livewarning
         exec_iex "$ERLANG_NODE" --erl "$EJABBERD_OPTS"
+        check_iex_result
         ;;
     ping)
         PEER=${2:-$ERLANG_NODE}
         [ "$PEER" = "${PEER%.*}" ] && PS="-s"
         set_dist_client
         exec_cmd "$ERL" ${PS:--}name "$(uid ping "$(hostname $PS)")" $ERLANG_OPTS \
-                 -noinput -hidden -eval 'io:format("~p~n",[net_adm:ping('"'$PEER'"')])' \
+                 -noinput -hidden \
+                 -eval 'net_kernel:connect_node('"'$PEER'"')' \
+                 -eval 'io:format("~p~n",[net_adm:ping('"'$PEER'"')])' \
                  -s erlang halt -output text
         ;;
     started)
@@ -383,7 +445,9 @@ case $1 in
         ;;
     *)
         set_dist_client
-        run_erl "$(uid ctl)" -hidden -noinput -s ejabberd_ctl \
+        run_erl "$(uid ctl)" -hidden -noinput \
+                 -eval 'net_kernel:connect_node('"'$ERLANG_NODE'"')' \
+                 -s ejabberd_ctl \
                  -extra "$ERLANG_NODE" $NO_TIMEOUT "$@"
         result=$?
         case $result in

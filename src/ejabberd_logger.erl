@@ -27,7 +27,7 @@
 
 %% API
 -export([start/0, get/0, set/1, get_log_path/0, flush/0]).
--export([convert_loglevel/1, loglevels/0, set_modules_fully_logged/1]).
+-export([convert_loglevel/1, loglevels/0, set_modules_fully_logged/1, config_reloaded/0]).
 -ifndef(LAGER).
 -export([progress_filter/2]).
 -endif.
@@ -185,6 +185,9 @@ restart() ->
     application:stop(lager),
     start(Level).
 
+config_reloaded() ->
+    ok.
+
 reopen_log() ->
     ok.
 
@@ -330,6 +333,27 @@ get_default_handlerid() ->
 restart() ->
     ok.
 
+-spec config_reloaded() -> ok.
+config_reloaded() ->
+    LogRotateSize = ejabberd_option:log_rotate_size(),
+    LogRotateCount = ejabberd_option:log_rotate_count(),
+    LogBurstLimitWindowTime = ejabberd_option:log_burst_limit_window_time(),
+    LogBurstLimitCount = ejabberd_option:log_burst_limit_count(),
+    lists:foreach(
+	fun(Handler) ->
+	    case logger:get_handler_config(Handler) of
+		{ok, #{config := Config}} ->
+		    Config2 = Config#{
+			max_no_bytes => LogRotateSize,
+			max_no_files => LogRotateCount,
+			burst_limit_window_time => LogBurstLimitWindowTime,
+			burst_limit_max_count => LogBurstLimitCount},
+		    logger:update_handler_config(Handler, config, Config2);
+		_ ->
+		    ok
+	    end
+	end, [ejabberd_log, error_log]).
+
 progress_filter(#{level:=info,msg:={report,#{label:={_,progress}}}} = Event, _) ->
     case get() of
 	debug ->
@@ -344,7 +368,7 @@ progress_filter(Event, _) ->
 console_template() ->
     case (false /= code:is_loaded('Elixir.Logger'))
         andalso
-        lists:keymember(default_formatter, 1, 'Elixir.Logger':module_info(exports)) of
+        'Elixir.System':version() >= <<"1.15">> of
         true ->
             [date, " ", time, " [", level, "] ", message, "\n"];
         false ->

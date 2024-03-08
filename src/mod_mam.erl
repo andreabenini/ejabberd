@@ -361,9 +361,9 @@ remove_mam_for_user_with_peer(User, Server, Peer) ->
     ok | {error, binary()}.
 remove_message_from_archive(User, Server, StanzaId) when is_binary(User) ->
     remove_message_from_archive({User, Server}, Server, StanzaId);
-remove_message_from_archive({User, Host}, Server, StanzaId) ->
+remove_message_from_archive({_User, _Host} = UserHost, Server, StanzaId) ->
     Mod = gen_mod:db_mod(Server, ?MODULE),
-    case Mod:remove_from_archive(User, Host, StanzaId) of
+    case Mod:remove_from_archive(UserHost, Server, StanzaId) of
 	ok ->
 	    ok;
 	{error, Bin} when is_binary(Bin) ->
@@ -1598,7 +1598,9 @@ mod_doc() ->
     #{desc =>
           ?T("This module implements "
              "https://xmpp.org/extensions/xep-0313.html"
-             "[XEP-0313: Message Archive Management]. "
+             "[XEP-0313: Message Archive Management] and "
+             "https://xmpp.org/extensions/xep-0441.html"
+             "[XEP-0441: Message Archive Management Preferences]. "
              "Compatible XMPP clients can use it to store their "
              "chat history on the server."),
       opts =>

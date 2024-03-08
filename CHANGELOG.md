@@ -1,6 +1,7 @@
-# Version 24.01
+## Version 24.02
 
 Core:
+- Added Matrix gateway in `mod_matrix_gw`
 - Support SASL2 and Bind2
 - Support tls-server-end-point channel binding and sasl2 codec
 - Support tls-exporter channel binding
@@ -11,12 +12,13 @@ Core:
 - mod_carboncopy: Teach how to interact with bind2 inline requests
 
 Other:
-- configure: Fix explanation of `--enable-group` option ([#4135](https://github.com/processone/ejabberd/issues/4135))
 - ejabberdctl: Fix startup problem when having set `EJABBERD_OPTS` and logger options
-- ejabberdctl: Set EJABBERD_OPTS back to "", and use previous flags as example
+- ejabberdctl: Set EJABBERD_OPTS back to `""`, and use previous flags as example
 - eldap: Change logic for `eldap tls_verify=soft` and `false`
 - eldap: Don't set `fail_if_no_peer_cert` for eldap ssl client connections
+- Ignore hints when checking for chat states
 - mod_mam: Support XEP-0424 Message Retraction
+- mod_mam: Fix XEP-0425: Message Moderation with SQL storage
 - mod_ping: Support XEP-0198 pings when stream management is enabled
 - mod_pubsub: Normalize pubsub `max_items` node options on read
 - mod_pubsub: PEP nodetree: Fix reversed logic in node fixup function
@@ -28,7 +30,18 @@ SQL:
 - Update SQL schema files for MAM's XEP-0424
 - New option [`sql_flags`](https://docs.ejabberd.im/admin/configuration/toplevel/#sql-flags): right now only useful to enable `mysql_alternative_upsert`
 
+Installers and Container:
+- Container: Add ability to ignore failures in execution of `CTL_ON_*` commands
+- Container: Update to Erlang/OTP 26.2, Elixir 1.16.1 and Alpine 3.19
+- Container: Update this custom ejabberdctl to match the main one
+- make-binaries: Bump OpenSSL 3.2.1, Erlang/OTP 26.2.2, Elixir 1.16.1
+- make-binaries: Bump many dependency versions
+
 Commands API:
+- `print_sql_schema`: New command available in ejabberdctl command-line script
+- ejabberdctl: Rework temporary node name generation
+- ejabberdctl: Print argument description, examples and note in help
+- ejabberdctl: Document exclusive ejabberdctl commands like all the others
 - Commands: Add a new [`muc_sub`](https://docs.ejabberd.im/developer/ejabberd-api/admin-tags/#muc-sub) tag to all the relevant commands
 - Commands: Improve syntax of many commands documentation
 - Commands: Use list arguments in many commands that used separators
@@ -38,28 +51,36 @@ Commands API:
 - ejabberd_xmlrpc: Fix support for restuple error response
 - mod_http_api: When no specific API version is requested, use the latest
 
-Rebar3/Elixir/Mix:
+Compilation with Rebar3/Elixir/Mix:
+- Fix compilation with Erlang/OTP 27: don't use the reserved word 'maybe'
+- configure: Fix explanation of `--enable-group` option ([#4135](https://github.com/processone/ejabberd/issues/4135))
 - Add observer and runtime_tools in releases when `--enable-tools`
+- Update "make translations" to reduce build requirements
+- Use Luerl 1.0 for Erlang 20, 1.1.1 for 21-26, and temporary fork for 27
 - Makefile: Add `install-rel` and `uninstall-rel`
 - Makefile: Rename `make rel` to `make prod`
-- ejabberdctl: Detect problem running iex or etop and show explanation
+- Makefile: Update `make edoc` to use ExDoc, requires mix
+- Makefile: No need to use `escript` to run rebar|rebar3|mix
+- configure: If `--with-rebar=rebar3` but rebar3 not system-installed, use local one
 - configure: Use Mix or Rebar3 by default instead of Rebar2 to compile ejabberd
+- ejabberdctl: Detect problem running iex or etop and show explanation
 - Rebar3: Include Elixir files when making a release
 - Rebar3: Workaround to fix protocol consolidation
 - Rebar3: Add support to compile Elixir dependencies
 - Rebar3: Compile explicitly our Elixir files when `--enable-elixir`
-- Rebar3: Provide proper path to iex
+- Rebar3: Provide proper path to `iex`
+- Rebar/Rebar3: Update binaries to work with Erlang/OTP 24-27
 - Rebar/Rebar3: Remove Elixir as a rebar dependency
-- Rebar/Rebar3: Update binaries to work with Erlang/OTP 23-26
+- Rebar3/Mix: If `dev` profile/environment, enable tools automatically
 - Elixir: Fix compiling ejabberd as a dependency ([#4128](https://github.com/processone/ejabberd/issues/4128))
 - Elixir: Fix ejabberdctl start/live when installed
-- Elixir: Fix: FORMATTER ERROR: bad return value ([#4087](https://github.com/processone/ejabberd/issues/4087))
-- Elixir: Fix: Couldn't find file `Elixir.Hex.API`
+- Elixir: Fix: `FORMATTER ERROR: bad return value` ([#4087](https://github.com/processone/ejabberd/issues/4087))
+- Elixir: Fix: Couldn't find file `Elixir Hex API`
 - Mix: Enable stun by default when `vars.config` not found
 - Mix: New option `vars_config_path` to set path to `vars.config` ([#4128](https://github.com/processone/ejabberd/issues/4128))
 - Mix: Fix ejabberdctl iexlive problem locating iex in an OTP release
 
-# Version 23.10
+## Version 23.10
 
 Compilation:
 - Erlang/OTP: Raise the requirement to Erlang/OTP 20.0 as a minimum
@@ -167,7 +188,7 @@ SQL:
 - `mod_privacy_sql`: Optimize `set_list`
 - `mod_privacy_sql`: Use more efficient way to calculate changes in `set_privacy_list`
 
-# Version 23.04
+## Version 23.04
 
 General:
 - New `s2s_out_bounce_packet` hook
@@ -251,7 +272,7 @@ Installers:
 - make-binaries: Fix building with erlang/otp v25.x
 - make-packages: Fix for installers workflow, which didn't find lynx
 
-# Version 23.01
+## Version 23.01
 
 General:
 - Add `misc:uri_parse/2` to allow declaring default ports for protocols
@@ -305,7 +326,7 @@ VSCode:
 - Add Erlang LS default configuration
 - Add Elvis default configuration
 
-# Version 22.10
+## Version 22.10
 
 Core:
 - Add `log_burst_limit_*` options ([#3865](https://github.com/processone/ejabberd/issues/3865))
@@ -345,7 +366,7 @@ MUC:
 - Don't persist `none` role ([#3330](https://github.com/processone/ejabberd/issues/3330))
 - Allow MUC service admins to bypass max_user_conferences limitation
 - Show allow_query_users room option in disco info ([#3830](https://github.com/processone/ejabberd/issues/3830))
-- Don't set affiliation to `none` if it's already `none` in `mod_muc_room:process_item_change/3`
+- mod_muc_room: Don't set affiliation to `none` if it's already `none` in `process_item_change/3`
 - Fix mucsub unsubscribe notification payload to have muc_unsubcribe in it
 - Allow muc_{un}subscribe hooks to modify sent packets
 - Pass room state to muc_{un}subscribed hook
@@ -415,7 +436,7 @@ Workflows Actions:
 - CI: Remove syntax_tools from applications, as fast_xml fails Dialyzer
 - Runtime: Add Xref options to be as strict as CI
 
-# Version 22.05
+## Version 22.05
 
 Core
 - C2S: Don't expect that socket will be available in `c2s_terminated` hook
@@ -520,7 +541,7 @@ Workflows
 - Installers: New workflow to build binary packages
 - Runtime: New workflow to test compilation, rel, starting and ejabberdctl
 
-# Version 21.12
+## Version 21.12
 
 Commands
 - `create_room_with_opts`: Fixed when using SQL storage
@@ -567,7 +588,7 @@ Other
 - Update export/import of scram password to XEP-0227 1.1
 - Update Jose to 1.11.1 (the last in hex.pm correctly versioned)
 
-# Version 21.07
+## Version 21.07
 
 Compilation
 - Add rebar3 3.15.2 binary
@@ -613,7 +634,7 @@ SQL:
 - mod_mqtt: Add mqtt_pub table definition for MSSQL
 - mod_shared_roster: Add missing indexes to `sr_group` tables in all SQL databases
 
-# Version 21.04
+## Version 21.04
 
 API Commands:
 - `add_rosteritem/...`: Add argument guards to roster commands
@@ -651,7 +672,7 @@ Modules:
 - `mod_pubsub`: Fix `gen_pubsub_node:get_state` return value
 - `mod_vcard`: Obtain and provide photo type in vCard LDAP
 
-# Version 21.01
+## Version 21.01
 
 Miscellaneous changes:
 - `log_rotate_size` option: Fix handling of ‘infinity’ value
@@ -686,7 +707,7 @@ Translations:
 - Moved gettext PO files to a new `ejabberd-po` repository
 - Improved several translations: Catalan, Chinese, German, Greek, Indonesian, Norwegian, Portuguese (Brazil), Spanish.
 
-# Version 20.12
+## Version 20.12
 
 - Add support for `SCRAM-SHA-{256,512}-{PLUS}` authentication
 - Don't use same value in cache for user don't exist and wrong password
@@ -721,7 +742,7 @@ Translations:
 - WebAdmin: Mark dangerous buttons with CSS
 - WebSocket: Make websocket send put back pressure on c2s process
 
-# Version 20.07
+## Version 20.07
 
 * Changes in this version
 - Add support for using unix sockets in listeners.
@@ -748,7 +769,7 @@ Translations:
   they were passed to handler modules
 - Make stun module work better with ipv6 addresses
 
-# Version 20.03
+## Version 20.03
 
 * Changes in this version
 - Add support of ssl connection when connection to mysql
@@ -768,7 +789,7 @@ Translations:
 - Fix reporting errors in `send_stanza` command when xml
   passed to it couldn't be passed correctly
 
-# Version 20.02
+## Version 20.02
 
 * Changes in this version
 - Fix problems when trying to use string format with unicode
@@ -786,7 +807,7 @@ Translations:
   override built-in values
 - Fix return value of reload_config and dump_config commands
 
-# Version 20.01
+## Version 20.01
 
 * New features
 - Implement OAUTH authentication in mqtt
@@ -819,7 +840,7 @@ Translations:
   failed
 - Fix crash in stream management when timeout was not set
 
-# Version 19.09
+## Version 19.09
 
 * Admin
 - The minimum required Erlang/OTP version is now 19.3
@@ -872,7 +893,7 @@ Translations:
 - Correctly handle unicode in log messages
 - Fix unicode processing in ejabberd.yml
 
-# Version 19.08
+## Version 19.08
 
 * Administration
 - Improve ejabberd halting procedure
@@ -917,7 +938,7 @@ Translations:
 - Remove deprecated pubsub plugins
 - Expose access_model and publish_model in pubsub#metadata
 
-# Version 19.05
+## Version 19.05
 
 * Admin
 - The minimum required Erlang/OTP version is now 19.1
@@ -994,7 +1015,7 @@ Translations:
 - mod_mqtt: Support other socket modules
 - mod_push: Check for payload in encrypted messages
 
-# Version 19.02
+## Version 19.02
 
 * Admin
 - Fix in configure.ac the Erlang/OTP version: from 17.5 to 19.0
@@ -1048,7 +1069,7 @@ Translations:
 - Translations: fixed "make translations"
 - WebAdmin: Fix support to restart module with new options
 
-# Version 18.12
+## Version 18.12
 
 * MAM data store compression
 * Proxy protocol support
