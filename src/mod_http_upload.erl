@@ -234,7 +234,7 @@ mod_doc() ->
               "another URL from which that file can later be downloaded."), "",
            ?T("In order to use this module, it must be enabled "
               "in 'listen' -> 'ejabberd_http' -> "
-              "http://../listen-options/#request-handlers[request_handlers].")],
+              "_`listen-options.md#request_handlers|request_handlers`_.")],
       opts =>
           [{host,
             #{desc => ?T("Deprecated. Use 'hosts' instead.")}},
@@ -367,40 +367,35 @@ mod_doc() ->
                      "of vCard. Since the representation has no attributes, "
                      "the mapping is straightforward."),
               example =>
-                  [{?T("For example, the following XML representation of vCard:"),
-                    ["<vCard xmlns='vcard-temp'>",
-                     "  <FN>Conferences</FN>",
-                     "  <ADR>",
-                     "    <WORK/>",
-                     "    <STREET>Elm Street</STREET>",
-                     "  </ADR>",
-                     "</vCard>"]},
-                   {?T("will be translated to:"),
-                    ["vcard:",
-                     "  fn: Conferences",
-                     "  adr:",
-                     "    -",
-                     "      work: true",
-                     "      street: Elm Street"]}]}}],
+                  ["# This XML representation of vCard:",
+                   "#   <vCard xmlns='vcard-temp'>",
+                   "#     <FN>Conferences</FN>",
+                   "#     <ADR>",
+                   "#       <WORK/>",
+                   "#       <STREET>Elm Street</STREET>",
+                   "#     </ADR>",
+                   "#   </vCard>",
+                   "# ",
+                   "# is translated to:",
+                   "vcard:",
+                   "  fn: Conferences",
+                   "  adr:",
+                   "    -",
+                   "      work: true",
+                   "      street: Elm Street"]}}],
       example =>
           ["listen:",
-           "  ...",
            "  -",
            "    port: 5443",
            "    module: ejabberd_http",
            "    tls: true",
            "    request_handlers:",
-           "      ...",
            "      /upload: mod_http_upload",
-           "      ...",
-           "  ...",
            "",
            "modules:",
-           "  ...",
            "  mod_http_upload:",
            "    docroot: /ejabberd/upload",
-           "    put_url: \"https://@HOST@:5443/upload\"",
-           "  ..."]}.
+           "    put_url: \"https://@HOST@:5443/upload\""]}.
 
 -spec depends(binary(), gen_mod:opts()) -> [{module(), hard | soft}].
 depends(_Host, _Opts) ->

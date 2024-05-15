@@ -197,11 +197,8 @@ perform_call(Command, Args, Req, Version) ->
 %% Be tolerant to make API more easily usable from command-line pipe.
 extract_args(<<"\n">>) -> [];
 extract_args(Data) ->
-    case jiffy:decode(Data) of
-        List when is_list(List) -> List;
-        {List} when is_list(List) -> List;
-        Other -> [Other]
-    end.
+    Maps = misc:json_decode(Data),
+    maps:to_list(Maps).
 
 % get API version N from last "vN" element in URL path
 get_api_version(#request{path = Path}) ->
@@ -495,10 +492,10 @@ invalid_token_response() ->
 badrequest_response() ->
     badrequest_response(<<"400 Bad Request">>).
 badrequest_response(Body) ->
-    json_response(400, jiffy:encode(Body)).
+    json_response(400, misc:json_encode(Body)).
 
 json_format({Code, Result}) ->
-    json_response(Code, jiffy:encode(Result));
+    json_response(Code, misc:json_encode(Result));
 json_format({HTMLCode, JSONErrorCode, Message}) ->
     json_error(HTMLCode, JSONErrorCode, Message).
 
@@ -509,9 +506,9 @@ json_response(Code, Body) when is_integer(Code) ->
 %% message is binary
 json_error(HTTPCode, JSONCode, Message) ->
     {HTTPCode, ?HEADER(?CT_JSON),
-     jiffy:encode({[{<<"status">>, <<"error">>},
-                    {<<"code">>, JSONCode},
-                    {<<"message">>, Message}]})
+     misc:json_encode(#{<<"status">> => <<"error">>,
+                    <<"code">> =>  JSONCode,
+                    <<"message">> => Message})
     }.
 
 log(Call, Args, {Addr, Port}) ->
@@ -534,11 +531,11 @@ mod_options(_) ->
 mod_doc() ->
     #{desc =>
 	  [?T("This module provides a ReST interface to call "
-              "https://docs.ejabberd.im/developer/ejabberd-api[ejabberd API] "
+              "_`../../developer/ejabberd-api/index.md|ejabberd API`_ "
 	      "commands using JSON data."), "",
 	   ?T("To use this module, in addition to adding it to the 'modules' "
 	      "section, you must also enable it in 'listen' -> 'ejabberd_http' -> "
-              "http://../listen-options/#request-handlers[request_handlers]."), "",
+              "_`listen-options.md#request_handlers|request_handlers`_."), "",
 	   ?T("To use a specific API version N, when defining the URL path "
 	      "in the request_handlers, add a 'vN'. "
 	      "For example: '/api/v2: mod_http_api'"), "",

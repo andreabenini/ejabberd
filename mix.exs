@@ -13,7 +13,9 @@ defmodule Ejabberd.MixProject do
      erlc_options: erlc_options(),
      erlc_paths: ["asn1", "src"],
      # Elixir tests are starting the part of ejabberd they need
-     aliases: [test: "test --no-start"],
+     aliases: [
+       test: "test --no-start",
+       "deps.get": ["deps.get", "pc_branch"]],
      start_permanent: Mix.env() == :prod,
      language: :erlang,
      dialyzer: dialyzer(),
@@ -44,7 +46,7 @@ defmodule Ejabberd.MixProject do
   def application do
     [mod: {:ejabberd_app, []},
      applications: [:idna, :inets, :kernel, :sasl, :ssl, :stdlib, :mix,
-                    :base64url, :fast_tls, :fast_xml, :fast_yaml, :jiffy, :jose,
+                    :fast_tls, :fast_xml, :fast_yaml, :jose,
                     :p1_utils, :stringprep, :syntax_tools, :yconf]
      ++ cond_apps(),
      included_applications: [:mnesia, :os_mon,
@@ -112,6 +114,7 @@ defmodule Ejabberd.MixProject do
              if_version_below(~c"24", [{:d, :SYSTOOLS_APP_DEF_WITHOUT_OPTIONAL}]) ++
              if_version_below(~c"24", [{:d, :OTP_BELOW_24}]) ++
              if_version_below(~c"25", [{:d, :OTP_BELOW_25}]) ++
+             if_version_below(~c"27", [{:d, :OTP_BELOW_27}]) ++
              if_type_exported(:odbc, {:opaque, :connection_reference, 0}, [{:d, :ODBC_HAS_TYPES}])
     defines = for {:d, value} <- result, do: {:d, value}
     result ++ [{:d, :ALL_DEFS, defines}]
@@ -129,8 +132,7 @@ defmodule Ejabberd.MixProject do
   end
 
   defp deps do
-    [{:base64url, "~> 1.0"},
-     {:cache_tab, "~> 1.0"},
+    [{:cache_tab, "~> 1.0"},
      {:dialyxir, "~> 1.2", only: [:test], runtime: false},
      {:eimp, "~> 1.0"},
      {:ex_doc, "~> 0.31", only: [:dev, :edoc], runtime: false},
@@ -138,15 +140,13 @@ defmodule Ejabberd.MixProject do
      {:fast_xml, ">= 1.1.51"},
      {:fast_yaml, "~> 1.0"},
      {:idna, "~> 6.0"},
-     {:jiffy, "~> 1.1.1"},
-     {:jose, "~> 1.11.5"},
      {:mqtree, "~> 1.0"},
-     {:p1_acme, "~> 1.0"},
+     {:p1_acme, git: "https://github.com/processone/p1_acme", branch: "master"},
      {:p1_oauth2, "~> 0.6"},
      {:p1_utils, "~> 1.0"},
-     {:pkix, "~> 1.0"},
+     {:pkix, git: "https://github.com/processone/pkix"},
      {:stringprep, ">= 1.0.26"},
-     {:xmpp, ">= 1.8.0"},
+     {:xmpp, git: "https://github.com/processone/xmpp", override: true},
      {:yconf, "~> 1.0"}]
     ++ cond_deps()
   end
@@ -166,14 +166,16 @@ defmodule Ejabberd.MixProject do
     for {:true, dep} <- [{config(:pam), {:epam, "~> 1.0"}},
                          {Mix.env() == :translations,
                           {:ejabberd_po, git: "https://github.com/processone/ejabberd-po.git"}},
+                         {Mix.env() == :dev,
+                          {:exsync, "~> 0.2"}},
                          {config(:redis), {:eredis, "~> 1.2.0"}},
                          {config(:sip), {:esip, "~> 1.0"}},
                          {config(:zlib), {:ezlib, "~> 1.0"}},
+                         {if_version_above(~c"23", true), {:jose, "~> 1.11.10"}},
+                         {if_version_below(~c"24", true), {:jose, "1.11.1"}},
+                         {if_version_below(~c"27", true), {:jiffy, "~> 1.1.1"}},
                          {if_version_below(~c"22", true), {:lager, "~> 3.9.1"}},
-                         {config(:lua) and if_version_below(~c"27", true),
-                                         {:luerl, "~> 1.1.1"}},
-                         {config(:lua) and if_version_above(~c"26", true),
-                                         {:luerl, git: "https://github.com/processone/luerl", branch: "otp27"}},
+                         {config(:lua), {:luerl, "~> 1.2.0"}},
                          {config(:mysql), {:p1_mysql, ">= 1.0.23" }},
                          {config(:pgsql), {:p1_pgsql, "~> 1.1"}},
                          {config(:sqlite), {:sqlite3, "~> 1.1"}},
@@ -183,6 +185,8 @@ defmodule Ejabberd.MixProject do
 
   defp cond_apps do
     for {:true, app} <- [{config(:stun), :stun},
+                         {Map.has_key?(System.get_env(), "RELIVE"), :exsync},
+                         {if_version_below(~c"27", true), :jiffy},
                          {config(:tools), :observer}], do:
       app
   end
@@ -209,9 +213,9 @@ defmodule Ejabberd.MixProject do
               "mix.exs", "rebar.config", "rebar.config.script", "vars.config"],
       maintainers: ["ProcessOne"],
       licenses: ["GPL-2.0-or-later"],
-      links: %{"Site" => "https://www.ejabberd.im",
-               "Documentation" => "http://docs.ejabberd.im",
-               "Source" => "https://github.com/processone/ejabberd",
+      links: %{"ejabberd.im" => "https://www.ejabberd.im",
+               "ejabberd Docs" => "http://docs.ejabberd.im",
+               "GitHub" => "https://github.com/processone/ejabberd",
                "ProcessOne" => "http://www.process-one.net/"}]
   end
 
@@ -406,6 +410,14 @@ defmodule Ejabberd.MixProject do
         "For more documentation": "_build/edoc/docs.md"
       ]
     ]
+  end
+end
+
+defmodule Mix.Tasks.PcBranch do
+  use Mix.Task
+  def run(_) do
+    command = "find deps -name rebar.config.script -exec sed -i 's/AppendList..pc/AppendList\(\[{pc, {git, \"https:\\/\\/github.com\\/blt\\/port_compiler.git\", {branch, \"otp-27\"}}}/g' {} ';' "
+    :os.cmd(to_charlist(command))
   end
 end
 

@@ -125,7 +125,7 @@ file_json(Host) ->
     {200, [html,
            {<<"Content-Type">>, <<"application/json">>},
            {<<"Access-Control-Allow-Origin">>, <<"*">>}],
-     [jiffy:encode(#{links => BoshList ++ WsList})]}.
+     [misc:json_encode(#{links => BoshList ++ WsList})]}.
 
 get_url(M, bosh, Tls, Host) ->
     get_url(M, Tls, Host, bosh_service_url, mod_bosh);
@@ -211,11 +211,11 @@ mod_doc() ->
           [?T("This module serves small 'host-meta' files as described in "
               "https://xmpp.org/extensions/xep-0156.html[XEP-0156: Discovering "
               "Alternative XMPP Connection Methods]."), "",
-           ?T("This module is available since ejabberd 22.05."), "",
            ?T("To use this module, in addition to adding it to the 'modules' "
               "section, you must also enable it in 'listen' -> 'ejabberd_http' -> "
-              "http://../listen-options/#request-handlers[request_handlers]."), "",
+              "_`listen-options.md#request_handlers|request_handlers`_."), "",
            ?T("Notice it only works if ejabberd_http has tls enabled.")],
+      note => "added in 22.05",
       example =>
           ["listen:",
            "  -",

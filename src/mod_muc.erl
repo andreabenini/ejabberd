@@ -1654,21 +1654,22 @@ mod_doc() ->
                      "of vCard. Since the representation has no attributes, "
                      "the mapping is straightforward."),
               example =>
-                  [{?T("For example, the following XML representation of vCard:"),
-                    ["<vCard xmlns='vcard-temp'>",
-                     "  <FN>Conferences</FN>",
-                     "  <ADR>",
-                     "    <WORK/>",
-                     "    <STREET>Elm Street</STREET>",
-                     "  </ADR>",
-                     "</vCard>"]},
-                   {?T("will be translated to:"),
-                    ["vcard:",
-                     "  fn: Conferences",
-                     "  adr:",
-                     "    -",
-                     "      work: true",
-                     "      street: Elm Street"]}]}},
+                  ["# This XML representation of vCard:",
+                   "#   <vCard xmlns='vcard-temp'>",
+                   "#     <FN>Conferences</FN>",
+                   "#     <ADR>",
+                   "#       <WORK/>",
+                   "#       <STREET>Elm Street</STREET>",
+                   "#     </ADR>",
+                   "#   </vCard>",
+                   "# ",
+                   "# is translated to:",
+                   "vcard:",
+                   "  fn: Conferences",
+                   "  adr:",
+                   "    -",
+                   "      work: true",
+                   "      street: Elm Street"]}},
            {cleanup_affiliations_on_start,
             #{value => "true | false",
               note => "added in 22.05",
@@ -1732,7 +1733,7 @@ mod_doc() ->
                     ?T("When a user tries to join a room where they have no "
                        "affiliation (not owner, admin or member), the room "
                        "requires them to fill a CAPTCHA challenge (see section "
-                       "http://../#captcha[CAPTCHA] "
+                       "_`basic.md#captcha|CAPTCHA`_ "
                        "in order to accept their join in the room. "
                        "The default value is 'false'.")}},
              {description,
@@ -1824,8 +1825,7 @@ mod_doc() ->
               #{value => "true | false",
                 desc =>
                     ?T("Allow users to subscribe to room events as described in "
-                       "https://docs.ejabberd.im/developer/xmpp-clients-bots/extensions/muc-sub/"
-                       "[Multi-User Chat Subscriptions]. "
+                       "_`../../developer/xmpp-clients-bots/extensions/muc-sub.md|Multi-User Chat Subscriptions`_. "
                        "The default value is 'false'.")}},
              {title,
               #{value => ?T("Room Title"),

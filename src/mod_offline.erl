@@ -983,7 +983,7 @@ user_queue(User, Server, Query, Lang) ->
     Hdrs = get_messages_subset(User, Server, HdrsAll),
     FMsgs = format_user_queue(Hdrs),
     PageTitle = str:translate_and_format(Lang, ?T("~ts's Offline Messages Queue"), [us_to_list(US)]),
-    (?H1GL(PageTitle, <<"modules/#mod-offline">>, <<"mod_offline">>))
+    (?H1GL(PageTitle, <<"modules/#mod_offline">>, <<"mod_offline">>))
       ++ [?XREST(?T("Submitted"))] ++
 	[?XAE(<<"form">>,
 	      [{<<"action">>, <<"">>}, {<<"method">>, <<"post">>}],
@@ -1247,8 +1247,8 @@ mod_doc() ->
               "are currently open."), "",
            ?T("NOTE: 'ejabberdctl' has a command to "
               "delete expired messages (see chapter "
-              "https://docs.ejabberd.im/admin/guide/managing"
-              "[Managing an ejabberd server] in online documentation.")],
+              "_`../guide/managing.md|Managing an ejabberd server`_ "
+              "in online documentation.")],
       opts =>
           [{access_max_user_messages,
             #{value => ?T("AccessName"),

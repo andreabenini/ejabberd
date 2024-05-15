@@ -49,7 +49,8 @@
 
 	 % Accounts
 	 set_password/3, check_password_hash/4, delete_old_users/1,
-	 delete_old_users_vhost/2, ban_account/3, check_password/3,
+	 delete_old_users_vhost/2, check_password/3,
+	 ban_account/3, ban_account_v2/3, get_ban_details/2, unban_account/2,
 
 	 % vCard
 	 set_nickname/3, get_vcard/3,
@@ -85,6 +86,7 @@
 -include("mod_roster.hrl").
 -include("mod_privacy.hrl").
 -include("ejabberd_sm.hrl").
+-include_lib("xmpp/include/scram.hrl").
 -include_lib("xmpp/include/xmpp.hrl").
 
 %%%
@@ -168,7 +170,7 @@ get_commands_spec() ->
      #ejabberd_commands{name = delete_old_users, tags = [accounts, purge],
 			desc = "Delete users that didn't log in last days, or that never logged",
 			longdesc = "To protect admin accounts, configure this for example:\n"
-			    "```\n"
+			    "``` yaml\n"
 			    "access_rules:\n"
 			    "  protect_old_users:\n"
 			    "    - allow: admin\n"
@@ -184,7 +186,7 @@ get_commands_spec() ->
      #ejabberd_commands{name = delete_old_users_vhost, tags = [accounts, purge],
 			desc = "Delete users that didn't log in last days in vhost, or that never logged",
 			longdesc = "To protect admin accounts, configure this for example:\n"
-			    "```\n"
+			    "``` yaml\n"
 			    "access_rules:\n"
 			    "  delete_old_users:\n"
 			    "    - deny: admin\n"
@@ -236,8 +238,10 @@ get_commands_spec() ->
 				     "New password for user"],
 			result = {res, rescode},
 			result_example = ok},
+
      #ejabberd_commands{name = ban_account, tags = [accounts],
 			desc = "Ban an account: kick sessions and set random password",
+			longdesc = "This simply sets a random password.",
 			module = ?MODULE, function = ban_account,
 			args = [{user, binary}, {host, binary}, {reason, binary}],
 			args_example = [<<"attacker">>, <<"myserver.com">>, <<"Spaming other users">>],
@@ -245,6 +249,53 @@ get_commands_spec() ->
 				     "Reason for banning user"],
 			result = {res, rescode},
 			result_example = ok},
+     #ejabberd_commands{name = ban_account, tags = [accounts],
+			desc = "Ban an account",
+			longdesc = "This command kicks the account sessions, "
+                        "sets a random password, and stores ban details in the "
+                        "account private storage. "
+                        "This command requires mod_private to be enabled. "
+                        "Check also _`get_ban_details`_ API "
+                        "and `_unban_account`_ API.",
+			module = ?MODULE, function = ban_account_v2,
+			version = 2,
+			note = "improved in 24.xx",
+			args = [{user, binary}, {host, binary}, {reason, binary}],
+			args_example = [<<"attacker">>, <<"myserver.com">>, <<"Spaming other users">>],
+			args_desc = ["User name to ban", "Server name",
+				     "Reason for banning user"],
+			result = {res, rescode},
+			result_example = ok},
+     #ejabberd_commands{name = get_ban_details, tags = [accounts],
+			desc = "Get ban details about an account",
+			longdesc = "Check _`ban_account`_ API.",
+			module = ?MODULE, function = get_ban_details,
+			version = 2,
+			note = "added in 24.xx",
+			args = [{user, binary}, {host, binary}],
+			args_example = [<<"attacker">>, <<"myserver.com">>],
+			args_desc = ["User name to unban", "Server name"],
+			result = {ban_details, {list,
+					  {detail, {tuple, [{name, string},
+                                                            {value, string}
+                                                           ]}}
+					 }},
+			result_example = [{"reason", "Spamming other users"},
+                                          {"bandate", "2024-04-22T09:16:47.975312Z"},
+                                          {"lastdate", "2024-04-22T08:39:12Z"},
+                                          {"lastreason", "Connection reset by peer"}]},
+     #ejabberd_commands{name = unban_account, tags = [accounts],
+			desc = "Revert the ban from an account: set back the old password",
+			longdesc = "Check _`ban_account`_ API.",
+			module = ?MODULE, function = unban_account,
+			version = 2,
+			note = "added in 24.xx",
+			args = [{user, binary}, {host, binary}],
+			args_example = [<<"gooduser">>, <<"myserver.com">>],
+			args_desc = ["User name to unban", "Server name"],
+			result = {res, rescode},
+			result_example = ok},
+
      #ejabberd_commands{name = num_resources, tags = [session],
 			desc = "Get the number of resources of a user",
 			module = ?MODULE, function = num_resources,
@@ -905,7 +956,7 @@ set_password(User, Host, Password) ->
 check_password(User, Host, Password) ->
     ejabberd_auth:check_password(User, <<>>, Host, Password).
 
-%% Copied some code from ejabberd_commands.erl
+%% Copied some code from ejabberd_commands.erln
 check_password_hash(User, Host, PasswordHash, HashMethod) ->
     AccountPass = ejabberd_auth:get_password_s(User, Host),
     Methods = lists:map(fun(A) -> atom_to_binary(A, latin1) end,
@@ -978,7 +1029,7 @@ delete_or_not(LUser, LServer, TimeStamp_oldest) ->
     end.
 
 %%
-%% Ban account
+%% Ban account v0
 
 ban_account(User, Host, ReasonText) ->
     Reason = prepare_reason(ReasonText),
@@ -1013,6 +1064,147 @@ prepare_reason([Reason]) ->
     Reason;
 prepare_reason(Reason) when is_binary(Reason) ->
     Reason.
+
+%%
+%% Ban account v2
+
+ban_account_v2(User, Host, ReasonText) ->
+    case gen_mod:is_loaded(Host, mod_private) of
+        false ->
+            mod_private_is_required_but_disabled;
+        true ->
+            case is_banned(User, Host) of
+                true ->
+                    account_was_already_banned;
+                false ->
+                    ban_account_v2_b(User, Host, ReasonText)
+            end
+    end.
+
+ban_account_v2_b(User, Host, ReasonText) ->
+    Reason = prepare_reason(ReasonText),
+    Pass = ejabberd_auth:get_password_s(User, Host),
+    Last = get_last(User, Host),
+    BanDate = xmpp_util:encode_timestamp(erlang:timestamp()),
+    Hash = get_hash_value(User, Host),
+    BanPrivateXml = build_ban_xmlel(Reason, Pass, Last, BanDate, Hash),
+    ok = private_set2(User, Host, BanPrivateXml),
+    ok = set_random_password_v2(User, Host),
+    kick_sessions(User, Host, Reason),
+    ok.
+
+get_hash_value(User, Host) ->
+    Cookie = misc:atom_to_binary(erlang:get_cookie()),
+    misc:term_to_base64(crypto:hash(sha256, <<User/binary, Host/binary, Cookie/binary>>)).
+
+set_random_password_v2(User, Server) ->
+    NewPass = p1_rand:get_string(),
+    ok = ejabberd_auth:set_password(User, Server, NewPass).
+
+build_ban_xmlel(Reason, Pass, {LastDate, LastReason}, BanDate, Hash) ->
+    PassEls = build_pass_els(Pass),
+    #xmlel{name = <<"banned">>,
+           attrs = [{<<"xmlns">>, <<"jabber:ejabberd:banned">>}],
+           children = [#xmlel{name = <<"reason">>, attrs = [], children = [{xmlcdata, Reason}]},
+                       #xmlel{name = <<"password">>, attrs = [], children = PassEls},
+                       #xmlel{name = <<"lastdate">>, attrs = [], children = [{xmlcdata, LastDate}]},
+                       #xmlel{name = <<"lastreason">>, attrs = [], children = [{xmlcdata, LastReason}]},
+                       #xmlel{name = <<"bandate">>, attrs = [], children = [{xmlcdata, BanDate}]},
+                       #xmlel{name = <<"hash">>, attrs = [], children = [{xmlcdata, Hash}]}
+                       ]}.
+
+build_pass_els(Pass) when is_binary(Pass) ->
+    [{xmlcdata, Pass}];
+build_pass_els(#scram{storedkey = StoredKey,
+                      serverkey = ServerKey,
+                      salt = Salt,
+                      hash = Hash,
+                      iterationcount = IterationCount}) ->
+    [#xmlel{name = <<"storedkey">>, attrs = [], children = [{xmlcdata, StoredKey}]},
+     #xmlel{name = <<"serverkey">>, attrs = [], children = [{xmlcdata, ServerKey}]},
+     #xmlel{name = <<"salt">>, attrs = [], children = [{xmlcdata, Salt}]},
+     #xmlel{name = <<"hash">>, attrs = [], children = [{xmlcdata, misc:atom_to_binary(Hash)}]},
+     #xmlel{name = <<"iterationcount">>, attrs = [], children = [{xmlcdata, integer_to_binary(IterationCount)}]}
+    ].
+
+%%
+%% Get ban details
+
+get_ban_details(User, Host) ->
+    case private_get2(User, Host, <<"banned">>, <<"jabber:ejabberd:banned">>) of
+        [El] ->
+            get_ban_details(User, Host, El);
+        [] ->
+            []
+    end.
+
+get_ban_details(User, Host, El) ->
+    Reason = fxml:get_subtag_cdata(El, <<"reason">>),
+    LastDate = fxml:get_subtag_cdata(El, <<"lastdate">>),
+    LastReason = fxml:get_subtag_cdata(El, <<"lastreason">>),
+    BanDate = fxml:get_subtag_cdata(El, <<"bandate">>),
+    Hash = fxml:get_subtag_cdata(El, <<"hash">>),
+    case Hash == get_hash_value(User, Host) of
+        true ->
+            [{"reason", Reason},
+             {"bandate", BanDate},
+             {"lastdate", LastDate},
+             {"lastreason", LastReason}];
+        false ->
+            []
+    end.
+
+is_banned(User, Host) ->
+    case lists:keyfind("bandate", 1, get_ban_details(User, Host)) of
+        {_, BanDate} when BanDate /= <<>> ->
+            true;
+        _ ->
+            false
+    end.
+
+%%
+%% Unban account
+
+unban_account(User, Host) ->
+    case gen_mod:is_loaded(Host, mod_private) of
+        false ->
+            mod_private_is_required_but_disabled;
+        true ->
+            case is_banned(User, Host) of
+                false ->
+                    account_was_not_banned;
+                true ->
+                    unban_account2(User, Host)
+            end
+    end.
+
+unban_account2(User, Host) ->
+    OldPass = get_oldpass(User, Host),
+    ok = ejabberd_auth:set_password(User, Host, OldPass),
+    UnBanPrivateXml = build_unban_xmlel(),
+    private_set2(User, Host, UnBanPrivateXml).
+
+get_oldpass(User, Host) ->
+    [El] = private_get2(User, Host, <<"banned">>, <<"jabber:ejabberd:banned">>),
+    Pass = fxml:get_subtag(El, <<"password">>),
+    get_pass(Pass).
+
+get_pass(#xmlel{children = [{xmlcdata, Pass}]}) ->
+    Pass;
+get_pass(#xmlel{children = ScramEls} = Pass) when is_list(ScramEls) ->
+    StoredKey = fxml:get_subtag_cdata(Pass, <<"storedkey">>),
+    ServerKey = fxml:get_subtag_cdata(Pass, <<"serverkey">>),
+    Salt = fxml:get_subtag_cdata(Pass, <<"salt">>),
+    Hash = fxml:get_subtag_cdata(Pass, <<"hash">>),
+    IterationCount = fxml:get_subtag_cdata(Pass, <<"iterationcount">>),
+    #scram{storedkey = StoredKey,
+           serverkey = ServerKey,
+           salt = Salt,
+           hash = binary_to_existing_atom(Hash, latin1),
+           iterationcount = binary_to_integer(IterationCount)}.
+
+build_unban_xmlel() ->
+    #xmlel{name = <<"banned">>, attrs = [{<<"xmlns">>, <<"jabber:ejabberd:banned">>}]}.
 
 %%%
 %%% Sessions
@@ -1515,10 +1707,19 @@ set_last(User, Server, Timestamp, Status) ->
 %% <aa xmlns='bb'>Cluth</aa>
 
 private_get(Username, Host, Element, Ns) ->
-    ElementXml = #xmlel{name = Element, attrs = [{<<"xmlns">>, Ns}]},
-    Els = mod_private:get_data(jid:nodeprep(Username), jid:nameprep(Host),
-			       [{Ns, ElementXml}]),
+    Els = private_get2(Username, Host, Element, Ns),
     binary_to_list(fxml:element_to_binary(xmpp:encode(#private{sub_els = Els}))).
+
+private_get2(Username, Host, Element, Ns) ->
+    case gen_mod:is_loaded(Host, mod_private) of
+        true -> private_get3(Username, Host, Element, Ns);
+        false -> []
+    end.
+
+private_get3(Username, Host, Element, Ns) ->
+    ElementXml = #xmlel{name = Element, attrs = [{<<"xmlns">>, Ns}]},
+    mod_private:get_data(jid:nodeprep(Username), jid:nameprep(Host),
+			       [{Ns, ElementXml}]).
 
 private_set(Username, Host, ElementString) ->
     case fxml_stream:parse_element(ElementString) of

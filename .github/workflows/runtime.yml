@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        otp: ['20', '25', '26', '27']
+        otp: ['20', '25', '26', '27.0-rc3']
         rebar: ['rebar', 'rebar3']
     runs-on: ubuntu-22.04
     container:
@@ -67,7 +67,6 @@ jobs:
                     --disable-elixir \
                     --disable-tools \
                     --disable-odbc
-        make update
         make
 
     - run: make xref
@@ -149,7 +148,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        otp: ['23.0', '25', '26', '27.0-rc1']
+        otp: ['23.0', '25', '26', '27.0-rc3']
         elixir: ['1.13.4', '1.15.7', '1.16']
         exclude:
         - otp: '23.0'
@@ -158,7 +157,7 @@ jobs:
           elixir: '1.16'
         - otp: '26'
           elixir: '1.13.4'
-        - otp: '27.0-rc1'
+        - otp: '27.0-rc3'
           elixir: '1.13.4'
     runs-on: ubuntu-20.04
 
@@ -193,7 +192,7 @@ jobs:
       run: |
         sed -i "s|^modules:|modules:\n  'ModPresenceDemo': {}|g" ejabberd.yml.example
         cat ejabberd.yml.example
-        sed -i 's|^{deps, \(.*\)|{deps, \1\n  {decimal, ".*", {git, "https://github.com/ericmj/decimal", {branch, "main"}}}, |g' rebar.config
+        sed -i 's|^{deps, \[\(.*\)|{deps, [{decimal, ".*", {git, "https://github.com/ericmj/decimal", {branch, "main"}}},\n \1|g' rebar.config
         cat rebar.config
 
     - name: Compile
@@ -203,7 +202,6 @@ jobs:
                     --prefix=/tmp/ejabberd \
                     --enable-all \
                     --disable-odbc
-        make update
         make
 
     - run: make xref
@@ -284,7 +282,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        otp: ['23.0', '25', '26', '27.0-rc1']
+        otp: ['23.0', '25', '26', '27.0-rc3']
         elixir: ['1.13.4', '1.15.7', '1.16']
         exclude:
         - otp: '23.0'
@@ -293,7 +291,7 @@ jobs:
           elixir: '1.16'
         - otp: '26'
           elixir: '1.13.4'
-        - otp: '27.0-rc1'
+        - otp: '27.0-rc3'
           elixir: '1.13.4'
     runs-on: ubuntu-20.04
 
@@ -329,13 +327,17 @@ jobs:
         sed -i 's|^{deps, \(.*\)|{deps, \1\n  {decimal, ".*", {git, "https://github.com/ericmj/decimal", {branch, "main"}}}, |g' rebar.config
         cat rebar.config
 
+    - name: Unlock Jose dependency on older Erlang
+      if: matrix.otp < 24
+      run: |
+        mix deps.unlock jose
+
     - name: Compile
       run: |
         ./autogen.sh
         ./configure --with-rebar=mix \
                     --prefix=/tmp/ejabberd \
                     --enable-all
-        mix deps.get
         make
 
     - run: make xref

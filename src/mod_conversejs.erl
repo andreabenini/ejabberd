@@ -78,6 +78,7 @@ process([], #request{method = 'GET', host = Host, raw_path = RawPath}) ->
             undefined -> Init2;
             BoshURL -> [{<<"bosh_service_url">>, BoshURL} | Init2]
         end,
+    Init4 = maps:from_list(Init3),
     {200, [html],
      [<<"<!DOCTYPE html>">>,
       <<"<html>">>,
@@ -89,7 +90,7 @@ process([], #request{method = 'GET', host = Host, raw_path = RawPath}) ->
       <<"</head>">>,
       <<"<body>">>,
       <<"<script>">>,
-      <<"converse.initialize(">>, jiffy:encode({Init3}), <<");">>,
+      <<"converse.initialize(">>, misc:json_encode(Init4), <<");">>,
       <<"</script>">>,
       <<"</body>">>,
       <<"</html>">>]};
@@ -252,17 +253,16 @@ mod_doc() ->
     #{desc =>
           [?T("This module serves a simple page for the "
               "https://conversejs.org/[Converse] XMPP web browser client."), "",
-           ?T("This module is available since ejabberd 21.12."),
-           ?T("Several options were improved in ejabberd 22.05."), "",
            ?T("To use this module, in addition to adding it to the 'modules' "
               "section, you must also enable it in 'listen' -> 'ejabberd_http' -> "
-              "http://../listen-options/#request-handlers[request_handlers]."), "",
+              "_`listen-options.md#request_handlers|request_handlers`_."), "",
            ?T("Make sure either 'mod_bosh' or 'ejabberd_http_ws' "
-              "http://../listen-options/#request-handlers[request_handlers] "
+              "_`listen-options.md#request_handlers|request_handlers`_ "
               "are enabled."), "",
            ?T("When 'conversejs_css' and 'conversejs_script' are 'auto', "
               "by default they point to the public Converse client.")
           ],
+      note => "added in 21.12 and improved in 22.05",
       example =>
           [{?T("Manually setup WebSocket url, and use the public Converse client:"),
             ["listen:",

@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        otp: ['20.0', '25', '26', '27.0-rc1']
+        otp: ['20.0', '25', '26', '27.0-rc3']
     runs-on: ubuntu-20.04
     services:
       redis:
@@ -127,7 +127,6 @@ jobs:
                     --disable-elixir \
                     --disable-mssql \
                     --disable-odbc
-        make update
         make
 
     - run: make install -s
@@ -204,7 +203,7 @@ jobs:
 
     - name: Upload test logs
       if: always() && steps.ct.outcome == 'failure' && github.repository == 'processone/ejabberd'
-      uses: peaceiris/actions-gh-pages@v3
+      uses: peaceiris/actions-gh-pages@v4
       with:
         publish_dir: _build/test
         exclude_assets: '.github,lib,plugins'

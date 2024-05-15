@@ -34,10 +34,10 @@
 /priv/bin/captcha*sh
 /priv/sql
 /rel/ejabberd
+/recompile.log
 /_build
 /database/
 /.rebar
-/rebar.lock
 /log/
 Mnesia.nonode@nohost/
 # Binaries created with tools/make-{binaries,installers,packages}:

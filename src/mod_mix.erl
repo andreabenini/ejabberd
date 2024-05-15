@@ -33,7 +33,7 @@
 -export([mod_doc/0]).
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3, format_status/2]).
+	 terminate/2, code_change/3]).
 %% Hooks
 -export([process_disco_info/1,
 	 process_disco_items/1,
@@ -102,16 +102,13 @@ mod_doc() ->
           [?T("This module is an experimental implementation of "
               "https://xmpp.org/extensions/xep-0369.html"
               "[XEP-0369: Mediated Information eXchange (MIX)]. "
-              "MIX support was added in ejabberd 16.03 as an "
-              "experimental feature, updated in 19.02, and is not "
-              "yet ready to use in production. It's asserted that "
+              "It's asserted that "
               "the MIX protocol is going to replace the MUC protocol "
               "in the future (see _`mod_muc`_)."), "",
            ?T("To learn more about how to use that feature, you can refer to "
-	      "our tutorial: https://docs.ejabberd.im/tutorials/mix-010/"
-	      "[Getting started with XEP-0369: Mediated Information "
-	      "eXchange (MIX) v0.1]."), "",
+	      "our tutorial: _`../../tutorials/mix-010.md|Getting started with MIX`_"), "",
            ?T("The module depends on _`mod_mam`_.")],
+      note => "added in 16.03 and improved in 19.02",
       opts =>
           [{access_create,
             #{value => ?T("AccessName"),
@@ -342,9 +339,6 @@ terminate(_Reason, State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-format_status(_Opt, Status) ->
-    Status.
 
 %%%===================================================================
 %%% Internal functions

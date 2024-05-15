@@ -333,3 +333,28 @@ AC_SUBST(CPPFLAGS)
 AC_SUBST(LDFLAGS)
 
 AC_OUTPUT
+
+AS_CASE([$rebar],
+ [*rebar3], [
+  deps=""
+  AS_IF([test "x$stun" = "xfalse"], [deps="stun,$deps"])
+  AS_IF([test "x$sqlite" = "xfalse"], [deps="sqlite3,$deps"])
+  AS_IF([test "x$pgsql" = "xfalse"], [deps="p1_pgsql,$deps"])
+  AS_IF([test "x$mysql" = "xfalse"], [deps="p1_mysql,$deps"])
+  AS_IF([test "x$zlib" = "xfalse"], [deps="ezlib,$deps"])
+  AS_IF([test "x$sip" = "xfalse"], [deps="esip,$deps"])
+  AS_IF([test "x$redis" = "xfalse"], [deps="eredis,$deps"])
+  AS_IF([test "x$pam" = "xfalse"], [deps="epam,$deps"])
+  AS_IF([test "x$deps" = "x"], [],
+   [AC_MSG_NOTICE([unlocking disabled rebar3 dependencies: $deps])
+    $rebar unlock "$deps"])
+  deps=""
+  ERLANG_VERSION=m4_esyscmd([erl -noinput -noshell -eval 'erlang:display(list_to_integer(erlang:system_info(otp_release))), halt().'])
+  AS_IF([test "$ERLANG_VERSION" -lt "21"], [deps="luerl,$deps"])
+  AS_IF([test "$ERLANG_VERSION" -lt "22"], [deps="lager,$deps"])
+  AS_IF([test "$ERLANG_VERSION" -le "23"], [deps="jose,$deps"])
+  AS_IF([test "$ERLANG_VERSION" -ge "27"], [deps="jiffy,$deps"])
+  AS_IF([test "x$deps" = "x"], [],
+   [AC_MSG_NOTICE([unlocking rebar3 dependencies for old Erlang/OTP: $deps])
+    $rebar unlock "$deps"])
+ ])
