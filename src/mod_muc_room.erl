@@ -292,6 +292,7 @@ get_disco_item(Pid, Filter, JID, Lang) ->
 init([Host, ServerHost, Access, Room, HistorySize,
       RoomShaper, Creator, _Nick, DefRoomOpts, QueueType]) ->
     process_flag(trap_exit, true),
+    misc:set_proc_label({?MODULE, Room, Host}),
     Shaper = ejabberd_shaper:new(RoomShaper),
     RoomQueue = room_queue_new(ServerHost, Shaper, QueueType),
     State = set_opts(DefRoomOpts,
@@ -314,6 +315,7 @@ init([Host, ServerHost, Access, Room, HistorySize,
     {ok, normal_state, reset_hibernate_timer(State1)};
 init([Host, ServerHost, Access, Room, HistorySize, RoomShaper, Opts, QueueType]) ->
     process_flag(trap_exit, true),
+    misc:set_proc_label({?MODULE, Room, Host}),
     Shaper = ejabberd_shaper:new(RoomShaper),
     RoomQueue = room_queue_new(ServerHost, Shaper, QueueType),
     Jid = jid:make(Room, Host),
@@ -503,10 +505,12 @@ normal_state({route, <<"">>,
 			       process_iq_adhoc(From, IQ, StateData);
 			   #register{} ->
                                mod_muc:process_iq_register(IQ);
-			   #fasten_apply_to{} = ApplyTo ->
+			   #message_moderate{} = Moderate -> % moderate:1
+			       process_iq_moderate(From, IQ, Moderate, StateData);
+			   #fasten_apply_to{id = ModerateId} = ApplyTo ->
 			       case xmpp:get_subtag(ApplyTo, #message_moderate{}) of
-				   #message_moderate{} = Moderate ->
-				       process_iq_moderate(From, IQ, ApplyTo, Moderate, StateData);
+				   #message_moderate{} = Moderate -> % moderate:0
+				       process_iq_moderate(From, IQ, Moderate#message_moderate{id = ModerateId}, StateData);
 				   _ ->
 				       Txt = ?T("The feature requested is not "
 						"supported by the conference"),
@@ -3714,8 +3718,10 @@ is_allowed_log_change(Options, StateData, From) ->
 	false -> true;
 	true ->
 	    allow ==
-		mod_muc_log:check_access_log(StateData#state.server_host,
-					     From)
+		ejabberd_hooks:run_fold(muc_log_check_access_log,
+                                        StateData#state.server_host,
+                                        deny,
+                                        [StateData#state.server_host, From])
     end.
 
 -spec is_allowed_persistent_change(muc_roomconfig:result(), state(), jid()) -> boolean().
@@ -3854,7 +3860,10 @@ get_config(Lang, StateData, From) ->
 		[]
 	end
 	++
-	case mod_muc_log:check_access_log(StateData#state.server_host, From) of
+        case ejabberd_hooks:run_fold(muc_log_check_access_log,
+                                     StateData#state.server_host,
+                                     deny,
+                                     [StateData#state.server_host, From]) of
 	    allow -> [{enablelogging, Config#config.logging}];
 	    deny -> []
 	end,
@@ -4392,7 +4401,9 @@ make_disco_info(From, StateData) ->
     ServerHost = StateData#state.server_host,
     AccessRegister = mod_muc_opt:access_register(ServerHost),
     Feats = [?NS_VCARD, ?NS_MUC, ?NS_DISCO_INFO, ?NS_DISCO_ITEMS,
-             ?NS_COMMANDS, ?NS_MESSAGE_MODERATE, ?NS_MESSAGE_RETRACT,
+             ?NS_COMMANDS,
+             ?NS_MESSAGE_MODERATE_0, ?NS_MESSAGE_MODERATE_1,
+             ?NS_MESSAGE_RETRACT,
 	     ?CONFIG_OPT_TO_FEATURE((Config#config.public),
 				    <<"muc_public">>, <<"muc_hidden">>),
 	     ?CONFIG_OPT_TO_FEATURE((Config#config.persistent),
@@ -4553,7 +4564,10 @@ iq_disco_info_extras(Lang, StateData, Static) ->
 	  end,
     Fs4 = case Config#config.logging of
 	      true ->
-		  case mod_muc_log:get_url(StateData) of
+		  case ejabberd_hooks:run_fold(muc_log_get_url,
+                                               StateData#state.server_host,
+                                               error,
+                                               [StateData]) of
 		      {ok, URL} ->
 			  [{logs, URL}|Fs3];
 		      error ->
@@ -5148,14 +5162,13 @@ add_presence_hats(JID, Pres, StateData) ->
             Pres
     end.
 
--spec process_iq_moderate(jid(), iq(), fasten_apply_to(), message_moderate(), state()) ->
+-spec process_iq_moderate(jid(), iq(), message_moderate(), state()) ->
     {result, undefined, state()} |
     {error, stanza_error()}.
-process_iq_moderate(_From, #iq{type = get}, _ApplyTo, _Moderate, _StateData) ->
+process_iq_moderate(_From, #iq{type = get}, _Moderate, _StateData) ->
     {error, xmpp:err_bad_request()};
 process_iq_moderate(From, #iq{type = set, lang = Lang},
-		    #fasten_apply_to{id = Id},
-		    #message_moderate{reason = Reason},
+		    #message_moderate{id = Id, reason = Reason, xmlns = Xmlns},
 		    #state{config = Config, room = Room, host = Host,
                            jid = JID, server_host = Server} = StateData) ->
     FAffiliation = get_affiliation(From, StateData),
@@ -5176,13 +5189,25 @@ process_iq_moderate(From, #iq{type = set, lang = Lang},
 			    ok
 		    end,
 		    By = jid:replace_resource(JID, find_nick_by_jid(From, StateData)),
+                    SubEl = case Xmlns of
+                                ?NS_MESSAGE_MODERATE_0 ->
+                                    SubEls = [#xmlel{name = <<"reason">>,
+                                                    attrs = [],
+                                                    children = [{xmlcdata, Reason}]},
+                                              #message_retract{id = Id}],
+                                    ModeratedEl = #message_moderated{by = By,
+                                                                   sub_els = SubEls},
+                                    #fasten_apply_to{id = Id,
+                                                     sub_els = [ModeratedEl]};
+                                ?NS_MESSAGE_MODERATE_1 ->
+                                    ModeratedEl = #message_moderated{by = By},
+                                    #message_retract{id = Id,
+                                                     reason = Reason,
+                                                     moderated = ModeratedEl}
+                            end,
 		    Packet0 = #message{type = groupchat,
                                        from = From,
-				      sub_els = [
-					  #fasten_apply_to{id = Id, sub_els = [
-					      #message_moderated{by = By, reason = Reason,
-								 retract = #message_retract{id = Id}}
-					  ]}]},
+                                       sub_els = [SubEl]},
 	            {FromNick, _Role} = get_participant_data(From, StateData),
                     Packet = ejabberd_hooks:run_fold(muc_filter_message,
 						     StateData#state.server_host,
@@ -5332,15 +5357,23 @@ handle_roommessage_from_nonparticipant(Packet, StateData, From) ->
 
 add_to_log(Type, Data, StateData)
     when Type == roomconfig_change_disabledlogging ->
-    mod_muc_log:add_to_log(StateData#state.server_host,
-			   roomconfig_change, Data, StateData#state.jid,
-			   make_opts(StateData, false));
+    ejabberd_hooks:run(muc_log_add,
+                       StateData#state.server_host,
+                       [StateData#state.server_host,
+                        roomconfig_change,
+                        Data,
+                        StateData#state.jid,
+                        make_opts(StateData, false)]);
 add_to_log(Type, Data, StateData) ->
     case (StateData#state.config)#config.logging of
       true ->
-	  mod_muc_log:add_to_log(StateData#state.server_host,
-				 Type, Data, StateData#state.jid,
-				 make_opts(StateData, false));
+        ejabberd_hooks:run(muc_log_add,
+                           StateData#state.server_host,
+                           [StateData#state.server_host,
+                            Type,
+                            Data,
+                            StateData#state.jid,
+                            make_opts(StateData, false)]);
       false -> ok
     end.
 

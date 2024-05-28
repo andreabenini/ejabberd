@@ -293,6 +293,7 @@ string_to_type(SType) ->
         <<"integer">> -> integer;
         <<"int">> -> integer;
         <<"int(", _/binary>> -> integer;
+        <<"int ", _/binary>> -> integer;
         <<"smallint">> -> smallint;
         <<"smallint(", _/binary>> -> smallint;
         <<"numeric">> -> numeric;
@@ -300,6 +301,7 @@ string_to_type(SType) ->
         <<"bigserial">> -> bigserial;
         <<"boolean">> -> boolean;
         <<"tinyint(1)">> -> boolean;
+        <<"tinyint", _/binary>> -> smallint;
         <<"bytea">> -> blob;
         <<"blob">> -> blob;
         <<"timestamp", _/binary>> -> timestamp;
@@ -340,6 +342,8 @@ check_columns_compatibility(RequiredColumns, Columns) ->
                           {integer, bigint} -> true;
                           {integer, numeric} -> true;
                           {bigint, numeric} -> true;
+                          %% a workaround for MySQL definition of mqtt_pub
+                          {bigint, integer} -> true;
                           {bigserial, integer} -> true;
                           {bigserial, bigint} -> true;
                           {bigserial, numeric} -> true;
@@ -768,7 +772,7 @@ should_update_schema(Host) ->
         true ->
             case ejabberd_sql:use_new_schema() of
                 true ->
-                    Host == ejabberd_config:get_myname();
+                    lists:member(sql, ejabberd_option:auth_method(Host));
                 false ->
                     true
             end;

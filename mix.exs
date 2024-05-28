@@ -13,9 +13,7 @@ defmodule Ejabberd.MixProject do
      erlc_options: erlc_options(),
      erlc_paths: ["asn1", "src"],
      # Elixir tests are starting the part of ejabberd they need
-     aliases: [
-       test: "test --no-start",
-       "deps.get": ["deps.get", "pc_branch"]],
+     aliases: [test: "test --no-start"],
      start_permanent: Mix.env() == :prod,
      language: :erlang,
      dialyzer: dialyzer(),
@@ -47,11 +45,11 @@ defmodule Ejabberd.MixProject do
     [mod: {:ejabberd_app, []},
      applications: [:idna, :inets, :kernel, :sasl, :ssl, :stdlib, :mix,
                     :fast_tls, :fast_xml, :fast_yaml, :jose,
-                    :p1_utils, :stringprep, :syntax_tools, :yconf]
+                    :p1_utils, :stringprep, :syntax_tools, :yconf, :xmpp]
      ++ cond_apps(),
      included_applications: [:mnesia, :os_mon,
                              :cache_tab, :eimp, :mqtree, :p1_acme,
-                             :p1_oauth2, :pkix, :xmpp]
+                             :p1_oauth2, :pkix]
      ++ cond_included_apps()]
   end
 
@@ -176,8 +174,8 @@ defmodule Ejabberd.MixProject do
                          {if_version_below(~c"27", true), {:jiffy, "~> 1.1.1"}},
                          {if_version_below(~c"22", true), {:lager, "~> 3.9.1"}},
                          {config(:lua), {:luerl, "~> 1.2.0"}},
-                         {config(:mysql), {:p1_mysql, ">= 1.0.23" }},
-                         {config(:pgsql), {:p1_pgsql, "~> 1.1"}},
+                         {config(:mysql), {:p1_mysql, git: "https://github.com/processone/p1_mysql" }},
+                         {config(:pgsql), {:p1_pgsql, git: "https://github.com/processone/p1_pgsql"}},
                          {config(:sqlite), {:sqlite3, "~> 1.1"}},
                          {config(:stun), {:stun, "~> 1.0"}}], do:
       dep
@@ -410,14 +408,6 @@ defmodule Ejabberd.MixProject do
         "For more documentation": "_build/edoc/docs.md"
       ]
     ]
-  end
-end
-
-defmodule Mix.Tasks.PcBranch do
-  use Mix.Task
-  def run(_) do
-    command = "find deps -name rebar.config.script -exec sed -i 's/AppendList..pc/AppendList\(\[{pc, {git, \"https:\\/\\/github.com\\/blt\\/port_compiler.git\", {branch, \"otp-27\"}}}/g' {} ';' "
-    :os.cmd(to_charlist(command))
   end
 end
 
