@@ -40,6 +40,7 @@
 	 convert_to_yaml/2,
 	 %% Cluster
 	 join_cluster/1, leave_cluster/1,
+         join_cluster_here/1,
 	 list_cluster/0, list_cluster_detailed/0,
 	 get_cluster_node_details3/0,
 	 %% Erlang
@@ -249,10 +250,18 @@ get_commands_spec() ->
 			result = {res, rescode}},
 
      #ejabberd_commands{name = join_cluster, tags = [cluster],
-			desc = "Join this node into the cluster handled by Node",
-			note = "improved in 24.xx",
+			desc = "Join our local node into the cluster handled by Node",
+			note = "improved in 24.06",
 			module = ?MODULE, function = join_cluster,
 			args_desc = ["Nodename of the node to join"],
+			args_example = [<<"ejabberd1@machine7">>],
+			args = [{node, binary}],
+			result = {res, restuple}},
+     #ejabberd_commands{name = join_cluster_here, tags = [cluster],
+			desc = "Join a remote Node here, into our cluster",
+			note = "added in 24.06",
+			module = ?MODULE, function = join_cluster_here,
+			args_desc = ["Nodename of the node to join here"],
 			args_example = [<<"ejabberd1@machine7">>],
 			args = [{node, binary}],
 			result = {res, restuple}},
@@ -277,7 +286,7 @@ get_commands_spec() ->
 			result = {nodes, {list, {node, atom}}}},
      #ejabberd_commands{name = list_cluster_detailed, tags = [cluster],
 			desc = "List nodes (both running and known) and some stats",
-			note = "added in 24.xx",
+			note = "added in 24.06",
 			module = ?MODULE, function = list_cluster_detailed,
 			args = [],
 			result_example = [{'ejabberd@localhost', "true",
@@ -418,7 +427,7 @@ get_commands_spec() ->
 			result = {res, rescode}},
      #ejabberd_commands{name = get_master, tags = [cluster],
 			desc = "Get master node of the clustered Mnesia tables",
-			note = "added in 24.xx",
+			note = "added in 24.06",
 			longdesc = "If there is no master, returns `none`.",
 			module = ?MODULE, function = get_master,
 			result = {nodename, atom}},
@@ -825,8 +834,9 @@ convert_to_yaml(In, Out) ->
 %%% Cluster management
 %%%
 
-join_cluster(NodeBin) ->
-    Node = list_to_atom(binary_to_list(NodeBin)),
+join_cluster(NodeBin) when is_binary(NodeBin) ->
+    join_cluster(list_to_atom(binary_to_list(NodeBin)));
+join_cluster(Node) when is_atom(Node) ->
     IsNodes = lists:member(Node, ejabberd_cluster:get_nodes()),
     IsKnownNodes = lists:member(Node, ejabberd_cluster:get_known_nodes()),
     Ping = net_adm:ping(Node),
@@ -841,13 +851,36 @@ join_cluster(_Node, _IsNodes, _IsKnownNodes, pang) ->
 join_cluster(Node, false, false, pong) ->
     case timer:apply_after(1000, ejabberd_cluster, join, [Node]) of
         {ok, _} ->
-            {ok, "Trying to join the cluster, wait a few seconds and check the list of nodes."};
+            {ok, "Trying to join that cluster, wait a few seconds and check the list of nodes."};
         Error ->
-            {error, io_lib:format("Can't join cluster: ~p", [Error])}
+            {error, io_lib:format("Can't join that cluster: ~p", [Error])}
     end.
 
-leave_cluster(NodeBin) ->
-    ejabberd_cluster:leave(list_to_atom(binary_to_list(NodeBin))).
+join_cluster_here(NodeBin) ->
+    Node = list_to_atom(binary_to_list(NodeBin)),
+    IsNodes = lists:member(Node, ejabberd_cluster:get_nodes()),
+    IsKnownNodes = lists:member(Node, ejabberd_cluster:get_known_nodes()),
+    Ping = net_adm:ping(Node),
+    join_cluster_here(Node, IsNodes, IsKnownNodes, Ping).
+
+join_cluster_here(_Node, true, _IsKnownNodes, _Ping) ->
+    {error, "This node already joined that running node."};
+join_cluster_here(_Node, _IsNodes, true, _Ping) ->
+    {error, "This node already joined that known node."};
+join_cluster_here(_Node, _IsNodes, _IsKnownNodes, pang) ->
+    {error, "This node cannot reach that node."};
+join_cluster_here(Node, false, false, pong) ->
+    case ejabberd_cluster:call(Node, ejabberd_admin, join_cluster, [misc:atom_to_binary(node())]) of
+        {ok, _} ->
+            {ok, "Trying to join node to this cluster, wait a few seconds and check the list of nodes."};
+        Error ->
+            {error, io_lib:format("Can't join node to this cluster: ~p", [Error])}
+    end.
+
+leave_cluster(NodeBin) when is_binary(NodeBin) ->
+    leave_cluster(list_to_atom(binary_to_list(NodeBin)));
+leave_cluster(Node) ->
+    ejabberd_cluster:leave(Node).
 
 list_cluster() ->
     ejabberd_cluster:get_nodes().
@@ -1350,6 +1383,11 @@ web_page_node(_, Node, #request{path = [<<"cluster">>]} = R) ->
     Head = ?H1GLraw(<<"Clustering">>, <<"admin/guide/clustering/">>, <<"Clustering">>),
     Set1 =
         [ejabberd_cluster:call(Node,
+                               ejabberd_web_admin,
+                               make_command,
+                               [join_cluster_here, R, [], []]),
+         ?XE(<<"blockquote">>, [?C(Hint)]),
+         ejabberd_cluster:call(Node,
                                ejabberd_web_admin,
                                make_command,
                                [join_cluster, R, [], [{style, danger}]]),
