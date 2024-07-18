@@ -186,10 +186,12 @@ end_per_group(mssql, Config) ->
     end,
     ok;
 end_per_group(pgsql, Config) ->
-    Query = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'mqtt_pub');",
+    Query = "SELECT EXISTS (SELECT 0 FROM information_schema.tables WHERE table_name = 'mqtt_pub');",
     case catch ejabberd_sql:sql_query(?PGSQL_VHOST, [Query]) of
         {selected, [t]} ->
             clear_sql_tables(pgsql, Config);
+	{selected, _, [[<<"t">>]]} ->
+	    clear_sql_tables(pgsql, Config);
         Other ->
             ct:fail({failed_to_check_table_existence, pgsql, Other})
     end,
@@ -388,6 +390,7 @@ no_db_tests() ->
      auth_external_wrong_jid,
      auth_external_wrong_server,
      auth_external_invalid_cert,
+     commands_tests:single_cases(),
      jidprep_tests:single_cases(),
      sm_tests:single_cases(),
      sm_tests:master_slave_cases(),
@@ -917,6 +920,8 @@ presence_broadcast(Config) ->
     IQ = #iq{type = get,
 	     from = JID,
 	     sub_els = [#disco_info{node = Node}]} = recv_iq(Config),
+    #message{type = chat,
+             subject = [#text{lang = <<"en">>,data = <<"Welcome!">>}]} = recv_message(Config),
     #message{type = normal,
              subject = [#text{lang = <<"en">>,data = <<"Welcome!">>}]} = recv_message(Config),
     #presence{from = JID, to = JID} = recv_presence(Config),

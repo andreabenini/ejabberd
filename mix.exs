@@ -47,7 +47,7 @@ defmodule Ejabberd.MixProject do
                     :fast_tls, :fast_xml, :fast_yaml, :jose,
                     :p1_utils, :stringprep, :syntax_tools, :yconf, :xmpp]
      ++ cond_apps(),
-     included_applications: [:mnesia, :os_mon,
+     included_applications: [:mnesia, :os_mon, :logger,
                              :cache_tab, :eimp, :mqtree, :p1_acme,
                              :p1_oauth2, :pkix]
      ++ cond_included_apps()]
@@ -145,7 +145,7 @@ defmodule Ejabberd.MixProject do
      {:p1_utils, "~> 1.0"},
      {:pkix, "~> 1.0"},
      {:stringprep, ">= 1.0.26"},
-     {:xmpp, ">= 1.8.2"},
+     {:xmpp, ">= 1.8.3"},
      {:yconf, "~> 1.0"}]
     ++ cond_deps()
   end
@@ -209,6 +209,7 @@ defmodule Ejabberd.MixProject do
     [# These are the default files included in the package
       files: ["include", "lib", "priv", "sql", "src",
               "COPYING", "README.md",
+              "ejabberd.yml.example", "config/runtime.exs",
               "mix.exs", "rebar.config", "rebar.config.script", "vars.config"],
       maintainers: ["ProcessOne"],
       licenses: ["GPL-2.0-or-later"],

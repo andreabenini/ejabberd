@@ -36,7 +36,7 @@
          install_contrib_modules/2,
          config_dir/0, get_commands_spec/0]).
 -export([modules_configs/0, module_ebin_dir/1]).
--export([compile_erlang_file/2, compile_elixir_file/2]).
+-export([compile_erlang_file/2, compile_elixir_files/2]).
 -export([web_menu_node/3, web_page_node/3, webadmin_node_contrib/3]).
 
 %% gen_server callbacks
@@ -603,8 +603,7 @@ compile(LibDir) ->
     compile_c_files(LibDir),
     Er = [compile_erlang_file(Bin, File, Options)
           || File <- filelib:wildcard(Src++"/**/*.erl")],
-    Ex = [compile_elixir_file(Bin, File)
-          || File <- filelib:wildcard(Lib ++ "/**/*.ex")],
+    Ex = compile_elixir_files(Bin, filelib:wildcard(Lib ++ "/**/*.ex")),
     compile_result(lists:flatten([Er, Ex])).
 
 compile_c_files(LibDir) ->
@@ -669,18 +668,34 @@ compile_erlang_file(Dest, File, ErlOptions) ->
     end.
 
 -ifdef(ELIXIR_ENABLED).
-compile_elixir_file(Dest, File) when is_list(Dest) and is_list(File) ->
-  compile_elixir_file(list_to_binary(Dest), list_to_binary(File));
+compile_elixir_files(_, []) ->
+    ok;
+compile_elixir_files(Dest, [File | _] = Files) when is_list(Dest) and is_list(File) ->
+  BinFiles = [list_to_binary(F) || F <- Files],
+  compile_elixir_files(list_to_binary(Dest), BinFiles);
 
-compile_elixir_file(Dest, File) ->
-  try 'Elixir.Kernel.ParallelCompiler':files_to_path([File], Dest, []) of
-    Modules when is_list(Modules) -> {ok, Modules}
+compile_elixir_files(Dest, Files) ->
+  try 'Elixir.Kernel.ParallelCompiler':compile_to_path(Files, Dest, [{return_diagnostics, true}]) of
+      {ok, Modules, []} when is_list(Modules) ->
+          {ok, Modules};
+      {ok, Modules, Warnings} when is_list(Modules) ->
+          ?WARNING_MSG("Warnings compiling module: ~n~p", [Warnings]),
+          {ok, Modules}
   catch
-    _ -> {error, {compilation_failed, File}}
+    A:B ->
+          ?ERROR_MSG("Problem ~p compiling Elixir files: ~p~nFiles: ~p", [A, B, Files]),
+          {error, {compilation_failed, Files}}
   end.
 -else.
-compile_elixir_file(_, File) ->
-    {error, {compilation_failed, File}}.
+compile_elixir_files(_, []) ->
+    ok;
+compile_elixir_files(_, Files) ->
+    ErrorString = "Attempted to compile Elixir files, but Elixir support is "
+        "not available in ejabberd. Try compiling ejabberd using "
+        "'./configure --enable-elixir' or './configure --with-rebar=mix'",
+    ?ERROR_MSG(ErrorString, []),
+    io:format("Error: " ++ ErrorString ++ "~n", []),
+    {error, {elixir_not_available, Files}}.
 -endif.
 
 install(Module, Spec, SrcDir, LibDir, Config) ->
@@ -749,8 +764,10 @@ fetch_rebar_deps(SrcDir) ->
             {ok, CurDir} = file:get_cwd(),
             file:set_cwd(SrcDir),
             filelib:ensure_dir(filename:join("deps", ".")),
-            lists:foreach(fun({_App, Cmd}) ->
-                        os:cmd("cd deps; "++Cmd++"; cd ..")
+            lists:foreach(fun({App, Cmd}) ->
+                        io:format("Fetching dependency ~s: ", [App]),
+                        Result = os:cmd("cd deps; "++Cmd++"; cd .."),
+                        io:format("~s", [Result])
                 end, Deps),
             file:set_cwd(CurDir)
     end.
@@ -764,6 +781,19 @@ rebar_deps(Script) ->
         _ ->
             []
     end.
+
+rebar_dep({App, Version, Git}) when Version /= ".*" ->
+    AppS = atom_to_list(App),
+    Help = os:cmd("mix hex.package"),
+    case string:find(Help, "mix hex.package fetch") /= nomatch of
+        true ->
+            {App, "mix hex.package fetch "++AppS++" "++Version++" --unpack"};
+        false ->
+            io:format("I'll download ~p using git because I can't use Mix "
+                      "to fetch from hex.pm:~n~s", [AppS, Help]),
+            rebar_dep({App, ".*", Git})
+    end;
+
 rebar_dep({App, _, {git, Url}}) ->
     {App, "git clone "++Url++" "++filename:basename(App)};
 rebar_dep({App, _, {git, Url, {branch, Ref}}}) ->
@@ -1195,7 +1225,7 @@ is_elixir_module(Module) ->
           filelib:wildcard(Src++"/*.{erl}")} of
         {[_ | _], []} ->
             true;
-        {[], [_ | _]} ->
+        {[], _} ->
             false
     end.
 

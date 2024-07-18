@@ -53,7 +53,10 @@
 -include("logger.hrl").
 
 start() ->
-    application:ensure_all_started(ejabberd).
+    case application:ensure_all_started(ejabberd) of
+      {error, Err} -> error_logger:error_msg("Failed to start ejabberd application: ~p", [Err]);
+      Ok -> Ok
+    end.
 
 stop() ->
     application:stop(ejabberd).

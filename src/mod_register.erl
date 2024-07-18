@@ -415,6 +415,12 @@ send_welcome_message(JID) ->
 	  ejabberd_router:route(
 	    #message{from = jid:make(Host),
 		     to = JID,
+		     type = chat,
+		     subject = xmpp:mk_text(Subj),
+		     body = xmpp:mk_text(<<Subj/binary, "\n\n", Body/binary>>)}),
+	  ejabberd_router:route(
+	    #message{from = jid:make(Host),
+		     to = JID,
 		     subject = xmpp:mk_text(Subj),
 		     body = xmpp:mk_text(Body)})
     end.
@@ -702,4 +708,13 @@ mod_doc() ->
             #{value => "{subject: Subject, body: Body}",
               desc =>
                   ?T("Set a welcome message that is sent to each newly registered account. "
-                     "The message will have subject 'Subject' and text 'Body'.")}}]}.
+                     "The message will have subject 'Subject' and text 'Body'."),
+              example =>
+                    ["modules:",
+                     "  mod_register:",
+                     "    welcome_message:",
+                     "      subject: \"Welcome!\"",
+                     "      body: |-",
+                     "        Hi!",
+                     "        Welcome to this XMPP server"]}}
+          ]}.
