@@ -43,11 +43,10 @@ defmodule Ejabberd.MixProject do
 
   def application do
     [mod: {:ejabberd_app, []},
-     applications: [:idna, :inets, :kernel, :sasl, :ssl, :stdlib, :mix,
-                    :fast_tls, :fast_xml, :fast_yaml, :jose,
-                    :p1_utils, :stringprep, :syntax_tools, :yconf, :xmpp]
+     extra_applications: [:inets, :kernel, :sasl, :ssl, :stdlib, :syntax_tools,
+                          :logger, :mix]
      ++ cond_apps(),
-     included_applications: [:mnesia, :os_mon, :logger,
+     included_applications: [:mnesia, :os_mon,
                              :cache_tab, :eimp, :mqtree, :p1_acme,
                              :p1_oauth2, :pkix]
      ++ cond_included_apps()]
@@ -135,7 +134,7 @@ defmodule Ejabberd.MixProject do
      {:dialyxir, "~> 1.2", only: [:test], runtime: false},
      {:eimp, "~> 1.0"},
      {:ex_doc, "~> 0.31", only: [:dev, :edoc], runtime: false},
-     {:fast_tls, ">= 1.1.18"},
+     {:fast_tls, git: "https://github.com/processone/fast_tls.git", ref: "75a08772f0ffddfed0441bfdc7e7f9a5adb3862f", override: true},
      {:fast_xml, git: "https://github.com/processone/fast_xml.git", ref: "e7dc91310046831f436a03abf029587f0c2764f4", override: true},
      {:fast_yaml, "~> 1.0"},
      {:idna, "~> 6.0"},
@@ -145,7 +144,7 @@ defmodule Ejabberd.MixProject do
      {:p1_utils, "~> 1.0"},
      {:pkix, "~> 1.0"},
      {:stringprep, ">= 1.0.26"},
-     {:xmpp, ">= 1.8.3"},
+     {:xmpp, git: "https://github.com/processone/xmpp.git", ref: "2a54443436dc8a942969f2ef7c5654d5acab7533", override: true},
      {:yconf, "~> 1.0"}]
     ++ cond_deps()
   end
@@ -166,7 +165,7 @@ defmodule Ejabberd.MixProject do
                          {Mix.env() == :translations,
                           {:ejabberd_po, git: "https://github.com/processone/ejabberd-po.git"}},
                          {Mix.env() == :dev,
-                          {:exsync, "~> 0.2"}},
+                          {:exsync, "~> 0.2", optional: true, runtime: false}},
                          {config(:redis), {:eredis, "~> 1.2.0"}},
                          {config(:sip), {:esip, "~> 1.0"}},
                          {config(:zlib), {:ezlib, "~> 1.0"}},
@@ -184,7 +183,6 @@ defmodule Ejabberd.MixProject do
 
   defp cond_apps do
     for {:true, app} <- [{config(:stun), :stun},
-                         {Map.has_key?(System.get_env(), "RELIVE"), :exsync},
                          {if_version_below(~c"27", true), :jiffy},
                          {config(:tools), :observer}], do:
       app
