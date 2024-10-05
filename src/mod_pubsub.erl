@@ -265,10 +265,7 @@ init([ServerHost|_]) ->
 		  ejabberd_router:register_route(
 		    Host, ServerHost, {apply, ?MODULE, route}),
 		  {Plugins, NodeTree, PepMapping} = init_plugins(Host, ServerHost, Opts),
-		  DefaultModule = plugin(Host, hd(Plugins)),
-		  DefaultNodeCfg = merge_config(
-				     [mod_pubsub_opt:default_node_config(Opts),
-				      DefaultModule:options()]),
+		  DefaultNodeCfg = mod_pubsub_opt:default_node_config(Opts),
 		  lists:foreach(
 		    fun(H) ->
 			    T = gen_mod:get_module_proc(H, config),
@@ -3369,22 +3366,19 @@ get_option(Options, Var, Def) ->
 
 -spec node_options(host(), binary()) -> [{atom(), any()}].
 node_options(Host, Type) ->
-    DefaultOpts = node_plugin_options(Host, Type),
-    case lists:member(Type, config(Host, plugins)) of
-	true ->
-            config(Host, default_node_config, DefaultOpts);
-	false -> DefaultOpts
-    end.
+    ConfigOpts = config(Host, default_node_config),
+    PluginOpts = node_plugin_options(Host, Type),
+    merge_config([ConfigOpts, PluginOpts]).
 
 -spec node_plugin_options(host(), binary()) -> [{atom(), any()}].
 node_plugin_options(Host, Type) ->
     Module = plugin(Host, Type),
-    case catch Module:options() of
-	{'EXIT', {undef, _}} ->
+    case {lists:member(Type, config(Host, plugins)), catch Module:options()} of
+	{true, Opts} when is_list(Opts) ->
+	    Opts;
+	{_, _} ->
 	    DefaultModule = plugin(Host, ?STDNODE),
-	    DefaultModule:options();
-	Result ->
-	    Result
+	    DefaultModule:options()
     end.
 
 -spec node_owners_action(host(), binary(), nodeIdx(), [ljid()]) -> [ljid()].
