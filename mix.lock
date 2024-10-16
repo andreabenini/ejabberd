@@ -1,7 +1,7 @@
 %{
   "base64url": {:hex, :base64url, "1.0.1", "f8c7f2da04ca9a5d0f5f50258f055e1d699f0e8bf4cfdb30b750865368403cf6", [:rebar3], [], "hexpm", "f9b3add4731a02a9b0410398b475b33e7566a695365237a6bdee1bb447719f5c"},
   "cache_tab": {:hex, :cache_tab, "1.0.31", "e4097b50a6f373ab1e0a5f01bab0bef6626771a4cd6c93404ed6d54810e11fbc", [:rebar3], [{:p1_utils, "1.0.26", [hex: :p1_utils, repo: "hexpm", optional: false]}], "hexpm", "8582b60a4a09b247ef86355ba9e07fce9e11edc0345a775c9171f971c72b6351"},
-  "dialyxir": {:hex, :dialyxir, "1.4.3", "edd0124f358f0b9e95bfe53a9fcf806d615d8f838e2202a9f430d59566b6b53b", [:mix], [{:erlex, ">= 0.2.6", [hex: :erlex, repo: "hexpm", optional: false]}], "hexpm", "bf2cfb75cd5c5006bec30141b131663299c661a864ec7fbbc72dfa557487a986"},
+  "dialyxir": {:hex, :dialyxir, "1.4.4", "fb3ce8741edeaea59c9ae84d5cec75da00fa89fe401c72d6e047d11a61f65f70", [:mix], [{:erlex, ">= 0.2.7", [hex: :erlex, repo: "hexpm", optional: false]}], "hexpm", "cd6111e8017ccd563e65621a4d9a4a1c5cd333df30cebc7face8029cacb4eff6"},
   "earmark_parser": {:hex, :earmark_parser, "1.4.41", "ab34711c9dc6212dda44fcd20ecb87ac3f3fce6f0ca2f28d4a00e4154f8cd599", [:mix], [], "hexpm", "a81a04c7e34b6617c2792e291b5a2e57ab316365c2644ddc553bb9ed863ebefa"},
   "eimp": {:hex, :eimp, "1.0.23", "aaf32efab061143403dadbaa63e699ef8e81702fbfa96fd436d5e9be4d6a8d3a", [:rebar3], [{:p1_utils, "1.0.26", [hex: :p1_utils, repo: "hexpm", optional: false]}], "hexpm", "907c780023cb2893e4fc4bdbe6a4f02c355913862ac67f0ecc26605e816b628a"},
   "epam": {:hex, :epam, "1.0.14", "aa0b85d27f4ef3a756ae995179df952a0721237e83c6b79d644347b75016681a", [:rebar3], [], "hexpm", "2f3449e72885a72a6c2a843f561add0fc2f70d7a21f61456930a547473d4d989"},
@@ -32,6 +32,6 @@
   "stringprep": {:hex, :stringprep, "1.0.30", "46cf0ff631b3e7328f61f20b454d59428d87738f25d709798b5dcbb9b83c23f1", [:rebar3], [{:p1_utils, "1.0.26", [hex: :p1_utils, repo: "hexpm", optional: false]}], "hexpm", "f6fc9b3384a03877830f89b2f38580caf3f4a27448a4a333d6a8c3975c220b9a"},
   "stun": {:hex, :stun, "1.2.14", "6f538ac80c842131dbd149055570d116bfabc9b5ebff4bd6af2e7888958c660c", [:rebar3], [{:fast_tls, "1.1.21", [hex: :fast_tls, repo: "hexpm", optional: false]}, {:p1_utils, "1.0.26", [hex: :p1_utils, repo: "hexpm", optional: false]}], "hexpm", "e134807b1b7a8dffd94e64eefee00e65c7b4042f3d14e16f8f43566d20371583"},
   "unicode_util_compat": {:hex, :unicode_util_compat, "0.7.0", "bc84380c9ab48177092f43ac89e4dfa2c6d62b40b8bd132b1059ecc7232f9a78", [:rebar3], [], "hexpm", "25eee6d67df61960cf6a794239566599b09e17e668d3700247bc498638152521"},
-  "xmpp": {:git, "https://github.com/processone/xmpp.git", "ff0dd5390acc3c1ee8cd1c7e6dc60a0c3cb1d127", [ref: "ff0dd5390acc3c1ee8cd1c7e6dc60a0c3cb1d127"]},
+  "xmpp": {:git, "https://github.com/processone/xmpp.git", "422c107a882b6967e615ea69b33fac4897048fbb", [ref: "422c107a882b6967e615ea69b33fac4897048fbb"]},
   "yconf": {:hex, :yconf, "1.0.16", "d59521d66ff89f219411b6e9277cd6feec7cc6fce11554e67de02a8d0a470479", [:rebar3], [{:fast_yaml, "1.0.37", [hex: :fast_yaml, repo: "hexpm", optional: false]}], "hexpm", "e947813273f38711c7b2e5a8e4acc9a51c7bbe854f744a345f60300b38586c89"},
 }
