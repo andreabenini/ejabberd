@@ -44,7 +44,8 @@
 	 handle_auth_failure/4, handle_send/3, handle_recv/3, handle_cdata/2,
 	 handle_unbinded_packet/2, inline_stream_features/1,
 	 handle_sasl2_inline/2, handle_sasl2_inline_post/3,
-	 handle_bind2_inline/2, handle_bind2_inline_post/3, sasl_options/1]).
+	 handle_bind2_inline/2, handle_bind2_inline_post/3, sasl_options/1,
+	 handle_sasl2_task_next/4, handle_sasl2_task_data/3]).
 %% Hooks
 -export([handle_unexpected_cast/2, handle_unexpected_call/3,
 	 process_auth_result/3, reject_unauthenticated_packet/2,
@@ -407,7 +408,7 @@ authenticated_stream_features(#{lserver := LServer}) ->
     ejabberd_hooks:run_fold(c2s_post_auth_features, LServer, [], [LServer]).
 
 inline_stream_features(#{lserver := LServer}) ->
-    ejabberd_hooks:run_fold(c2s_inline_features, LServer, {[], []}, [LServer]).
+    ejabberd_hooks:run_fold(c2s_inline_features, LServer, {[], [], []}, [LServer]).
 
 sasl_mechanisms(Mechs, #{lserver := LServer, stream_encrypted := Encrypted} = State) ->
     Type = ejabberd_auth:store_type(LServer),
@@ -582,6 +583,14 @@ handle_bind2_inline(Els, #{lserver := LServer} = State) ->
 handle_bind2_inline_post(Els, Results, #{lserver := LServer} = State) ->
     ejabberd_hooks:run_fold(c2s_handle_bind2_inline_post, LServer,
 			    State, [Els, Results]).
+
+handle_sasl2_task_next(Task, Els, InlineEls, #{lserver := LServer} = State) ->
+    ejabberd_hooks:run_fold(c2s_handle_sasl2_task_next, LServer,
+			    {abort, State}, [Task, Els, InlineEls]).
+
+handle_sasl2_task_data(Els, InlineEls, #{lserver := LServer} = State) ->
+    ejabberd_hooks:run_fold(c2s_handle_sasl2_task_data, LServer,
+			    {abort, State}, [Els, InlineEls]).
 
 handle_recv(El, Pkt, #{lserver := LServer} = State) ->
     ejabberd_hooks:run_fold(c2s_handle_recv, LServer, State, [El, Pkt]).
@@ -1007,7 +1016,7 @@ get_conn_type(State) ->
 	websocket -> websocket
     end.
 
--spec fix_from_to(xmpp_element(), state()) -> stanza().
+-spec fix_from_to(xmpp_element(), state()) -> stanza() | xmpp_element().
 fix_from_to(Pkt, #{jid := JID}) when ?is_stanza(Pkt) ->
     #jid{luser = U, lserver = S, lresource = R} = JID,
     case xmpp:get_from(Pkt) of

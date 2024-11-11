@@ -134,8 +134,8 @@ defmodule Ejabberd.MixProject do
      {:dialyxir, "~> 1.2", only: [:test], runtime: false},
      {:eimp, "~> 1.0"},
      {:ex_doc, "~> 0.31", only: [:dev, :edoc], runtime: false},
-     {:fast_tls, git: "https://github.com/processone/fast_tls.git", ref: "75a08772f0ffddfed0441bfdc7e7f9a5adb3862f", override: true},
-     {:fast_xml, git: "https://github.com/processone/fast_xml.git", ref: "e7dc91310046831f436a03abf029587f0c2764f4", override: true},
+     {:fast_tls, "~> 1.1.22"},
+     {:fast_xml, "~> 1.1.53"},
      {:fast_yaml, "~> 1.0"},
      {:idna, "~> 6.0"},
      {:mqtree, "~> 1.0"},
@@ -144,7 +144,7 @@ defmodule Ejabberd.MixProject do
      {:p1_utils, "~> 1.0"},
      {:pkix, "~> 1.0"},
      {:stringprep, ">= 1.0.26"},
-     {:xmpp, git: "https://github.com/processone/xmpp.git", ref: "c045d4d8555e251f2212743db8af90255da2ab57", override: true},
+     {:xmpp, "~> 1.9"},
      {:yconf, "~> 1.0"}]
     ++ cond_deps()
   end
@@ -212,9 +212,9 @@ defmodule Ejabberd.MixProject do
       maintainers: ["ProcessOne"],
       licenses: ["GPL-2.0-or-later"],
       links: %{"ejabberd.im" => "https://www.ejabberd.im",
-               "ejabberd Docs" => "http://docs.ejabberd.im",
+               "ejabberd Docs" => "https://docs.ejabberd.im",
                "GitHub" => "https://github.com/processone/ejabberd",
-               "ProcessOne" => "http://www.process-one.net/"}]
+               "ProcessOne" => "https://www.process-one.net/"}]
   end
 
   defp vars do
