@@ -381,6 +381,19 @@ create_group(Host, Group) ->
     create_group(Host, Group, []).
 
 create_group(Host, Group, Opts) ->
+    case jid:nodeprep(Group) of
+	error ->
+	    {error, invalid_group_name};
+	LGroup ->
+	    case jid:nameprep(Host) of
+		error ->
+		    {error, invalid_group_host};
+		LHost ->
+		    create_group2(LHost, LGroup, Opts)
+	    end
+    end.
+
+create_group2(Host, Group, Opts) ->
     Mod = gen_mod:db_mod(Host, ?MODULE),
     case proplists:get_value(all_users, Opts, false) orelse
 	 proplists:get_value(online_users, Opts, false) of
@@ -494,7 +507,8 @@ get_online_users(Host) ->
     lists:usort([{U, S}
 		 || {U, S, _} <- ejabberd_sm:get_vh_session_list(Host)]).
 
-get_group_users_cached(Host, Group, Cache) ->
+get_group_users_cached(Host1, Group1, Cache) ->
+    {Host, Group} = split_grouphost(Host1, Group1),
     {Opts, _} = get_groups_opts_cached(Host, Group, Cache),
     get_group_users(Host, Group, Opts).
 

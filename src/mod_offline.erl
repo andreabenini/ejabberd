@@ -27,12 +27,12 @@
 
 -author('alexey@process-one.net').
 
--protocol({xep, 13, '1.2', '16.02', "", ""}).
--protocol({xep, 22, '1.4'}).
--protocol({xep, 23, '1.3'}).
--protocol({xep, 160, '1.0'}).
--protocol({xep, 203, '2.0'}).
--protocol({xep, 334, '0.2'}).
+-protocol({xep, 13, '1.2', '16.02', "complete", ""}).
+-protocol({xep, 22, '1.4', '0.1.0', "complete", ""}).
+-protocol({xep, 23, '1.3', '0.7.5', "complete", ""}).
+-protocol({xep, 160, '1.0', '16.01', "complete", ""}).
+-protocol({xep, 203, '2.0', '2.1.0', "complete", ""}).
+-protocol({xep, 334, '0.2', '16.01', "complete", ""}).
 
 -behaviour(gen_mod).
 
@@ -306,7 +306,12 @@ c2s_copy_session(State, _) ->
     State.
 
 c2s_handle_bind2_inline({#{jid := #jid{luser = LUser, lserver = LServer}} = State, Els, Results}) ->
-    delete_all_msgs(LUser, LServer),
+    case mod_mam:is_archiving_enabled(LUser, LServer) of
+        true ->
+            delete_all_msgs(LUser, LServer);
+        false ->
+            ok
+    end,
     {State, Els, Results}.
 
 -spec handle_offline_query(iq()) -> iq().

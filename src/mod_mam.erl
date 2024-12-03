@@ -25,11 +25,11 @@
 
 -module(mod_mam).
 
--protocol({xep, 313, '0.6.1', '15.06', "", ""}).
--protocol({xep, 334, '0.2'}).
--protocol({xep, 359, '0.5.0'}).
--protocol({xep, 425, '0.3.0', '24.06', "", ""}).
--protocol({xep, 441, '0.2.0'}).
+-protocol({xep, 313, '0.6.1', '15.06', "complete", ""}).
+-protocol({xep, 334, '0.2', '16.01', "complete", ""}).
+-protocol({xep, 359, '0.5.0', '15.09', "complete", ""}).
+-protocol({xep, 425, '0.3.0', '24.06', "complete", ""}).
+-protocol({xep, 441, '0.2.0', '15.06', "complete", ""}).
 
 -behaviour(gen_mod).
 
@@ -46,6 +46,7 @@
 	 mod_options/1, remove_mam_for_user_with_peer/3, remove_mam_for_user/2,
 	 is_empty_for_user/2, is_empty_for_room/3, check_create_room/4,
 	 process_iq/3, store_mam_message/7, make_id/0, wrap_as_mucsub/2, select/7,
+	 is_archiving_enabled/2,
 	 get_mam_count/2,
 	 webadmin_menu_hostuser/4,
 	 webadmin_page_hostuser/4,
@@ -1570,6 +1571,19 @@ get_jids(undefined) ->
     [];
 get_jids(Js) ->
     [jid:tolower(jid:remove_resource(J)) || J <- Js].
+
+is_archiving_enabled(LUser, LServer) ->
+    case gen_mod:is_loaded(LServer, mod_mam) of
+        true ->
+            case get_prefs(LUser, LServer) of
+                {ok, #archive_prefs{default = Default}} when Default /= never ->
+                    true;
+                _ ->
+                    false
+            end;
+        false ->
+            false
+    end.
 
 get_commands_spec() ->
     [
