@@ -69,6 +69,14 @@
 
 -export_type([error_reason/0]).
 
+-ifdef(USE_OLD_HTTP_URI). % Erlang/OTP lower than 21
+-dialyzer([{no_return, do_connect/6},
+           {no_unused, flush_queue/1},
+           {no_match, flush_queue/1},
+           {no_unused, re_subscribe/2},
+           {no_match, handle_info/2}]).
+-endif.
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -457,11 +465,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 -spec connect(state()) -> {ok, pid()} | {error, any()}.
 connect(#state{num = Num}) ->
-    Server = ejabberd_option:redis_server(),
+    Server1 = ejabberd_option:redis_server(),
     Port = ejabberd_option:redis_port(),
     DB = ejabberd_option:redis_db(),
     Pass = ejabberd_option:redis_password(),
     ConnTimeout = ejabberd_option:redis_connect_timeout(),
+    Server = parse_server(Server1),
     try case do_connect(Num, Server, Port, Pass, DB, ConnTimeout) of
 	    {ok, Client} ->
 		?DEBUG("Connection #~p established to Redis at ~ts:~p",
@@ -481,16 +490,33 @@ connect(#state{num = Num}) ->
 	    {error, Reason}
     end.
 
+parse_server([$u,$n,$i,$x,$: | Path]) ->
+    {local, Path};
+parse_server(Server) ->
+    Server.
+
 do_connect(1, Server, Port, Pass, _DB, _ConnTimeout) ->
     %% First connection in the pool is always a subscriber
-    Res = eredis_sub:start_link(Server, Port, Pass, no_reconnect, infinity, drop),
+    Options = [{host, Server},
+               {port, Port},
+               {password, Pass},
+               {reconnect_sleep, no_reconnect},
+               {max_queue_size, infinity},
+               {queue_behaviour, drop}],
+    Res = eredis_sub:start_link(Options),
     case Res of
 	{ok, Pid} -> eredis_sub:controlling_process(Pid);
 	_ -> ok
     end,
     Res;
 do_connect(_, Server, Port, Pass, DB, ConnTimeout) ->
-    eredis:start_link(Server, Port, DB, Pass, no_reconnect, ConnTimeout).
+    Options = [{host, Server},
+               {port, Port},
+               {database, DB},
+               {password, Pass},
+               {reconnect_sleep, no_reconnect},
+               {connect_timeout, ConnTimeout}],
+    eredis:start_link(Options).
 
 -spec call(pos_integer(), {q, redis_command()}, integer()) ->
 		  {ok, redis_reply()} | redis_error();
