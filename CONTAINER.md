@@ -19,7 +19,7 @@ that includes [XMPP][xmpp] Server, [MQTT][mqtt] Broker and [SIP][sip] Service.
 This document explains how to use the `ejabberd` container image available in
 [ghcr.io/processone/ejabberd](https://github.com/processone/ejabberd/pkgs/container/ejabberd),
 built using the files in `.github/container/`.
-This image is based in Alpine 3.19, includes Erlang/OTP 26.2 and Elixir 1.16.1.
+This image is based in Alpine 3.19, includes Erlang/OTP 27.2 and Elixir 1.18.1.
 
 Alternatively, there is also the `ecs` container image available in
 [docker.io/ejabberd/ecs](https://hub.docker.com/r/ejabberd/ecs/),
@@ -44,7 +44,7 @@ docker run --name ejabberd -d -p 5222:5222 ghcr.io/processone/ejabberd
 ```
 
 That runs the container as a daemon,
-using ejabberd default configuration file and XMPP domain "localhost".
+using ejabberd default configuration file and XMPP domain `localhost`.
 
 Stop the running container:
 
@@ -67,7 +67,7 @@ Start ejabberd with an Erlang console attached using the `live` command:
 docker run --name ejabberd -it -p 5222:5222 ghcr.io/processone/ejabberd live
 ```
 
-That uses the default configuration file and XMPP domain "localhost".
+That uses the default configuration file and XMPP domain `localhost`.
 
 
 ### Start with your configuration and database
@@ -240,6 +240,7 @@ ejabberd reads `EJABBERD_MACRO_*` environment variables
 and uses them to define the `*`
 [macros](https://docs.ejabberd.im/admin/configuration/file-format/#macros-in-configuration-file),
 overwriting the corresponding macro definition if it was set in the configuration file.
+This is supported since ejabberd 24.12.
 
 For example, if you configure this in `ejabberd.yml`:
 
@@ -268,17 +269,19 @@ and the same
 [Erlang Cookie](https://docs.ejabberd.im/admin/guide/security/#erlang-cookie).
 
 For this you can either:
+
 - edit `conf/ejabberdctl.cfg` and set variables `ERLANG_NODE` and `ERLANG_COOKIE`
 - set the environment variables `ERLANG_NODE_ARG` and `ERLANG_COOKIE`
 
 Example to connect a local `ejabberdctl` to a containerized ejabberd:
+
 1. When creating the container, export port 5210, and set `ERLANG_COOKIE`:
-```sh
-docker run --name ejabberd -it \
-  -e ERLANG_COOKIE=`cat $HOME/.erlang.cookie` \
-  -p 5210:5210 -p 5222:5222 \
-  ghcr.io/processone/ejabberd
-```
+    ```sh
+    docker run --name ejabberd -it \
+      -e ERLANG_COOKIE=`cat $HOME/.erlang.cookie` \
+      -p 5210:5210 -p 5222:5222 \
+      ghcr.io/processone/ejabberd
+    ```
 2. Set `ERL_DIST_PORT=5210` in ejabberdctl.cfg of container and local ejabberd
 3. Restart the container
 4. Now use `ejabberdctl` in your local ejabberd deployment
@@ -320,10 +323,12 @@ docker buildx build \
 
 ### Podman build
 
-It's also possible to use podman instead of docker, just notice:
+To build the image using Podman, please notice:
+
 - `EXPOSE 4369-4399` port range is not supported, remove that in Dockerfile
 - It mentions that `healthcheck` is not supported by the Open Container Initiative image format
 - to start with command `live`, you may want to add environment variable `EJABBERD_BYPASS_WARNINGS=true`
+
 ```bash
 podman build \
     -t ejabberd \
@@ -372,7 +377,9 @@ Composer Examples
 ### Minimal Example
 
 This is the barely minimal file to get a usable ejabberd.
-Store it as `docker-compose.yml`:
+
+If using Docker, write this `docker-compose.yml` file
+and start it with `docker-compose up`:
 
 ```yaml
 services:
@@ -386,10 +393,33 @@ services:
       - "5443:5443"
 ```
 
-Create and start the container with the command:
-```bash
-docker-compose up
+If using Podman, write this `minimal.yml` file
+and start it with `podman kube play minimal.yml`:
+
+```yaml
+apiVersion: v1
+
+kind: Pod
+
+metadata:
+  name: ejabberd
+
+spec:
+  containers:
+
+  - name: ejabberd
+    image: ghcr.io/processone/ejabberd
+    ports:
+    - containerPort: 5222
+      hostPort: 5222
+    - containerPort: 5269
+      hostPort: 5269
+    - containerPort: 5280
+      hostPort: 5280
+    - containerPort: 5443
+      hostPort: 5443
 ```
+
 
 ### Customized Example
 
@@ -407,9 +437,10 @@ mv ejabberd.yml.example ejabberd.yml
 ```
 
 Use a macro in `ejabberd.yml` to set the served vhost, with `localhost` as default value:
-```bash
+```yaml
 define_macro:
   XMPPHOST: localhost
+
 hosts:
   - XMPPHOST
 ```
@@ -420,7 +451,9 @@ mkdir database
 sudo chown 9000:9000 database
 ```
 
-Now write this `docker-compose.yml` file:
+If using Docker, write this `docker-compose.yml` file
+and start it with `docker-compose up`:
+
 ```yaml
 version: '3.7'
 
@@ -444,6 +477,56 @@ services:
       - ./database:/opt/ejabberd/database
 ```
 
+If using Podman, write this `custom.yml` file
+and start it with `podman kube play custom.yml`:
+
+```yaml
+apiVersion: v1
+
+kind: Pod
+
+metadata:
+  name: ejabberd
+
+spec:
+  containers:
+
+  - name: ejabberd
+    image: ghcr.io/processone/ejabberd
+    env:
+    - name: CTL_ON_CREATE
+      value: register admin example.com asd
+    - name: CTL_ON_START
+      value: registered_users example.com ;
+             status
+    ports:
+    - containerPort: 5222
+      hostPort: 5222
+    - containerPort: 5269
+      hostPort: 5269
+    - containerPort: 5280
+      hostPort: 5280
+    - containerPort: 5443
+      hostPort: 5443
+    volumeMounts:
+    - mountPath: /opt/ejabberd/conf/ejabberd.yml
+      name: config
+      readOnly: true
+    - mountPath: /opt/ejabberd/database
+      name: db
+
+  volumes:
+  - name: config
+    hostPath:
+      path: ./ejabberd.yml
+      type: File
+  - name: db
+    hostPath:
+      path: ./database
+      type: DirectoryOrCreate
+```
+
+
 ### Clustering Example
 
 In this example, the main container is created first.
@@ -452,11 +535,14 @@ and once ejabberd is started in it, it joins the first one.
 
 An account is registered in the first node when created (and
 we ignore errors that can happen when doing that - for example
-whenn account already exists),
+when account already exists),
 and it should exist in the second node after join.
 
 Notice that in this example the main container does not have access
 to the exterior; the replica exports the ports and can be accessed.
+
+If using Docker, write this `docker-compose.yml` file
+and start it with `docker-compose up`:
 
 ```yaml
 version: '3.7'
@@ -477,15 +563,183 @@ services:
     depends_on:
       main:
         condition: service_healthy
-    ports:
-      - "5222:5222"
-      - "5269:5269"
-      - "5280:5280"
-      - "5443:5443"
     environment:
       - ERLANG_NODE_ARG=ejabberd@replica
       - ERLANG_COOKIE=dummycookie123
       - CTL_ON_CREATE=join_cluster ejabberd@main
       - CTL_ON_START=registered_users localhost ;
                      status
+    ports:
+      - "5222:5222"
+      - "5269:5269"
+      - "5280:5280"
+      - "5443:5443"
+```
+
+If using Podman, write this `cluster.yml` file
+and start it with `podman kube play cluster.yml`:
+
+```yaml
+apiVersion: v1
+
+kind: Pod
+
+metadata:
+  name: cluster
+
+spec:
+  containers:
+
+  - name: first
+    image: ghcr.io/processone/ejabberd
+    env:
+    - name: ERLANG_NODE_ARG
+      value: main@cluster
+    - name: ERLANG_COOKIE
+      value: dummycookie123
+    - name: CTL_ON_CREATE
+      value: register admin localhost asd
+    - name: CTL_ON_START
+      value: stats registeredusers ;
+             status
+    - name: EJABBERD_MACRO_PORT_C2S
+      value: 6222
+    - name: EJABBERD_MACRO_PORT_C2S_TLS
+      value: 6223
+    - name: EJABBERD_MACRO_PORT_S2S
+      value: 6269
+    - name: EJABBERD_MACRO_PORT_HTTP_TLS
+      value: 6443
+    - name: EJABBERD_MACRO_PORT_HTTP
+      value: 6280
+    - name: EJABBERD_MACRO_PORT_MQTT
+      value: 6883
+    - name: EJABBERD_MACRO_PORT_PROXY65
+      value: 6777
+    volumeMounts:
+    - mountPath: /opt/ejabberd/conf/ejabberd.yml
+      name: config
+      readOnly: true
+
+  - name: second
+    image: ghcr.io/processone/ejabberd
+    env:
+    - name: ERLANG_NODE_ARG
+      value: replica@cluster
+    - name: ERLANG_COOKIE
+      value: dummycookie123
+    - name: CTL_ON_CREATE
+      value: join_cluster main@cluster ;
+             started ;
+             list_cluster
+    - name: CTL_ON_START
+      value: stats registeredusers ;
+             check_password admin localhost asd ;
+             status
+    ports:
+    - containerPort: 5222
+      hostPort: 5222
+    - containerPort: 5280
+      hostPort: 5280
+    volumeMounts:
+    - mountPath: /opt/ejabberd/conf/ejabberd.yml
+      name: config
+      readOnly: true
+
+  volumes:
+  - name: config
+    hostPath:
+      path: ./conf/ejabberd.yml
+      type: File
+
+```
+
+Your configuration file should use those macros to allow each ejabberd node
+use different listening port numbers:
+
+```diff
+diff --git a/ejabberd.yml.example b/ejabberd.yml.example
+index 39e423a64..6e875b48f 100644
+--- a/ejabberd.yml.example
++++ b/ejabberd.yml.example
+@@ -24,9 +24,19 @@ loglevel: info
+ #  - /etc/letsencrypt/live/domain.tld/fullchain.pem
+ #  - /etc/letsencrypt/live/domain.tld/privkey.pem
+ 
++define_macro:
++  PORT_C2S: 5222
++  PORT_C2S_TLS: 5223
++  PORT_S2S: 5269
++  PORT_HTTP_TLS: 5443
++  PORT_HTTP: 5280
++  PORT_STUN: 5478
++  PORT_MQTT: 1883
++  PORT_PROXY65: 7777
++
+ listen:
+   -
+-    port: 5222
++    port: PORT_C2S
+     ip: "::"
+     module: ejabberd_c2s
+     max_stanza_size: 262144
+@@ -34,7 +44,7 @@ listen:
+     access: c2s
+     starttls_required: true
+   -
+-    port: 5223
++    port: PORT_C2S_TLS
+     ip: "::"
+     module: ejabberd_c2s
+     max_stanza_size: 262144
+@@ -42,13 +52,13 @@ listen:
+     access: c2s
+     tls: true
+   -
+-    port: 5269
++    port: PORT_S2S
+     ip: "::"
+     module: ejabberd_s2s_in
+     max_stanza_size: 524288
+     shaper: s2s_shaper
+   -
+-    port: 5443
++    port: PORT_HTTP_TLS
+     ip: "::"
+     module: ejabberd_http
+     tls: true
+@@ -60,14 +70,14 @@ listen:
+       /upload: mod_http_upload
+       /ws: ejabberd_http_ws
+   -
+-    port: 5280
++    port: PORT_HTTP
+     ip: "::"
+     module: ejabberd_http
+     request_handlers:
+       /admin: ejabberd_web_admin
+       /.well-known/acme-challenge: ejabberd_acme
+   -
+-    port: 5478
++    port: PORT_STUN
+     ip: "::"
+     transport: udp
+     module: ejabberd_stun
+@@ -77,7 +87,7 @@ listen:
+     ## The server's public IPv6 address:
+     # turn_ipv6_address: "2001:db8::3"
+   -
+-    port: 1883
++    port: PORT_MQTT
+     ip: "::"
+     module: mod_mqtt
+     backlog: 1000
+@@ -207,6 +217,7 @@ modules:
+   mod_proxy65:
+     access: local
+     max_connections: 5
++    port: PORT_PROXY65
+   mod_pubsub:
+     access_createnode: pubsub_createnode
+     plugins:
 ```

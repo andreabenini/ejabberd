@@ -2,7 +2,7 @@
 %%% Created :  8 Dec 2016 by Evgeny Khramtsov <ekhramtsov@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2025   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -45,7 +45,8 @@
 	 handle_unbinded_packet/2, inline_stream_features/1,
 	 handle_sasl2_inline/2, handle_sasl2_inline_post/3,
 	 handle_bind2_inline/2, handle_bind2_inline_post/3, sasl_options/1,
-	 handle_sasl2_task_next/4, handle_sasl2_task_data/3]).
+	 handle_sasl2_task_next/4, handle_sasl2_task_data/3,
+	 get_fast_tokens_fun/2, fast_mechanisms/1]).
 %% Hooks
 -export([handle_unexpected_cast/2, handle_unexpected_call/3,
 	 process_auth_result/3, reject_unauthenticated_packet/2,
@@ -463,6 +464,20 @@ check_password_fun(_Mech, #{lserver := LServer}) ->
 check_password_digest_fun(_Mech, #{lserver := LServer}) ->
     fun(U, AuthzId, P, D, DG) ->
 	    ejabberd_auth:check_password_with_authmodule(U, AuthzId, LServer, P, D, DG)
+    end.
+
+get_fast_tokens_fun(_Mech, #{lserver := LServer}) ->
+    fun(User, UA) ->
+	case gen_mod:is_loaded(LServer, mod_auth_fast) of
+	    false -> false;
+	    _  -> mod_auth_fast:get_tokens(LServer, User, UA)
+	end
+    end.
+
+fast_mechanisms(#{lserver := LServer}) ->
+    case gen_mod:is_loaded(LServer, mod_auth_fast) of
+	false -> [];
+	_  -> mod_auth_fast:get_mechanisms(LServer)
     end.
 
 bind(<<"">>, State) ->

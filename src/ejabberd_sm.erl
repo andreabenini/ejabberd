@@ -5,7 +5,7 @@
 %%% Created : 24 Nov 2002 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2025   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -1034,8 +1034,8 @@ get_commands_spec() ->
 			desc = "List all established sessions",
                         policy = admin,
 			module = ?MODULE, function = connected_users, args = [],
-			result_desc = "List of users sessions",
-			result_example = [<<"user1@example.com">>, <<"user2@example.com">>],
+			result_desc = "List of users sessions full JID",
+			result_example = [<<"user1@example.com/Home">>, <<"user2@example.com/54134">>],
 			result = {connected_users, {list, {sessions, string}}}},
      #ejabberd_commands{name = connected_users_number, tags = [session, statistics],
 			desc = "Get the number of established sessions",

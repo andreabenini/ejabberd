@@ -5,7 +5,7 @@
 %%% Created :  7 May 2006 by Mickael Remond <mremond@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2025   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -175,7 +175,7 @@ get_commands_spec() ->
 			"announcement quoted, for example: \n"
 			"`ejabberdctl evacuate_kindly 60 "
 			"\\\"The server will stop in one minute.\\\"`",
-			note = "added in 24.xx",
+			note = "added in 24.12",
 			module = ?MODULE, function = evacuate_kindly,
 			args_desc = ["Seconds to wait", "Announcement to send, with quotes"],
 			args_example = [60, <<"Server will stop now.">>],

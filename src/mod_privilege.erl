@@ -4,7 +4,7 @@
 %%% Purpose : XEP-0356: Privileged Entity
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2025   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -308,8 +308,7 @@ component_send_packet({#iq{from = From,
                           []),
                 drop;
             {_, {error, no_privileged_iq, _Err}} ->
-                ?INFO_MSG("IQ not forwarded: Component tried to send not wrapped IQ stanza.",
-                          []),
+                ?INFO_MSG("IQ not forwarded: Component tried to send not wrapped IQ stanza.", []),
                 drop;
             {_, {error, roster_query, _Err}} ->
                 IQ;

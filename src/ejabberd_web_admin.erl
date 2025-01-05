@@ -5,7 +5,7 @@
 %%% Created :  9 Apr 2004 by Alexey Shchepin <alexey@process-one.net>
 %%%
 %%%
-%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2025   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -238,7 +238,7 @@ get_auth_admin(Auth, HostHTTP, RPath, Method) ->
       {SJID, Pass} ->
 	  {HostOfRule, AccessRule} = get_acl_rule(RPath, Method),
 	    try jid:decode(SJID) of
-		#jid{user = <<"">>, server = User} ->
+		#jid{luser = <<"">>, lserver = User} ->
 		    case ejabberd_router:is_my_host(HostHTTP) of
 			true ->
 			    get_auth_account(HostOfRule, AccessRule, User, HostHTTP,
@@ -246,7 +246,7 @@ get_auth_admin(Auth, HostHTTP, RPath, Method) ->
 			_ ->
 			    {unauthorized, <<"missing-server">>}
 		    end;
-		#jid{user = User, server = Server} ->
+		#jid{luser = User, lserver = Server} ->
 		    get_auth_account(HostOfRule, AccessRule, User, Server,
 				     Pass)
 	    catch _:{bad_jid, _} ->
@@ -369,7 +369,7 @@ make_xhtml(Els, Host, Node, Username, #request{lang = Lang} = R, JID, Level) ->
 				 [?XE(<<"p">>,
 				  [?AC(<<"https://www.ejabberd.im/">>, <<"ejabberd">>),
 				   ?C(<<" ">>), ?C(ejabberd_option:version()),
-				   ?C(<<" (c) 2002-2024 ">>),
+				   ?C(<<" (c) 2002-2025 ">>),
 				   ?AC(<<"https://www.process-one.net/">>, <<"ProcessOne, leader in messaging and push solutions">>)]
                                  )])])])]}}.
 
@@ -2286,7 +2286,7 @@ make_result(Binary,
     Second = proplists:get_value(second, ArgumentsUsed),
     FirstUrlencoded =
         list_to_binary(string:replace(
-               misc:url_encode(First), "%40", "@")),
+                           misc:url_encode(First), "%40", "@")),
     {GroupId, Host} =
         case jid:decode(FirstUrlencoded) of
             #jid{luser = <<"">>, server = G} ->

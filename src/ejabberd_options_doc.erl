@@ -1,5 +1,5 @@
 %%%----------------------------------------------------------------------
-%%% ejabberd, Copyright (C) 2002-2024   ProcessOne
+%%% ejabberd, Copyright (C) 2002-2025   ProcessOne
 %%%
 %%% This program is free software; you can redistribute it and/or
 %%% modify it under the terms of the GNU General Public License as
@@ -307,7 +307,7 @@ doc() ->
       #{value => "true | false",
         desc =>
             ?T("Whether to allow installation of third-party modules or not. "
-               "See _`../../developer/extending-ejabberd/modules.md#ejabberd-contrib|ejabberd-contrib`_ "
+               "See _`../../admin/guide/modules.md#ejabberd-contrib|ejabberd-contrib`_ "
                "documentation section. "
                "The default value is 'true'.")}},
      {allow_multiple_connections,
@@ -368,7 +368,7 @@ doc() ->
         desc =>
             ?T("This is used by the contributed module "
 	       "'ejabberd_auth_http' that can be installed from the "
-	       "https://github.com/processone/ejabberd-contrib[ejabberd-contrib] "
+               "_`../../admin/guide/modules.md#ejabberd-contrib|ejabberd-contrib`_ "
                "Git repository. Please refer to that "
 	       "module's README file for details.")}},
      {auth_password_format,
@@ -719,7 +719,7 @@ doc() ->
         note => "added in 23.10",
         desc =>
             ?T("Modules to install from "
-               "_`../../developer/extending-ejabberd/modules.md#ejabberd-contrib|ejabberd-contrib`_ "
+               "_`../../admin/guide/modules.md#ejabberd-contrib|ejabberd-contrib`_ "
                "at start time. "
                "The default value is an empty list of modules: '[]'.")}},
      {jwt_auth_only_rule,
@@ -1146,7 +1146,7 @@ doc() ->
                "or 'ram' if the latter is not set.")}},
      {redis_server,
       #{value => "Host | IP Address | Unix Socket Path",
-        note => "improved in 24.xx",
+        note => "improved in 24.12",
         desc =>
             ?T("A hostname, IP address or unix domain socket file of the "
                "_`database.md#redis|Redis`_ server. "
