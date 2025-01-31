@@ -340,8 +340,8 @@ publish_pep_native_bookmarks(JID, Data) ->
 				    #bookmark_storage{conference = C} -> C;
 				    _ -> []
 				catch _:{xmpp_codec, Why} ->
-					  ?WARNING_MSG("Failed to decode bookmarks of ~ts: ~ts",
-						       [jid:encode(JID), xmpp:format_error(Why)]),
+					  ?DEBUG("Failed to decode bookmarks of ~ts: ~ts",
+						 [jid:encode(JID), xmpp:format_error(Why)]),
 					  []
 				end,
 		    PubOpts = [{persist_items, true}, {access_model, whitelist}, {max_items, max}, {notify_retract,true}, {notify_delete,true}, {send_last_published_item, never}],
@@ -447,17 +447,22 @@ pubsub_delete_item(_, _, _, _, _) ->
 
 -spec pubsub_item_to_storage_bookmark(#pubsub_item{}) -> {true, bookmark_conference()} | false.
 pubsub_item_to_storage_bookmark(#pubsub_item{itemid = {Id, _}, payload = [#xmlel{} = B | _]}) ->
-    case xmpp:decode(B) of
-	#pep_bookmarks_conference{name = Name, autojoin = AutoJoin, nick = Nick,
-				  password = Password} ->
-	    try jid:decode(Id) of
-		#jid{} = Jid ->
-		    {true, #bookmark_conference{jid = Jid, name = Name, autojoin = AutoJoin, nick = Nick,
-						password = Password}}
-	    catch _:_ ->
-		false
-	    end;
-	_ ->
+    try {xmpp:decode(B), jid:decode(Id)} of
+	{#pep_bookmarks_conference{name = Name, autojoin = AutoJoin,
+				   nick = Nick, password = Password},
+	 #jid{} = Jid} ->
+	    {true, #bookmark_conference{jid = Jid, name = Name,
+					autojoin = AutoJoin, nick = Nick,
+					password = Password}};
+	{_, _} ->
+	    false
+    catch
+	_:{xmpp_codec, Why} ->
+	    ?DEBUG("Failed to decode bookmark element (~ts): ~ts",
+		   [Id, xmpp:format_error(Why)]),
+	    false;
+	_:{bad_jid, _} ->
+	    ?DEBUG("Failed to decode bookmark ID (~ts)", [Id]),
 	    false
     end;
 pubsub_item_to_storage_bookmark(_) ->
@@ -487,15 +492,19 @@ storage_bookmark_to_xmpp_bookmark(#bookmark_conference{name = Name, autojoin = A
 
 -spec pubsub_item_to_map(#pubsub_item{}, map()) -> map().
 pubsub_item_to_map(#pubsub_item{itemid = {Id, _}, payload = [#xmlel{} = B | _]}, Map) ->
-    case xmpp:decode(B) of
-	#pep_bookmarks_conference{} = B2 ->
-	    try jid:decode(Id) of
-		#jid{} = Jid ->
-		    maps:put(jid:tolower(Jid), B2#pep_bookmarks_conference{extensions = undefined}, Map)
-	    catch _:_ ->
-		Map
-	    end;
-	_ ->
+    try {xmpp:decode(B), jid:decode(Id)} of
+	{#pep_bookmarks_conference{} = B1, #jid{} = Jid} ->
+	    B2 = B1#pep_bookmarks_conference{extensions = undefined},
+	    maps:put(jid:tolower(Jid), B2, Map);
+	{_, _} ->
+	    Map
+    catch
+	_:{xmpp_codec, Why} ->
+	    ?DEBUG("Failed to decode bookmark element (~ts): ~ts",
+		   [Id, xmpp:format_error(Why)]),
+	    Map;
+	_:{bad_jid, _} ->
+	    ?DEBUG("Failed to decode bookmark ID (~ts)", [Id]),
 	    Map
     end;
 pubsub_item_to_map(_, Map) ->
