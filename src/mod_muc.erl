@@ -1692,11 +1692,6 @@ mod_doc() ->
                    "    -",
                    "      work: true",
                    "      street: Elm Street"]}},
-           {vcard_xupdate,
-            #{value => "undefined | external | AvatarHash",
-              desc =>
-                  ?T("Set the hash of the avatar image. "
-		     "The default value is 'undefined'.")}},
            {cleanup_affiliations_on_start,
             #{value => "true | false",
               note => "added in 22.05",
@@ -1770,8 +1765,10 @@ mod_doc() ->
                        "The default value is an empty string.")}},
              {enable_hats,
               #{value => "true | false",
+                note => "improved in 25.xx",
                 desc =>
                     ?T("Allow extended roles as defined in XEP-0317 Hats. "
+                       "Check the _`../../tutorials/muc-hats.md|MUC Hats`_ tutorial. "
                        "The default value is 'false'.")}},
              {lang,
               #{value => ?T("Language"),
@@ -1838,6 +1835,11 @@ mod_doc() ->
                 desc =>
                     ?T("A custom vCard for the room. See the equivalent mod_muc option."
                        "The default value is an empty string.")}},
+             {vcard_xupdate,
+              #{value => "undefined | external | AvatarHash",
+                desc =>
+                    ?T("Set the hash of the avatar image. "
+                       "The default value is 'undefined'.")}},
              {voice_request_min_interval,
               #{value => ?T("Number"),
                 desc =>
