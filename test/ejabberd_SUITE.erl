@@ -60,6 +60,11 @@ init_per_suite(Config) ->
     NewConfig.
 
 start_ejabberd(_) ->
+    TestBeams = case filelib:is_dir("../../test/") of
+       true -> "../../test/";
+       _ -> "../../lib/ejabberd/test/"
+    end,
+    application:set_env(ejabberd, external_beams, TestBeams),
     {ok, _} = application:ensure_all_started(ejabberd, transient).
 
 end_per_suite(_Config) ->
@@ -398,6 +403,7 @@ no_db_tests() ->
      auth_external_wrong_server,
      auth_external_invalid_cert,
      commands_tests:single_cases(),
+     configtest_tests:single_cases(),
      jidprep_tests:single_cases(),
      sm_tests:single_cases(),
      sm_tests:master_slave_cases(),
