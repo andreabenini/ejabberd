@@ -95,7 +95,7 @@ mod_doc() ->
              "https://xmpp.org/extensions/xep-0050.html[XEP-0050: Ad-Hoc Commands]. "
              "This module requires _`mod_adhoc`_ (to execute the commands), "
              "and recommends _`mod_disco`_ (to discover the commands)."),
-      note => "added in 25.xx",
+      note => "added in 25.03",
       opts =>
           [{default_version,
             #{value => "integer() | string()",
@@ -504,7 +504,7 @@ set_form_api_command(From, Host, CommandNameBin, XData, _Lang) ->
                               var = <<"error">>}]
         end,
     FieldsResultWithHeads =
-        [#xdata_field{type = fixed, label = ?T("")},
+        [#xdata_field{type = fixed, label = <<"">>},
          #xdata_field{type = fixed, label = ?T("Result")}
          | FieldsResult2],
 

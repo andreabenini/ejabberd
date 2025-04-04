@@ -1,6 +1,6 @@
 #' Define default build variables
-ARG OTP_VSN='27.2'
-ARG ELIXIR_VSN='1.18.1'
+ARG OTP_VSN='27.3'
+ARG ELIXIR_VSN='1.18.3'
 ARG UID='9000'
 ARG USER='ejabberd'
 ARG HOME="opt/$USER"
@@ -9,7 +9,7 @@ ARG VERSION='master'
 
 ################################################################################
 #' Compile ejabberdapi
-FROM docker.io/golang:1.23-alpine AS api
+FROM docker.io/golang:1.24-alpine AS api
 RUN go install -v \
     github.com/processone/ejabberd-api/cmd/ejabberd@master \
     && mv bin/ejabberd bin/ejabberdapi

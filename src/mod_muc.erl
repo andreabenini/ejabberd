@@ -25,6 +25,7 @@
 -module(mod_muc).
 -author('alexey@process-one.net').
 -protocol({xep, 45, '1.25', '0.5.0', "complete", ""}).
+-protocol({xep, 249, '1.2', '0.5.0', "complete", ""}).
 -ifndef(GEN_SERVER).
 -define(GEN_SERVER, gen_server).
 -endif.
@@ -1765,7 +1766,7 @@ mod_doc() ->
                        "The default value is an empty string.")}},
              {enable_hats,
               #{value => "true | false",
-                note => "improved in 25.xx",
+                note => "improved in 25.03",
                 desc =>
                     ?T("Allow extended roles as defined in XEP-0317 Hats. "
                        "Check the _`../../tutorials/muc-hats.md|MUC Hats`_ tutorial. "
