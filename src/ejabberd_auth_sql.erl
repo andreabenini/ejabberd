@@ -258,13 +258,6 @@ drop_password_type(LServer, Hash) ->
 	?SQL("delete from users"
 	     " where type=%(Type)d and %(LServer)H")).
 
-scram_hash_encode(Hash, StoreKey) ->
-    case Hash of
-	sha -> StoreKey;
-	sha256 -> <<"sha256:", StoreKey/binary>>;
-	sha512 -> <<"sha512:", StoreKey/binary>>
-    end.
-
 set_password_scram_t(LUser, LServer, Hash,
                      StoredKey, ServerKey, Salt, IterationCount) ->
     Type = hash_to_num(Hash),
@@ -406,40 +399,44 @@ which_users_exists(LServer, LUsers) ->
 
 export(_Server) ->
     [{passwd,
-      fun(Host, #passwd{us = {LUser, LServer}, password = Password})
+      fun(Host, #passwd{us = {LUser, LServer, plain}, password = Password})
             when LServer == Host,
                  is_binary(Password) ->
-              [?SQL("delete from users where username=%(LUser)s and %(LServer)H;"),
+              [?SQL("delete from users where username=%(LUser)s and type=1 and %(LServer)H;"),
                ?SQL_INSERT(
                   "users",
                   ["username=%(LUser)s",
                    "server_host=%(LServer)s",
+                   "type=1",
                    "password=%(Password)s"])];
-         (Host, {passwd, {LUser, LServer},
-                         {scram, StoredKey1, ServerKey, Salt, IterationCount}})
+         (Host, {passwd, {LUser, LServer, _},
+                         {scram, StoredKey, ServerKey, Salt, IterationCount}})
             when LServer == Host ->
               Hash = sha,
-              StoredKey = scram_hash_encode(Hash, StoredKey1),
-              [?SQL("delete from users where username=%(LUser)s and %(LServer)H;"),
+              Type = hash_to_num(Hash),
+              [?SQL("delete from users where username=%(LUser)s and type=%(Type)d and %(LServer)H;"),
                ?SQL_INSERT(
                   "users",
                   ["username=%(LUser)s",
                    "server_host=%(LServer)s",
+                   "type=%(Type)d",
                    "password=%(StoredKey)s",
                    "serverkey=%(ServerKey)s",
                    "salt=%(Salt)s",
                    "iterationcount=%(IterationCount)d"])];
-         (Host, #passwd{us = {LUser, LServer}, password = #scram{} = Scram})
+         (Host, #passwd{us = {LUser, LServer, _}, password = #scram{} = Scram})
             when LServer == Host ->
-	      StoredKey = scram_hash_encode(Scram#scram.hash, Scram#scram.storedkey),
+	      StoredKey = Scram#scram.storedkey,
               ServerKey = Scram#scram.serverkey,
               Salt = Scram#scram.salt,
               IterationCount = Scram#scram.iterationcount,
-              [?SQL("delete from users where username=%(LUser)s and %(LServer)H;"),
+              Type = hash_to_num(Scram#scram.hash),
+              [?SQL("delete from users where username=%(LUser)s and type=%(Type)d and %(LServer)H;"),
                ?SQL_INSERT(
                   "users",
                   ["username=%(LUser)s",
                    "server_host=%(LServer)s",
+                   "type=%(Type)d",
                    "password=%(StoredKey)s",
                    "serverkey=%(ServerKey)s",
                    "salt=%(Salt)s",

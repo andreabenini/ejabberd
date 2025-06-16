@@ -543,7 +543,7 @@ check_sources(Module) ->
                     true -> Acc;
                     false -> [{missing, Name}|Acc]
                 end
-            end, HaveSrc, [{is_file, "README.txt"},
+            end, HaveSrc, [{is_file, "README.md"},
                            {is_file, "COPYING"},
                            {is_file, SpecFile}]),
     SpecCheck = case consult(SpecFile) of
@@ -645,6 +645,8 @@ compile_options() ->
     ++ maybe_define_lager_macro()
     ++ [{i, filename:join(app_dir(App), "include")}
         || App <- [fast_xml, xmpp, p1_utils, ejabberd]]
+    ++ [{i, filename:join(app_dir(App), "include")}
+        || App <- [p1_xml, p1_xmpp]] % paths used in Debian packages
     ++ [{i, filename:join(mod_dir(Mod), "include")}
         || Mod <- installed()].
 
