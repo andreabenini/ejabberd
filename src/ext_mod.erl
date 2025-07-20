@@ -49,6 +49,7 @@
 -include("logger.hrl").
 -include("translate.hrl").
 -include_lib("xmpp/include/xmpp.hrl").
+-include_lib("stdlib/include/zip.hrl").
 
 -define(REPOS, "git@github.com:processone/ejabberd-contrib.git").
 
@@ -148,7 +149,8 @@ get_commands_spec() ->
      #ejabberd_commands{name = module_upgrade,
                         tags = [modules],
                         desc = "Upgrade the running code of an installed module",
-                        longdesc = "In practice, this uninstalls and installs the module",
+                        longdesc = "In practice, this uninstalls, cleans the compiled files, and installs the module",
+                        note = "improved in 25.07",
                         module = ?MODULE, function = upgrade,
                         args_desc = ["Module name"],
                         args_example = [<<"mod_rest">>],
@@ -289,7 +291,18 @@ upgrade(Module) when is_atom(Module) ->
     upgrade(misc:atom_to_binary(Module));
 upgrade(Package) when is_binary(Package) ->
     uninstall(Package),
+    clean(Package),
     install(Package).
+
+clean(Package) ->
+    Spec = [S || {Mod, S} <- available(), misc:atom_to_binary(Mod)==Package],
+    case Spec of
+        [] ->
+            {error, not_available};
+        [Attrs] ->
+            Path = proplists:get_value(path, Attrs),
+            [delete_path(SubPath) || SubPath <- filelib:wildcard(Path++"/{deps,ebin}")]
+    end.
 
 add_sources(Path) when is_list(Path) ->
     add_sources(iolist_to_binary(module_name(Path)), Path).
@@ -371,8 +384,6 @@ geturl(Url) ->
             {error, Reason}
     end.
 
-getenv(Env) ->
-    getenv(Env, "").
 getenv(Env, Default) ->
     case os:getenv(Env) of
         false -> Default;
@@ -389,6 +400,23 @@ extract(tar, {ok, _, Body}, DestDir) ->
 extract(_, {error, Reason}, _) ->
     {error, Reason};
 extract(zip, Zip, DestDir) ->
+    {ok, DirList} = zip:list_dir(Zip),
+    Offending =
+        lists:filter(fun (#zip_comment{}) ->
+                             false;
+                         (#zip_file{name = Filename}) ->
+                             absolute == filename:pathtype(Filename)
+                     end,
+                     DirList),
+    case Offending of
+        [] ->
+            extract(zip_verified, Zip, DestDir);
+        _ ->
+            Filenames = [F#zip_file.name || F <- Offending],
+            ?ERROR_MSG("The zip file includes absolute file paths:~n  ~p", [Filenames]),
+            {error, {zip_absolute_path, Filenames}}
+    end;
+extract(zip_verified, Zip, DestDir) ->
     case zip:extract(Zip, [{cwd, DestDir}]) of
         {ok, _} -> ok;
         Error -> Error
@@ -453,7 +481,7 @@ delete_path(Path, Package) ->
     delete_path(filename:join(filename:dirname(Path), Package)).
 
 modules_dir() ->
-    DefaultDir = filename:join(getenv("HOME"), ".ejabberd-modules"),
+    DefaultDir = filename:join(misc:get_home(), ".ejabberd-modules"),
     getenv("CONTRIB_MODULES_PATH", DefaultDir).
 
 sources_dir() ->

@@ -392,6 +392,17 @@ doc() ->
                "SASL PLAIN and SASL SCRAM-SHA-1/256/512(-PLUS). The SCRAM variant "
                "depends on the _`auth_scram_hash`_ option."), "",
             ?T("The default value is 'plain'."), ""]}},
+
+     {auth_password_types_hidden_in_scram1,
+      #{value => "[plain | scram_sha1 | scram_sha256 | scram_sha512]",
+        note => "added in 25.07",
+        desc =>
+        ?T("List of password types that should not be offered in SCRAM1 authenticatication. "
+           "Because SCRAM1, unlike SCRAM2, can't have list of available mechanisms tailored to "
+           "individual user, it's possible that offered mechanisms will not be compatible "
+           "with stored password, especially if new password type was added recently. "
+           "This option allows disabling offering some mechanisms in SASL1, to a time until new "
+           "password type will be available for all users.")}},
      {auth_scram_hash,
       #{value => "sha | sha256 | sha512",
         desc =>
@@ -712,6 +723,23 @@ doc() ->
              "  domain.tld:",
              "    auth_method:",
              "      - ldap"]}},
+     {hosts_alias,
+      #{value => "{Alias: Host}",
+        desc =>
+            ?T("Define aliases for existing vhosts managed by ejabberd. "
+               "An alias may be a regexp expression. "
+               "This option is only consulted by the 'ejabberd_http' listener."),
+        note => "added in 25.07",
+        example =>
+            ["hosts:",
+             "  - domain.tld",
+             "  - example.org",
+             "",
+             "hosts_alias:",
+             "  xmpp.domain.tld: domain.tld",
+             "  jabber.domain.tld: domain.tld",
+             "  mytest.net: example.org",
+             "  \"exa*\": example.org"]}},
      {include_config_file,
       #{value => "[Filename, ...\\] | {Filename: Options}",
         desc =>
@@ -1196,18 +1224,22 @@ doc() ->
                "is 'closeold'.")}},
      {rest_proxy,
       #{value => "Host",
+        note => "added in 25.07",
         desc => ?T("Address of a HTTP Connect proxy used by modules issuing rest calls "
                    "(like ejabberd_oauth_rest)")}},
       {rest_proxy_port,
        #{value => "1..65535",
+        note => "added in 25.07",
          desc => ?T("Port of a HTTP Connect proxy used by modules issuing rest calls "
                     "(like ejabberd_oauth_rest)")}},
       {rest_proxy_username,
        #{value => "string()",
+        note => "added in 25.07",
          desc => ?T("Username used to authenticate to HTTP Connect proxy used by modules issuing rest calls "
                     "(like ejabberd_oauth_rest)")}},
       {rest_proxy_password,
        #{value => "string()",
+        note => "added in 25.07",
          desc => ?T("Password used to authenticate to HTTP Connect proxy used by modules issuing rest calls "
                     "(like ejabberd_oauth_rest)")}},
      {router_cache_life_time,

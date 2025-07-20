@@ -31,6 +31,7 @@
 
 -export([start/2, stop/1, reload/3, process/2, depends/2,
          mod_opt_type/1, mod_options/1, mod_doc/0]).
+-export([web_menu_system/2]).
 
 -include_lib("xmpp/include/xmpp.hrl").
 -include("logger.hrl").
@@ -39,7 +40,7 @@
 -include("ejabberd_web_admin.hrl").
 
 start(_Host, _Opts) ->
-    ok.
+    {ok, [{hook, webadmin_menu_system_post, web_menu_system, 50, global}]}.
 
 stop(_Host) ->
     ok.
@@ -50,8 +51,10 @@ reload(_Host, _NewOpts, _OldOpts) ->
 depends(_Host, _Opts) ->
     [].
 
-process([], #request{method = 'GET', host = Host, raw_path = RawPath}) ->
+process([], #request{method = 'GET', host = Host, q = Query, raw_path = RawPath1}) ->
+    [RawPath | _] = string:split(RawPath1, "?"),
     ExtraOptions = get_auth_options(Host)
+        ++ get_autologin_options(Query)
         ++ get_register_options(Host)
         ++ get_extra_options(Host),
     Domain = mod_conversejs_opt:default_domain(Host),
@@ -222,6 +225,71 @@ get_auto_file_url(Host, Filename, Default) ->
     end.
 
 %%----------------------------------------------------------------------
+%% WebAdmin link and autologin
+%%----------------------------------------------------------------------
+
+%% @format-begin
+
+web_menu_system(Result,
+                #request{host = Host,
+                         auth = Auth,
+                         tp = Protocol}) ->
+    AutoUrl = mod_host_meta:get_auto_url(any, ?MODULE),
+    ConverseUrl = misc:expand_keyword(<<"@HOST@">>, AutoUrl, Host),
+    AutologinQuery =
+        case {Protocol, Auth} of
+            {http, {Jid, _Password}} ->
+                <<"/?autologinjid=", Jid/binary>>;
+            {https, {Jid, Password}} ->
+                AuthToken = build_token(Jid, Password),
+                <<"/?autologinjid=", Jid/binary, "&autologintoken=", AuthToken/binary>>;
+            _ ->
+                <<"">>
+        end,
+    ConverseEl =
+        ?LI([?C(unicode:characters_to_binary("☯️")),
+             ?XAE(<<"a">>,
+                  [{<<"href">>, <<ConverseUrl/binary, AutologinQuery/binary>>},
+                   {<<"target">>, <<"_blank">>}],
+                  [?C(unicode:characters_to_binary("Converse"))])]),
+    [ConverseEl | Result].
+
+get_autologin_options(Query) ->
+    case {proplists:get_value(<<"autologinjid">>, Query),
+          proplists:get_value(<<"autologintoken">>, Query)}
+    of
+        {undefined, _} ->
+            [];
+        {Jid, Token} ->
+            [{<<"auto_login">>, <<"true">>},
+             {<<"jid">>, <<"admin@localhost">>},
+             {<<"password">>, check_token_get_password(Jid, Token)}]
+    end.
+
+build_token(Jid, Password) ->
+    Minutes =
+        integer_to_binary(calendar:datetime_to_gregorian_seconds(
+                              calendar:universal_time())
+                          div 60),
+    Cookie =
+        misc:atom_to_binary(
+            erlang:get_cookie()),
+    str:sha(<<Jid/binary, Password/binary, Minutes/binary, Cookie/binary>>).
+
+check_token_get_password(_, undefined) ->
+    <<"">>;
+check_token_get_password(JidString, TokenProvided) ->
+    Jid = jid:decode(JidString),
+    Password = ejabberd_auth:get_password_s(Jid#jid.luser, Jid#jid.lserver),
+    case build_token(JidString, Password) of
+        TokenProvided ->
+            Password;
+        _ ->
+            <<"">>
+    end.
+%% @format-end
+
+%%----------------------------------------------------------------------
 %%
 %%----------------------------------------------------------------------
 
@@ -259,9 +327,10 @@ mod_doc() ->
            ?T("Make sure either _`mod_bosh`_ or _`listen.md#ejabberd_http_ws|ejabberd_http_ws`_ "
               "are enabled in at least one 'request_handlers'."), "",
            ?T("When 'conversejs_css' and 'conversejs_script' are 'auto', "
-              "by default they point to the public Converse client.")
+              "by default they point to the public Converse client."), "",
+           ?T("This module is available since ejabberd 21.12.")
           ],
-      note => "added in 21.12 and improved in 22.05",
+      note => "improved in 25.07",
       example =>
           [{?T("Manually setup WebSocket url, and use the public Converse client:"),
             ["listen:",

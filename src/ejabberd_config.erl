@@ -39,6 +39,7 @@
 -export([callback_modules/1]).
 -export([set_option/2]).
 -export([get_defined_keywords/1, get_predefined_keywords/1, replace_keywords/2, replace_keywords/3]).
+-export([resolve_host_alias/1]).
 
 %% Deprecated functions
 -export([get_option/2]).
@@ -340,7 +341,12 @@ may_hide_data(Data) ->
 -spec env_binary_to_list(atom(), atom()) -> {ok, any()} | undefined.
 env_binary_to_list(Application, Parameter) ->
     %% Application need to be loaded to allow setting parameters
-    application:load(Application),
+    case proplists:is_defined(Application, application:loaded_applications()) of
+        true ->
+            ok;
+        false ->
+            application:load(Application)
+    end,
     case application:get_env(Application, Parameter) of
         {ok, Val} when is_binary(Val) ->
             BVal = binary_to_list(Val),
@@ -503,13 +509,60 @@ get_predefined_keywords(Host) ->
             _ ->
                 [{<<"HOST">>, Host}]
         end,
-    {ok, [[Home]]} = init:get_argument(home),
+    Home = misc:get_home(),
+    ConfigDirPath =
+        iolist_to_binary(filename:dirname(
+                             ejabberd_config:path())),
+    LogDirPath =
+        iolist_to_binary(filename:dirname(
+                             ejabberd_logger:get_log_path())),
     HostList
     ++ [{<<"HOME">>, list_to_binary(Home)},
+        {<<"CONFIG_PATH">>, ConfigDirPath},
+        {<<"LOG_PATH">>, LogDirPath},
         {<<"SEMVER">>, ejabberd_option:version()},
         {<<"VERSION">>,
          misc:semver_to_xxyy(
              ejabberd_option:version())}].
+
+resolve_host_alias(Host) ->
+    case lists:member(Host, ejabberd_option:hosts()) of
+        true ->
+            Host;
+        false ->
+            resolve_host_alias2(Host)
+    end.
+
+resolve_host_alias2(Host) ->
+    Result =
+        lists:filter(fun({Alias1, _Vhost}) -> is_glob_match(Host, Alias1) end,
+                     ejabberd_option:hosts_alias()),
+    case Result of
+        [{_, Vhost} | _] when is_binary(Vhost) ->
+            ?DEBUG("(~p) Alias host '~s' resolved into vhost '~s'", [self(), Host, Vhost]),
+            Vhost;
+        [] ->
+            ?DEBUG("(~p) Request sent to host '~s', which isn't a vhost or an alias",
+                   [self(), Host]),
+            Host
+    end.
+
+%% Copied from ejabberd-2.0.0/src/acl.erl
+is_regexp_match(String, RegExp) ->
+    case ejabberd_regexp:run(String, RegExp) of
+        nomatch ->
+            false;
+        match ->
+            true;
+        {error, ErrDesc} ->
+            io:format("Wrong regexp ~p in ACL: ~p", [RegExp, ErrDesc]),
+            false
+    end.
+
+is_glob_match(String, <<"!", Glob/binary>>) ->
+    not is_regexp_match(String, ejabberd_regexp:sh_to_awk(Glob));
+is_glob_match(String, Glob) ->
+    is_regexp_match(String, ejabberd_regexp:sh_to_awk(Glob)).
 %% @format-end
 
 %%%===================================================================
@@ -578,22 +631,7 @@ callback_modules(external) ->
 	      end
       end, beams(external));
 callback_modules(all) ->
-    lists_uniq(callback_modules(local) ++ callback_modules(external)).
-
--ifdef(OTP_BELOW_25).
-lists_uniq(List) ->
-    {Res, _} = lists:foldr(
-	fun(El, {Result, Existing} = Acc) ->
-	    case maps:is_key(El, Existing) of
-		true -> Acc;
-		_ -> {[El | Result], Existing#{El => true}}
-	    end
-	end, {[], #{}}, List),
-    Res.
--else.
-lists_uniq(List) ->
-    lists:uniq(List).
--endif.
+    misc:lists_uniq(callback_modules(local) ++ callback_modules(external)).
 
 -spec validators(module(), [atom()], [any()]) -> econf:validators().
 validators(Mod, Disallowed, DK) ->

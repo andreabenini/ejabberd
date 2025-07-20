@@ -79,6 +79,8 @@ opt_type(auth_opts) ->
     end;
 opt_type(auth_stored_password_types) ->
     econf:list(econf:enum([plain, scram_sha1, scram_sha256, scram_sha512]));
+opt_type(auth_password_types_hidden_in_scram1) ->
+    econf:list(econf:enum([plain, scram_sha1, scram_sha256, scram_sha512]));
 opt_type(auth_password_format) ->
     econf:enum([plain, scram]);
 opt_type(auth_scram_hash) ->
@@ -182,6 +184,13 @@ opt_type(host_config) ->
         [unique]));
 opt_type(hosts) ->
     econf:non_empty(econf:list(econf:domain(), [unique]));
+opt_type(hosts_alias) ->
+    econf:and_then(
+      econf:map(econf:domain(), econf:domain(), [unique]),
+      econf:map(
+        econf:domain(),
+        econf:enum(ejabberd_config:get_option(hosts)),
+        [unique]));
 opt_type(include_config_file) ->
     econf:any();
 opt_type(install_contrib_modules) ->
@@ -557,6 +566,7 @@ options() ->
      {auth_password_format, plain},
      {auth_scram_hash, sha},
      {auth_stored_password_types, []},
+     {auth_password_types_hidden_in_scram1, []},
      {auth_external_user_exists_check, true},
      {auth_use_cache,
       fun(Host) -> ejabberd_config:get_option({use_cache, Host}) end},
@@ -587,6 +597,7 @@ options() ->
      {extauth_program, undefined},
      {fqdn, fun fqdn/1},
      {hide_sensitive_log_data, false},
+     {hosts_alias, []},
      {host_config, []},
      {include_config_file, []},
      {language, <<"en">>},
@@ -766,6 +777,7 @@ globals() ->
      ext_api_path_oauth,
      fqdn,
      hosts,
+     hosts_alias,
      host_config,
      install_contrib_modules,
      listen,

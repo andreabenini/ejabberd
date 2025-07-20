@@ -36,6 +36,7 @@
 	 l2i/1, i2l/1, i2l/2, expr_to_term/1, term_to_expr/1,
 	 now_to_usec/1, usec_to_now/1, encode_pid/1, decode_pid/2,
 	 compile_exprs/2, join_atoms/2, try_read_file/1, get_descr/2,
+	 get_home/0, warn_unset_home/0,
 	 css_dir/0, img_dir/0, js_dir/0, msgs_dir/0, sql_dir/0, lua_dir/0,
 	 read_css/1, read_img/1, read_js/1, read_lua/1,
 	 intersection/2, format_val/1, cancel_timer/1, unique_timestamp/0,
@@ -45,7 +46,8 @@
          json_encode/1, json_decode/1,
 	 set_proc_label/1,
 	 match_ip_mask/3, format_hosts_list/1, format_cycle/1, delete_dir/1,
-	 semver_to_xxyy/1, logical_processors/0, get_mucsub_event_type/1]).
+	 semver_to_xxyy/1, logical_processors/0, get_mucsub_event_type/1,
+         lists_uniq/1]).
 
 %% Deprecated functions
 -export([decode_base64/1, encode_base64/1]).
@@ -144,6 +146,9 @@ json_encode({[{_Key, _Value} | _]} = Term) ->
 			(Val, Encoder) ->
 			 json:encode_value(Val, Encoder)
 		     end));
+json_encode({[]}) ->
+    %% Jiffy was able to handle this case, but Json library does not
+    <<"{}">>;
 json_encode(Term) ->
     iolist_to_binary(json:encode(Term)).
 json_decode(Bin) ->
@@ -469,6 +474,25 @@ get_descr(Lang, Text) ->
     Desc = translate:translate(Lang, Text),
     Copyright = ejabberd_config:get_copyright(),
     <<Desc/binary, $\n, Copyright/binary>>.
+
+-spec get_home() -> string().
+get_home() ->
+    case init:get_argument(home) of
+        {ok, [[Home]]} ->
+            Home;
+        error ->
+            mnesia:system_info(directory)
+    end.
+
+warn_unset_home() ->
+    case init:get_argument(home) of
+        {ok, [[_Home]]} ->
+            ok;
+        error ->
+            ?INFO_MSG("The 'HOME' environment variable is not set, "
+                 "ejabberd will use as HOME the Mnesia directory: ~s.",
+                 [mnesia:system_info(directory)])
+    end.
 
 -spec intersection(list(), list()) -> list().
 intersection(L1, L2) ->
@@ -798,4 +822,22 @@ set_proc_label(_Label) ->
 -else.
 set_proc_label(Label) ->
     proc_lib:set_label(Label).
+-endif.
+
+-ifdef(OTP_BELOW_25).
+-spec lists_uniq([term()]) -> [term()].
+lists_uniq(List) ->
+    lists_uniq_int(List, #{}).
+
+lists_uniq_int([El | Rest], Existing) ->
+    case maps:is_key(El, Existing) of
+        true -> lists_uniq_int(Rest, Existing);
+        _ -> [El | lists_uniq_int(Rest, Existing#{El => true})]
+    end;
+lists_uniq_int([], _) ->
+    [].
+-else.
+-spec lists_uniq([term()]) -> [term()].
+lists_uniq(List) ->
+    lists:uniq(List).
 -endif.
