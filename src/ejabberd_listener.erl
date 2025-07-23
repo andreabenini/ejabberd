@@ -113,12 +113,12 @@ init({Port, _, udp} = EndPoint, Module, Opts, SockOpts) ->
 				 {Port, SockOpts}
 			 end,
     ExtraOpts2 = lists:keydelete(send_timeout, 1, ExtraOpts),
-    case gen_udp:open(Port2, [binary,
+    case {gen_udp:open(Port2, [binary,
 			     {active, false},
 			     {reuseaddr, true} |
-			     ExtraOpts2]) of
-	{ok, Socket} ->
-            set_definitive_udsocket(Port, Opts),
+			     ExtraOpts2]),
+          set_definitive_udsocket(Port, Opts)} of
+	{{ok, Socket}, ok} ->
             misc:set_proc_label({?MODULE, udp, Port}),
 	    case inet:sockname(Socket) of
 		{ok, {Addr, Port1}} ->
@@ -143,14 +143,17 @@ init({Port, _, udp} = EndPoint, Module, Opts, SockOpts) ->
 		    report_socket_error(Reason, EndPoint, Module),
 		    proc_lib:init_ack(Err)
 	    end;
-	{error, Reason} = Err ->
+	{{error, Reason} = Err, _} ->
+	    report_socket_error(Reason, EndPoint, Module),
+	    proc_lib:init_ack(Err);
+	{_, {error, Reason} = Err} ->
 	    report_socket_error(Reason, EndPoint, Module),
 	    proc_lib:init_ack(Err)
     end;
 init({Port, _, tcp} = EndPoint, Module, Opts, SockOpts) ->
-    case listen_tcp(Port, SockOpts) of
-	{ok, ListenSocket} ->
-            set_definitive_udsocket(Port, Opts),
+    case {listen_tcp(Port, SockOpts),
+          set_definitive_udsocket(Port, Opts)} of
+	{{ok, ListenSocket}, ok} ->
 	    case inet:sockname(ListenSocket) of
 		{ok, {Addr, Port1}} ->
 		    proc_lib:init_ack({ok, self()}),
@@ -178,7 +181,10 @@ init({Port, _, tcp} = EndPoint, Module, Opts, SockOpts) ->
 		    report_socket_error(Reason, EndPoint, Module),
 		    proc_lib:init_ack(Err)
 	    end;
-	{error, Reason} = Err ->
+	{{error, Reason}, _} = Err ->
+	    report_socket_error(Reason, EndPoint, Module),
+	    proc_lib:init_ack(Err);
+	{_, {error, Reason}} = Err ->
 	    report_socket_error(Reason, EndPoint, Module),
 	    proc_lib:init_ack(Err)
     end.
@@ -216,7 +222,7 @@ listen_tcp(Port, SockOpts) ->
 
 setup_provisional_udsocket_dir(DefinitivePath) ->
     ProvisionalPath = get_provisional_udsocket_path(DefinitivePath),
-    ?DEBUG("Creating a Unix Domain Socket provisional file at ~ts for the definitive path ~s",
+    ?INFO_MSG("Creating a Unix Domain Socket provisional file at ~ts for the definitive path ~s",
               [ProvisionalPath, DefinitivePath]),
     ProvisionalPath.
 
@@ -232,6 +238,8 @@ get_definitive_udsocket_path(ProvisionalPath) ->
     PathBase64 = filename:basename(ProvisionalPath),
     {term, Path} = misc:base64_to_term(PathBase64),
     relative_socket_to_mnesia(Path).
+
+-spec set_definitive_udsocket(integer() | binary(), opts()) -> ok | {error, file:posix() | badarg}.
 
 set_definitive_udsocket(<<"unix:", Path/binary>>, Opts) ->
     Prov = get_provisional_udsocket_path(Path),
@@ -271,7 +279,7 @@ set_definitive_udsocket(<<"unix:", Path/binary>>, Opts) ->
             ok
     end,
     file:rename(Prov, FinalPath);
-set_definitive_udsocket(_Port, _Opts) ->
+set_definitive_udsocket(Port, _Opts) when is_integer(Port) ->
     ok.
 
 relative_socket_to_mnesia(Path1) ->
