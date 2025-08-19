@@ -416,8 +416,8 @@ unauthenticated_stream_features(#{lserver := LServer}) ->
 authenticated_stream_features(#{lserver := LServer}) ->
     ejabberd_hooks:run_fold(c2s_post_auth_features, LServer, [], [LServer]).
 
-inline_stream_features(#{lserver := LServer}) ->
-    ejabberd_hooks:run_fold(c2s_inline_features, LServer, {[], [], []}, [LServer]).
+inline_stream_features(#{lserver := LServer} = State) ->
+    ejabberd_hooks:run_fold(c2s_inline_features, LServer, {[], [], []}, [LServer, State]).
 
 sasl_mechanisms(Mechs, #{lserver := LServer, stream_encrypted := Encrypted} = State) ->
     Type = ejabberd_auth:store_type(LServer),
@@ -455,7 +455,7 @@ sasl_mechanisms(Mechs, #{lserver := LServer, stream_encrypted := Encrypted} = St
 	   (<<"EXTERNAL">>) -> maps:get(tls_verify, State, false);
 	   (_) -> false
 	end, Mechs -- Mechs1),
-    case ejabberd_option:auth_password_types_hidden_in_scram1() of
+    case ejabberd_option:auth_password_types_hidden_in_sasl1() of
 	[] -> Mechs2;
 	List ->
 	    Mechs3 = lists:foldl(
