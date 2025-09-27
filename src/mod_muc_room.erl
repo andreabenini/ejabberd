@@ -74,7 +74,7 @@
 -include_lib("xmpp/include/xmpp.hrl").
 -include("translate.hrl").
 -include("mod_muc_room.hrl").
--include("ejabberd_stacktrace.hrl").
+
 
 -define(MAX_USERS_DEFAULT_LIST,
 	[5, 10, 20, 30, 50, 100, 200, 500, 1000, 2000, 5000]).
@@ -1027,10 +1027,10 @@ terminate(Reason, _StateName,
 			ok
 		end
 	end
-    catch ?EX_RULE(E, R, St) ->
-	    StackTrace = ?EX_STACK(St),
-	    ?ERROR_MSG("Got exception on room termination:~n** ~ts",
-		       [misc:format_exception(2, E, R, StackTrace)])
+    catch
+        E:R:StackTrace ->
+            ?ERROR_MSG("Got exception on room termination:~n** ~ts",
+                       [misc:format_exception(2, E, R, StackTrace)])
     end.
 
 %%%----------------------------------------------------------------------
@@ -2468,6 +2468,10 @@ check_password(owner, _Affiliation, _Packet, _From,
 	       _StateData) ->
     %% Don't check pass if user is owner in MUC service (access_admin option)
     true;
+check_password(_ServiceAffiliation, owner, _Packet, _From,
+	       _StateData) ->
+    %% Don't check pass if user is owner in this room
+    true;
 check_password(_ServiceAffiliation, Affiliation, Packet,
 	       From, StateData) ->
     case (StateData#state.config)#config.password_protected
@@ -3266,19 +3270,20 @@ process_item_change(Item, SD, UJID) ->
 		maybe_send_affiliation(JID, A, SD1),
 		SD1
 	end
-    catch ?EX_RULE(E, R, St) ->
-	    StackTrace = ?EX_STACK(St),
-	    FromSuffix = case UJID of
-			     #jid{} ->
-				 JidString = jid:encode(UJID),
-				 <<" from ", JidString/binary>>;
-			     undefined ->
-				 <<"">>
-			 end,
-	    ?ERROR_MSG("Failed to set item ~p~ts:~n** ~ts",
-		       [Item, FromSuffix,
-			misc:format_exception(2, E, R, StackTrace)]),
-	    {error, xmpp:err_internal_server_error()}
+    catch
+        E:R:StackTrace ->
+            FromSuffix = case UJID of
+                             #jid{} ->
+                                 JidString = jid:encode(UJID),
+                                 <<" from ", JidString/binary>>;
+                             undefined ->
+                                 <<"">>
+                         end,
+            ?ERROR_MSG("Failed to set item ~p~ts:~n** ~ts",
+                       [Item,
+                        FromSuffix,
+                        misc:format_exception(2, E, R, StackTrace)]),
+            {error, xmpp:err_internal_server_error()}
     end.
 
 -spec unsubscribe_from_room(jid(), state()) -> ok | error.
@@ -5583,29 +5588,34 @@ wrap(From, To, Packet, Node, Id) ->
 
 -spec send_wrapped_multiple(jid(), users(), stanza(), binary(), state()) -> ok.
 send_wrapped_multiple(From, Users, Packet, Node, State) ->
-    {Dir, Wra} =
-    maps:fold(
-	fun(_, #user{jid = To, last_presence = LP}, {Direct, Wrapped} = Res) ->
-	    IsOffline = LP == undefined,
-	    if IsOffline ->
-		LBareTo = jid:tolower(jid:remove_resource(To)),
-		case muc_subscribers_find(LBareTo, State#state.muc_subscribers) of
-		    {ok, #subscriber{nodes = Nodes}} ->
-			case lists:member(Node, Nodes) of
-			    true ->
-				{Direct, [To | Wrapped]};
-			    _ ->
-                                %% TODO: check that this branch is never called
-				Res
-			end;
-		    _ ->
-			Res
-		end;
-		true ->
-		    {[To | Direct], Wrapped}
-	    end
-	end, {[],[]}, Users),
-    case Dir of
+    {Dir, DirSub, Wra} =
+        maps:fold(
+          fun(_, #user{jid = To, last_presence = LP}, {Direct, DirectSub, Wrapped} = Res) ->
+                  IsOffline = LP == undefined,
+                  LBareTo = jid:tolower(jid:remove_resource(To)),
+                  IsSub = case muc_subscribers_find(LBareTo, State#state.muc_subscribers) of
+                              {ok, #subscriber{nodes = Nodes}} ->
+                                  lists:member(Node, Nodes);
+                              _ -> false
+                          end,
+                  if
+                      IsOffline ->
+                          if
+                              IsSub ->
+                                  {Direct, DirectSub, [To | Wrapped]};
+                              true ->
+                                  Res
+                          end;
+                      IsSub ->
+                          {Direct, [To | DirectSub], Wrapped};
+                      true ->
+                          {[To | Direct], DirectSub, Wrapped}
+                  end
+          end,
+          {[], [], []},
+          Users),
+    DirAll = Dir ++ DirSub,
+    case DirAll of
 	[] -> ok;
 	_ ->
 	    case Packet of
@@ -5618,7 +5628,9 @@ send_wrapped_multiple(From, Users, Packet, Node, State) ->
 				  not lists:member(303, Codes)) of
 				true ->
 				    ejabberd_router_multicast:route_multicast(
-					From, State#state.server_host, Dir,
+                                      From,
+                                      State#state.server_host,
+                                      DirAll,
 					#presence{id = p1_rand:get_string(),
 						  type = unavailable}, false);
 				false ->
@@ -5630,8 +5642,27 @@ send_wrapped_multiple(From, Users, Packet, Node, State) ->
 		_ ->
 		    ok
 	    end,
-	    ejabberd_router_multicast:route_multicast(From, State#state.server_host,
-						      Dir, Packet, false)
+            if
+                Dir /= [] ->
+                    ejabberd_router_multicast:route_multicast(From,
+                                                              State#state.server_host,
+                                                              Dir,
+                                                              Packet,
+                                                              false);
+                true ->
+                    ok
+            end,
+            if
+                DirSub /= [] ->
+                    PacketSub = xmpp:put_meta(Packet, is_muc_subscriber, true),
+                    ejabberd_router_multicast:route_multicast(From,
+                                                              State#state.server_host,
+                                                              DirSub,
+                                                              PacketSub,
+                                                              false);
+                true ->
+                    ok
+            end
     end,
     case Wra of
 	[] -> ok;
