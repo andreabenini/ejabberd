@@ -98,6 +98,7 @@ defmodule Ejabberd.MixProject do
              if_version_below(~c"25", [{:d, :OTP_BELOW_25}]) ++
              if_version_below(~c"26", [{:d, :OTP_BELOW_26}]) ++
              if_version_below(~c"27", [{:d, :OTP_BELOW_27}]) ++
+             if_version_below(~c"27", [{:feature, :maybe_expr, :enable}]) ++
              if_version_below(~c"28", [{:d, :OTP_BELOW_28}])
     defines = for {:d, value} <- result, do: {:d, value}
     result ++ [{:d, :ALL_DEFS, defines}]
@@ -109,7 +110,7 @@ defmodule Ejabberd.MixProject do
                             {config(:debug), :debug_info},
                             {not config(:debug), {:debug_info, false}},
                             {config(:roster_gateway_workaround), {:d, :ROSTER_GATEWAY_WORKAROUND}},
-                            {config(:new_sql_schema), {:d, :NEW_SQL_SCHEMA}}
+                            {config(:multihost_sql_schema), {:d, :MULTIHOST_SQL_SCHEMA}}
                            ], do:
     option
   end

@@ -21,10 +21,10 @@
 
 -export([opt_type/1, options/0, globals/0, doc/0]).
 
--ifdef(NEW_SQL_SCHEMA).
--define(USE_NEW_SQL_SCHEMA_DEFAULT, true).
+-ifdef(MULTIHOST_SQL_SCHEMA).
+-define(USE_MULTIHOST_SQL_SCHEMA_DEFAULT, true).
 -else.
--define(USE_NEW_SQL_SCHEMA_DEFAULT, false).
+-define(USE_MULTIHOST_SQL_SCHEMA_DEFAULT, false).
 -endif.
 
 -include_lib("kernel/include/inet.hrl").
@@ -266,7 +266,7 @@ opt_type(negotiation_timeout) ->
     econf:timeout(second);
 opt_type(net_ticktime) ->
     econf:timeout(second);
-opt_type(new_sql_schema) ->
+opt_type(sql_schema_multihost) ->
     econf:bool();
 opt_type(update_sql_schema) ->
     econf:bool();
@@ -632,7 +632,7 @@ options() ->
      {modules, []},
      {negotiation_timeout, timer:seconds(120)},
      {net_ticktime, timer:seconds(60)},
-     {new_sql_schema, ?USE_NEW_SQL_SCHEMA_DEFAULT},
+     {sql_schema_multihost, ?USE_MULTIHOST_SQL_SCHEMA_DEFAULT},
      {update_sql_schema, true},
      {update_sql_schema_timeout, timer:minutes(5)},
      {oauth_access, none},
@@ -789,7 +789,6 @@ globals() ->
      log_modules_fully,
      negotiation_timeout,
      net_ticktime,
-     new_sql_schema,
      update_sql_schema,
      node_start,
      oauth_cache_life_time,
@@ -822,6 +821,7 @@ globals() ->
      sm_cache_life_time,
      sm_cache_missed,
      sm_cache_size,
+     sql_schema_multihost,
      trusted_proxies,
      validate_stream,
      version,

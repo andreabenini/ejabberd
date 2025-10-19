@@ -89,7 +89,6 @@
 -export([modules/0, modules/1]).
 -export([negotiation_timeout/0]).
 -export([net_ticktime/0]).
--export([new_sql_schema/0]).
 -export([oauth_access/0, oauth_access/1]).
 -export([oauth_cache_life_time/0]).
 -export([oauth_cache_missed/0]).
@@ -162,6 +161,7 @@
 -export([sql_prepared_statements/0, sql_prepared_statements/1]).
 -export([sql_query_timeout/0, sql_query_timeout/1]).
 -export([sql_queue_type/0, sql_queue_type/1]).
+-export([sql_schema_multihost/0]).
 -export([sql_server/0, sql_server/1]).
 -export([sql_ssl/0, sql_ssl/1]).
 -export([sql_ssl_cafile/0, sql_ssl_cafile/1]).
@@ -686,10 +686,6 @@ negotiation_timeout() ->
 net_ticktime() ->
     ejabberd_config:get_option({net_ticktime, global}).
 
--spec new_sql_schema() -> boolean().
-new_sql_schema() ->
-    ejabberd_config:get_option({new_sql_schema, global}).
-
 -spec oauth_access() -> 'none' | acl:acl().
 oauth_access() ->
     oauth_access(global).
@@ -1103,6 +1099,10 @@ sql_queue_type() ->
 -spec sql_queue_type(global | binary()) -> 'file' | 'ram'.
 sql_queue_type(Host) ->
     ejabberd_config:get_option({sql_queue_type, Host}).
+
+-spec sql_schema_multihost() -> boolean().
+sql_schema_multihost() ->
+    ejabberd_config:get_option({sql_schema_multihost, global}).
 
 -spec sql_server() -> binary().
 sql_server() ->
