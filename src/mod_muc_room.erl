@@ -27,7 +27,7 @@
 
 -author('alexey@process-one.net').
 
--protocol({xep, 317, '0.3.1', '21.12', "complete", "0.3.1 since 25.xx"}).
+-protocol({xep, 317, '0.3.1', '21.12', "complete", "0.3.1 since 25.10"}).
 -protocol({xep, 410, '1.1.0', '18.12', "complete", ""}).
 
 -behaviour(p1_fsm).
@@ -4440,7 +4440,8 @@ make_disco_info(From, StateData) ->
     Config = StateData#state.config,
     ServerHost = StateData#state.server_host,
     AccessRegister = mod_muc_opt:access_register(ServerHost),
-    Feats = [?NS_VCARD, ?NS_MUC, ?NS_DISCO_INFO, ?NS_DISCO_ITEMS,
+    Feats = [?NS_VCARD, ?NS_MUC, ?NS_MUC_STABLE_ID,
+             ?NS_DISCO_INFO, ?NS_DISCO_ITEMS,
              ?NS_COMMANDS,
              ?NS_MESSAGE_MODERATE_0, ?NS_MESSAGE_MODERATE_1,
              ?NS_MESSAGE_RETRACT,
@@ -4528,10 +4529,10 @@ process_iq_disco_info(From, #iq{type = get, lang = Lang,
     NodeName = case Node of
                ?MUC_HAT_CREATE_CMD -> ?T("Create a Hat");
                ?MUC_HAT_DESTROY_CMD -> ?T("Destroy a Hat");
-               ?MUC_HAT_LISTHATS_CMD -> ?T("List Hats");
-               ?MUC_HAT_ASSIGN_CMD -> ?T("Assign a Hat to a User");
-               ?MUC_HAT_UNASSIGN_CMD -> ?T("Remove a Hat from a User");
-               ?MUC_HAT_LISTUSERS_CMD -> ?T("List Users and their Hats")
+               ?MUC_HAT_LISTHATS_CMD -> ?T("List of Hats");
+               ?MUC_HAT_ASSIGN_CMD -> ?T("Assign a hat to a user");
+               ?MUC_HAT_UNASSIGN_CMD -> ?T("Remove a hat from a user");
+               ?MUC_HAT_LISTUSERS_CMD -> ?T("List users with hats")
                end,
 
     case (StateData#state.config)#config.enable_hats andalso
@@ -4655,15 +4656,15 @@ process_iq_disco_items(From, #iq{type = get, lang = Lang,
                 items = [#disco_item{jid = StateData#state.jid,
                                      node = ?MUC_HAT_CREATE_CMD,
                                      name = translate:translate(
-                                              Lang, ?T("Create a hat"))},
+                                              Lang, ?T("Create a Hat"))},
                          #disco_item{jid = StateData#state.jid,
                                      node = ?MUC_HAT_DESTROY_CMD,
                                      name = translate:translate(
-                                              Lang, ?T("Destroy a hat"))},
+                                              Lang, ?T("Destroy a Hat"))},
                          #disco_item{jid = StateData#state.jid,
                                      node = ?MUC_HAT_LISTHATS_CMD,
                                      name = translate:translate(
-                                              Lang, ?T("List hats"))},
+                                              Lang, ?T("List of Hats"))},
                          #disco_item{jid = StateData#state.jid,
                                      node = ?MUC_HAT_ASSIGN_CMD,
                                      name = translate:translate(
@@ -5052,20 +5053,20 @@ process_iq_adhoc_hats(?MUC_HAT_LISTHATS_CMD, StateData, Lang) ->
                   end,
                   Hats),
     Form =
-        #xdata{title = translate:translate(Lang, ?T("Hats List")),
+        #xdata{title = translate:translate(Lang, ?T("List of Hats")),
                type = result,
                reported =
                    [#xdata_field{label = translate:translate(Lang, ?T("Hat URI")),
                                  var = <<"hats#uri">>},
-                    #xdata_field{label = translate:translate(Lang, ?T("Hat Title")),
+                    #xdata_field{label = translate:translate(Lang, ?T("Hat title")),
                                  var = <<"hats#title">>},
-                    #xdata_field{label = translate:translate(Lang, ?T("Hat Hue")),
+                    #xdata_field{label = translate:translate(Lang, ?T("Hat hue")),
                                  var = <<"hats#hue">>}],
                items = Items},
     {completed, Form};
 process_iq_adhoc_hats(?MUC_HAT_CREATE_CMD, _StateData, Lang) ->
     Form =
-        #xdata{title = translate:translate(Lang, ?T("Create a hat")),
+        #xdata{title = translate:translate(Lang, ?T("Create a Hat")),
                type = form,
                fields =
                    [#xdata_field{type = 'text-single',
@@ -5073,16 +5074,16 @@ process_iq_adhoc_hats(?MUC_HAT_CREATE_CMD, _StateData, Lang) ->
                                  required = true,
                                  var = <<"hats#uri">>},
                     #xdata_field{type = 'text-single',
-                                 label = translate:translate(Lang, ?T("Hat Title")),
+                                 label = translate:translate(Lang, ?T("Hat title")),
                                  required = true,
                                  var = <<"hats#title">>},
                     #xdata_field{type = 'text-single',
-                                 label = translate:translate(Lang, ?T("Hat Hue")),
+                                 label = translate:translate(Lang, ?T("Hat hue")),
                                  var = <<"hats#hue">>}]},
     {executing, Form};
 process_iq_adhoc_hats(?MUC_HAT_DESTROY_CMD, _StateData, Lang) ->
     Form =
-        #xdata{title = translate:translate(Lang, ?T("Destroy a hat")),
+        #xdata{title = translate:translate(Lang, ?T("Destroy a Hat")),
                type = form,
                fields =
                    [#xdata_field{type = 'text-single',
@@ -5138,16 +5139,16 @@ process_iq_adhoc_hats(?MUC_HAT_LISTUSERS_CMD, StateData, Lang) ->
                   end,
                   Hats),
     Form =
-        #xdata{title = translate:translate(Lang, ?T("List of users with hats")),
+        #xdata{title = translate:translate(Lang, ?T("List users with hats")),
                type = result,
                reported =
                    [#xdata_field{label = translate:translate(Lang, ?T("Jabber ID")),
                                  var = <<"hats#jid">>},
                     #xdata_field{label = translate:translate(Lang, ?T("Hat URI")),
                                  var = <<"hats#uri">>},
-                    #xdata_field{label = translate:translate(Lang, ?T("Hat Title")),
+                    #xdata_field{label = translate:translate(Lang, ?T("Hat title")),
                                  var = <<"hats#title">>},
-                    #xdata_field{label = translate:translate(Lang, ?T("Hat Hue")),
+                    #xdata_field{label = translate:translate(Lang, ?T("Hat hue")),
                                  var = <<"hats#hue">>}],
                items = Items},
     {completed, Form};

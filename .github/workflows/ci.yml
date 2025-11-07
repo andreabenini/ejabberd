@@ -66,7 +66,7 @@ jobs:
         make
         tar -cvf /tmp/compiled.tar .
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v5
       with:
         name: compiled-${{ matrix.otp }}
         path: /tmp/compiled.tar
@@ -90,7 +90,7 @@ jobs:
           https://cdn.jsdelivr.net/hex
           https://builds.hex.pm
 
-    - uses: actions/download-artifact@v5
+    - uses: actions/download-artifact@v6
       with:
         name: compiled-${{ matrix.otp }}
     - run: tar -xf compiled.tar
@@ -143,7 +143,7 @@ jobs:
         packages: libexpat1-dev libgd-dev libpam0g-dev
                   libsqlite3-dev libwebp-dev libyaml-dev
 
-    - uses: actions/download-artifact@v5
+    - uses: actions/download-artifact@v6
       with:
         name: compiled-${{ matrix.otp }}
     - run: tar -xf compiled.tar
@@ -225,7 +225,7 @@ jobs:
           https://cdn.jsdelivr.net/hex
           https://builds.hex.pm
 
-    - uses: actions/download-artifact@v5
+    - uses: actions/download-artifact@v6
       with:
         name: compiled-${{ matrix.otp }}
     - run: tar -xf compiled.tar
@@ -284,7 +284,7 @@ jobs:
 
     - name: Upload CT logs
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: ct-logs-${{ matrix.otp }}-${{ matrix.backend }}-${{ matrix.schema }}
         path: _build/test/logs
@@ -326,7 +326,7 @@ jobs:
           https://cdn.jsdelivr.net/hex
           https://builds.hex.pm
 
-    - uses: actions/download-artifact@v5
+    - uses: actions/download-artifact@v6
       with:
         name: compiled-${{ matrix.otp }}
     - run: tar -xf compiled.tar

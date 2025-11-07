@@ -452,7 +452,17 @@ set_form_api_command(From, Host, CommandNameBin, XData, _Lang) ->
     Instructions = get_instructions(Def),
 
     %% Arguments
-    FieldsArgs1 = [Field || Field <- XData#xdata.fields, Field#xdata_field.type /= fixed],
+    FieldsArgs0 = [Field || Field <- XData#xdata.fields, Field#xdata_field.type /= fixed],
+    FieldsArgs1 =
+        lists:map(fun(Arg) ->
+                     case Arg#xdata_field.values of
+                         [_] ->
+                             Arg;
+                         _ ->
+                             Arg#xdata_field{type = 'text-multi'}
+                     end
+                  end,
+                  FieldsArgs0),
 
     {Node, FieldsArgs} =
         case lists:keytake(<<"mod_adhoc_api_target_node">>, #xdata_field.var, FieldsArgs1) of
@@ -474,13 +484,14 @@ set_form_api_command(From, Host, CommandNameBin, XData, _Lang) ->
     Arguments = api_extract_fields(FieldsArgs, Def#ejabberd_commands.args),
     ApiVersion = mod_adhoc_api_opt:default_version(Host),
     CallResult =
-        ejabberd_cluster:call(Node,
-                              mod_http_api,
-                              handle,
-                              [binary_to_existing_atom(CommandNameBin, latin1),
-                               get_caller_info(From),
-                               Arguments,
-                               ApiVersion]),
+        execute(Def,
+                [Node,
+                 mod_http_api,
+                 handle,
+                 [binary_to_existing_atom(CommandNameBin, latin1),
+                  get_caller_info(From),
+                  Arguments,
+                  ApiVersion]]),
 
     %% Command result
     FieldsResult2 =
@@ -514,6 +525,15 @@ set_form_api_command(From, Host, CommandNameBin, XData, _Lang) ->
             type = result,
             instructions = Instructions,
             fields = FieldsArgsWithHeads ++ FieldsResultWithHeads}}.
+
+execute(Def, Arguments) ->
+    case lists:member(async, Def#ejabberd_commands.tags) of
+        true ->
+            spawn(ejabberd_cluster, call, Arguments),
+            {200, 0};
+        false ->
+            apply(ejabberd_cluster, call, Arguments)
+    end.
 
 api_extract_fields(Fields, ArgsDef) ->
     lists:map(fun(#xdata_field{values = Values, var = ANameBin}) ->
@@ -608,15 +628,22 @@ build_fields(NameTypes, Descs, Examples, Policy, Replacements, Required) ->
         end,
     build_fields2(NameTypes2, Descs2, Examples2, Replacements, Required).
 
-build_fields2([{_ArgName, {list, _ArgNameType}}] = NameTypes,
+build_fields2([{_ArgName, {list, ArgNameType}}] = NameTypes,
               Descs,
               Examples,
               _Replacements,
               Required) ->
+    ArgNameType2 =
+        case ArgNameType of
+            {jid, _} ->
+                'jid-multi';
+            {_, _} ->
+                'text-multi'
+        end,
     Args = lists_zip3_pad(NameTypes, Descs, Examples),
     lists:map(fun({{AName, AType}, ADesc, AExample}) ->
                  ANameBin = list_to_binary(atom_to_list(AName)),
-                 #xdata_field{type = 'text-multi',
+                 #xdata_field{type = ArgNameType2,
                               label = ANameBin,
                               desc = list_to_binary(ADesc),
                               values = encode(AExample, AType),

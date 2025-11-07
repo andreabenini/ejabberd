@@ -313,7 +313,7 @@ doc() ->
       #{value => "true | false",
         desc =>
             ?T("Whether to allow installation of third-party modules or not. "
-               "See _`../../admin/guide/modules.md#ejabberd-contrib|ejabberd-contrib`_ "
+               "See _`../../admin/guide/modules.md#ejabberd-modules|ejabberd-modules`_ "
                "documentation section. "
                "The default value is 'true'.")}},
      {allow_multiple_connections,
@@ -771,10 +771,16 @@ doc() ->
       #{value => "[Module, ...]",
         note => "added in 23.10",
         desc =>
-            ?T("Modules to install from "
-               "_`../../admin/guide/modules.md#ejabberd-contrib|ejabberd-contrib`_ "
-               "at start time. "
-               "The default value is an empty list of modules: '[]'.")}},
+            ?T("Modules from "
+               "_`../../admin/guide/modules.md#ejabberd-modules|ejabberd-modules`_ "
+               "to install automatically at start time. "
+               "The default value is an empty list of modules: '[]'."),
+        example =>
+            ["install_contrib_modules:",
+             "  - mod_tombstones",
+             "",
+             "modules:",
+             "  mod_tombstones: {}"]}},
      {jwt_auth_only_rule,
       #{value => ?T("AccessName"),
         desc =>
@@ -994,7 +1000,7 @@ doc() ->
                "The default value is '1 minute'.")}},
      {sql_schema_multihost,
       #{value => "true | false",
-        note => "renamed in 25.xx",
+        note => "renamed in 25.10",
         desc =>
             {?T("Whether to use the "
                 "_`database.md#default-and-new-schemas|multihost SQL schema`_. "
@@ -1012,10 +1018,10 @@ doc() ->
              [binary:part(ejabberd_config:version(), {0,5})]}}},
      {new_sql_schema,
       #{value => "true | false",
-        note => "obsoleted in 25.xx",
+        note => "obsoleted in 25.10",
         desc =>
-            {?T("This option was renamed to _`sql_schema_multihost`_ in ejabberd 25.xx. "
-                "Please update your configuration to use the new option name")}}},
+            ?T("This option was renamed to _`sql_schema_multihost`_ in ejabberd 25.10. "
+                "Please update your configuration to use the new option name")}},
      {update_sql_schema,
       #{value => "true | false",
         note => "updated in 24.06",

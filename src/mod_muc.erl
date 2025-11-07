@@ -24,7 +24,7 @@
 %%%----------------------------------------------------------------------
 -module(mod_muc).
 -author('alexey@process-one.net').
--protocol({xep, 45, '1.25', '0.5.0', "complete", ""}).
+-protocol({xep, 45, '1.35.2', '0.5.0', "complete", ""}).
 -protocol({xep, 249, '1.2', '0.5.0', "complete", ""}).
 -protocol({xep, 486, '0.1.0', '24.07', "complete", ""}).
 -ifndef(GEN_SERVER).
@@ -67,6 +67,8 @@
 	 count_online_rooms/1,
 	 register_online_user/4,
 	 unregister_online_user/4,
+	 get_register_nick/3,
+	 get_register_nicks/2,
 	 iq_set_register_info/5,
 	 count_online_rooms_by_user/3,
 	 get_online_rooms_by_user/3,
@@ -102,6 +104,7 @@
 -callback can_use_nick(binary(), binary(), jid(), binary()) -> boolean().
 -callback get_rooms(binary(), binary()) -> [#muc_room{}].
 -callback get_nick(binary(), binary(), jid()) -> binary() | error.
+-callback get_nicks(binary(), binary()) -> [{binary(), binary(), binary()}] | error.
 -callback set_nick(binary(), binary(), jid(), binary()) -> {atomic, ok | false}.
 -callback register_online_room(binary(), binary(), binary(), pid()) -> any().
 -callback unregister_online_room(binary(), binary(), binary(), pid()) -> any().
@@ -414,10 +417,10 @@ init([Host, Worker]) ->
 			 {stop, normal, ok, state()}.
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
-handle_call({unhibernate, Room, Host, ResetHibernationTime}, _From,
+handle_call({unhibernate, Room, Host, ResetHibernationTime, Opts}, _From,
     #{server_host := ServerHost} = State) ->
     RMod = gen_mod:ram_db_mod(ServerHost, ?MODULE),
-    {reply, load_room(RMod, Host, ServerHost, Room, ResetHibernationTime), State};
+    {reply, do_restore_room(RMod, Host, ServerHost, Room, ResetHibernationTime, Opts), State};
 handle_call({create, Room, Host, Opts}, _From,
 	    #{server_host := ServerHost} = State) ->
     ?DEBUG("MUC: create new room '~ts'~n", [Room]),
@@ -599,10 +602,18 @@ unhibernate_room(ServerHost, Host, Room) ->
 unhibernate_room(ServerHost, Host, Room, ResetHibernationTime) ->
     RMod = gen_mod:ram_db_mod(ServerHost, ?MODULE),
     case RMod:find_online_room(ServerHost, Room, Host) of
-	error ->
-	    Proc = procname(ServerHost, {Room, Host}),
-	    ?GEN_SERVER:call(Proc, {unhibernate, Room, Host, ResetHibernationTime}, 20000);
-	{ok, _} = R2 -> R2
+        error ->
+            Mod = gen_mod:db_mod(ServerHost, ?MODULE),
+            case Mod:restore_room(ServerHost, Host, Room) of
+            	error ->
+            	    {error, notfound};
+                {error, _} = Err ->
+                    Err;
+                Opts ->
+            	    Proc = procname(ServerHost, {Room, Host}),
+            	    ?GEN_SERVER:call(Proc, {unhibernate, Room, Host, ResetHibernationTime, Opts}, 20000)
+            end;
+        {ok, _} = R2 -> R2
     end.
 
 -spec route_to_room(stanza(), binary()) -> ok.
@@ -731,7 +742,8 @@ process_disco_info(#iq{type = get, from = From, to = To, lang = Lang,
 			   deny -> []
 		       end,
     Features = [?NS_DISCO_INFO, ?NS_DISCO_ITEMS,
-		?NS_MUC, ?NS_VCARD, ?NS_MUCSUB, ?NS_MUC_UNIQUE
+		?NS_MUC, ?NS_VCARD, ?NS_MUCSUB, ?NS_MUC_UNIQUE,
+		?NS_MUC_STABLE_ID
 		| RegisterFeatures ++ RSMFeatures ++ MAMFeatures ++ OccupantIdFeatures],
     Name = mod_muc_opt:name(ServerHost),
     Identity = #identity{category = <<"conference">>,
@@ -883,35 +895,38 @@ load_permanent_rooms(Hosts, ServerHost, Opts) ->
     {ok, pid()} | {error, notfound | term()}.
 load_room(RMod, Host, ServerHost, Room, ResetHibernationTime) ->
     case restore_room(ServerHost, Host, Room) of
-	error ->
-	    {error, notfound};
+    	error ->
+    	    {error, notfound};
         {error, _} = Err ->
             Err;
-	Opts0 ->
-	    Mod = gen_mod:db_mod(ServerHost, mod_muc),
-	    case proplists:get_bool(persistent, Opts0) of
-		true ->
-		    ?DEBUG("Restore room: ~ts", [Room]),
-		    Res2 = start_room(RMod, Host, ServerHost, Room, Opts0),
-		    case {Res2, ResetHibernationTime} of
-			{{ok, _}, true} ->
-			    NewOpts = lists:keyreplace(hibernation_time, 1, Opts0, {hibernation_time, undefined}),
-			    store_room(ServerHost, Host, Room, NewOpts, []);
-			_ ->
-			    ok
-		    end,
-		    Res2;
+        Opts ->
+            do_restore_room(RMod, Host, ServerHost, Room, ResetHibernationTime, Opts)
+    end.
+
+do_restore_room(RMod, Host, ServerHost, Room, ResetHibernationTime, Opts) ->
+    Mod = gen_mod:db_mod(ServerHost, mod_muc),
+    case proplists:get_bool(persistent, Opts) of
+	true ->
+	    ?DEBUG("Restore room: ~ts", [Room]),
+	    Res2 = start_room(RMod, Host, ServerHost, Room, Opts),
+	    case {Res2, ResetHibernationTime} of
+		{{ok, _}, true} ->
+		    NewOpts = lists:keyreplace(hibernation_time, 1, Opts, {hibernation_time, undefined}),
+		    store_room(ServerHost, Host, Room, NewOpts, []);
 		_ ->
-		    ?DEBUG("Restore hibernated non-persistent room: ~ts", [Room]),
-		    Res = start_room(RMod, Host, ServerHost, Room, Opts0),
-		    case erlang:function_exported(Mod, get_subscribed_rooms, 3) of
-			true ->
-			    ok;
-			_ ->
-			    forget_room(ServerHost, Host, Room)
-		    end,
-		    Res
-	    end
+		    ok
+	    end,
+	    Res2;
+	_ ->
+	    ?DEBUG("Restore hibernated non-persistent room: ~ts", [Room]),
+	    Res = start_room(RMod, Host, ServerHost, Room, Opts),
+	    case erlang:function_exported(Mod, get_subscribed_rooms, 3) of
+		true ->
+		    ok;
+		_ ->
+		    forget_room(ServerHost, Host, Room)
+	    end,
+	    Res
     end.
 
 start_new_room(RMod, Host, ServerHost, Room, Pass, From, Nick) ->
@@ -1097,6 +1112,16 @@ get_nick(ServerHost, Host, From) ->
     Mod = gen_mod:db_mod(LServer, ?MODULE),
     Mod:get_nick(LServer, Host, From).
 
+-spec get_register_nick(binary(), binary(), jid()) -> binary() | error.
+get_register_nick(ServerHost, Host, From) ->
+    get_nick(ServerHost, Host, From).
+
+-spec get_register_nicks(binary(), binary()) -> [{binary(), binary(), binary()}].
+get_register_nicks(ServerHost, Host) ->
+    LServer = jid:nameprep(ServerHost),
+    Mod = gen_mod:db_mod(LServer, ?MODULE),
+    Mod:get_nicks(LServer, Host).
+
 iq_get_register_info(ServerHost, Host, From, Lang) ->
     {Nick, Registered} = case get_nick(ServerHost, Host, From) of
 			     error -> {<<"">>, false};
@@ -1117,14 +1142,37 @@ iq_get_register_info(ServerHost, Host, From, Lang) ->
 	      xdata = X}.
 
 set_nick(ServerHost, Host, From, Nick) ->
-    LServer = jid:nameprep(ServerHost),
-    Mod = gen_mod:db_mod(LServer, ?MODULE),
-    Mod:set_nick(LServer, Host, From, Nick).
+    case ejabberd_hooks:run_fold(registering_nickmuc,
+                                 ServerHost,
+                                 true,
+                                 [ServerHost, Host, From, Nick]) of
+        false ->
+            {atomic, false};
+        true ->
+            LServer = jid:nameprep(ServerHost),
+            Mod = gen_mod:db_mod(LServer, ?MODULE),
+            Mod:set_nick(LServer, Host, From, Nick)
+    end.
+
+set_nick(ServerHost, From, Nick) ->
+    lists:foreach(
+      fun(MucHost) ->
+              set_nick(ServerHost, MucHost, From, Nick)
+      end,
+      gen_mod:get_module_opt_hosts(ServerHost, mod_muc)).
 
 iq_set_register_info(ServerHost, Host, From, Nick,
 		     Lang) ->
+    OldNick = case mod_muc:get_register_nick(ServerHost, Host, From) of
+        error -> <<"">>;
+        ON when is_binary(ON) -> ON
+    end,
     case set_nick(ServerHost, Host, From, Nick) of
-      {atomic, ok} -> {result, undefined};
+      {atomic, ok} ->
+            ejabberd_hooks:run(registered_nickmuc,
+                                 ServerHost,
+                                 [ServerHost, Host, From, Nick, OldNick]),
+            {result, undefined};
       {atomic, false} ->
 	  ErrText = ?T("That nickname is registered by another person"),
 	  {error, xmpp:err_conflict(ErrText, Lang)};
@@ -1195,6 +1243,11 @@ remove_user(User, Server) ->
             ok
     end,
     JID = jid:make(User, Server),
+    lists:foreach(
+      fun(HostI) ->
+              set_nick(HostI, JID, <<"">>)
+      end,
+      ejabberd_option:hosts()),
     lists:foreach(
       fun(Host) ->
               lists:foreach(
@@ -1788,7 +1841,7 @@ mod_doc() ->
                        "The default value is an empty string.")}},
              {enable_hats,
               #{value => "true | false",
-                note => "improved in 25.xx",
+                note => "improved in 25.10",
                 desc =>
                     ?T("Allow extended roles as defined in XEP-0317 Hats. "
                        "Check the _`../../tutorials/muc-hats.md|MUC Hats`_ tutorial. "

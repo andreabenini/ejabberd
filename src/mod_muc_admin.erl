@@ -32,6 +32,8 @@
 	 muc_online_rooms/1, muc_online_rooms_by_regex/2,
 	 muc_register_nick/3, muc_register_nick/4,
 	 muc_unregister_nick/2, muc_unregister_nick/3,
+         muc_get_registered_nick/3,
+         muc_get_registered_nicks/1,
 	 create_room_with_opts/4, create_room/3, destroy_room/2,
 	 create_rooms_file/1, destroy_rooms_file/1,
 	 rooms_unused_list/2, rooms_unused_destroy/2,
@@ -159,6 +161,30 @@ get_commands_spec() ->
 		       args = [{user, binary}, {host, binary}, {service, binary}],
 		       args_rename = [{host, service}],
 		       result = {res, rescode}},
+     #ejabberd_commands{name = muc_get_registered_nick, tags = [muc],
+		       desc = "Get nick registered for that account in the MUC service",
+		       module = ?MODULE, function = muc_get_registered_nick,
+		       note = "added in 25.10",
+		       args_desc = ["user name", "user host", "MUC service"],
+		       args_example = [<<"tim">>, <<"example.org">>, <<"conference.example.org">>],
+		       args = [{user, binary}, {host, binary}, {service, binary}],
+		       result_desc = "nick registered",
+		       result_example = ["Tim"],
+		       result = {nick, string}},
+     #ejabberd_commands{name = muc_get_registered_nicks, tags = [muc],
+		       desc = "List all nicks registered in the MUC service",
+		       module = ?MODULE, function = muc_get_registered_nicks,
+		       note = "added in 25.10",
+		       args_desc = ["MUC service"],
+		       args_example = [<<"conference.example.org">>],
+		       args = [{service, binary}],
+		       result_example = [{"Tim", "timexa", "example.com"},
+					 {"Laia", "laia001", "example2.org"}],
+		       result = {registrations, {list, {registration, {tuple,
+							  [{user, string},
+							   {host, string},
+                                                           {nick, string}
+							  ]}}}}},
 
      #ejabberd_commands{name = create_room, tags = [muc_room],
 		       desc = "Create a MUC room name@service in host",
@@ -696,6 +722,17 @@ muc_unregister_nick(User, Host, Service) ->
 muc_unregister_nick(FromBinary, Service) ->
     muc_register_nick(<<"">>, FromBinary, Service).
 
+muc_get_registered_nick(User, Host, Service) ->
+    MucServerHost = get_room_serverhost(Service),
+    case mod_muc:get_register_nick(MucServerHost, Service, jid:make(User, Host)) of
+        error -> <<"">>;
+        N -> N
+    end.
+
+muc_get_registered_nicks(Service) ->
+    MucServerHost = get_room_serverhost(Service),
+    mod_muc:get_register_nicks(MucServerHost, Service).
+
 get_user_rooms(User, Server) ->
     lists:flatmap(
       fun(ServerHost) ->
@@ -790,9 +827,22 @@ webadmin_muc_host(_Host,
     Title = ?H1GL(PageTitle, <<"modules/#mod_muc">>, <<"mod_muc">>),
     Breadcrumb =
         make_breadcrumb({service_section, Level, Service, <<"Nick Register">>, RPath}),
-    Set = [make_command(muc_register_nick, R, [{<<"service">>, Service}], []),
-           make_command(muc_unregister_nick, R, [{<<"service">>, Service}], [])],
-    Title ++ Breadcrumb ++ Set;
+
+    Set = [make_command(muc_register_nick, R, [{<<"service">>, Service}], [])],
+    %% Execute twice: first to perform the action, the second to get new roster
+    _ = make_webadmin_roster_table(Service, R, RPath),
+    RV2 = make_webadmin_roster_table(Service, R, RPath),
+    Get = [make_command(muc_get_registered_nicks,
+                        R,
+                        [{<<"service">>, Service}],
+                        [{only, presentation}]),
+           ?XE(<<"blockquote">>,
+               [make_command(muc_unregister_nick,
+                             R,
+                             [{<<"service">>, Service}],
+                             [{only, presentation}])]),
+           RV2],
+    Title ++ Breadcrumb ++ Set ++ Get;
 webadmin_muc_host(_Host,
                   Service,
                   [<<"rooms-empty">> | RPath],
@@ -1262,6 +1312,45 @@ web_page_hostuser(_, Host, User, #request{path = [<<"muc-register">>]} = R) ->
 web_page_hostuser(Acc, _, _, _) ->
     Acc.
 %% @format-end
+
+%%--------------------
+%% Web Admin Nick Register
+
+%% @format-begin
+make_webadmin_roster_table(Service, R, RPath) ->
+    Nicks =
+        case make_command_raw_value(muc_get_registered_nicks, R, [{<<"service">>, Service}]) of
+            Ns when is_list(Ns) ->
+                Ns;
+            _ ->
+                []
+        end,
+    Level = 4 + length(RPath),
+    Columns = [<<"user@host">>, <<"nick">>, <<"">>],
+    Rows =
+        lists:map(fun({User, Host, Nick}) ->
+                     {make_command(echo,
+                                   R,
+                                   [{<<"sentence">>,
+                                     jid:encode(
+                                         jid:make(User, Host))}],
+                                   [{only, raw_and_value},
+                                    {result_links, [{sentence, user, Level, <<"">>}]}]),
+                      ?C(Nick),
+                      make_command(muc_unregister_nick,
+                                   R,
+                                   [{<<"user">>, User},
+                                    {<<"host">>, Host},
+                                    {<<"service">>, Service}],
+                                   [{only, button},
+                                    {style, danger},
+                                    {input_name_append, [User, Host, Service]}])}
+                  end,
+                  lists:keysort(1, Nicks)),
+    Table = make_table(20, RPath, Columns, Rows),
+    ?XE(<<"blockquote">>, [Table]).
+%% @format-end
+
 
 %%----------------------------
 %% Create/Delete Room

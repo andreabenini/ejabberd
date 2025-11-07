@@ -82,7 +82,7 @@ jobs:
           mkdir ejabberd-packages
           mv ejabberd_*.deb ejabberd-*.rpm ejabberd-*.run ejabberd-packages
       - name: Upload packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ejabberd-packages-${{ matrix.platform }}
           #
@@ -101,7 +101,9 @@ jobs:
     if: github.ref_type == 'tag'
     steps:
       - name: Download packages
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
+        with:
+          merge-multiple: true
       - name: Draft Release
         uses: softprops/action-gh-release@v2
         with:
