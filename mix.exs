@@ -6,7 +6,7 @@ defmodule Ejabberd.MixProject do
      source_url: "https://github.com/processone/ejabberd",
      version: version(),
      description: description(),
-     elixir: elixir_required_version(),
+     elixir: "~> 1.14",
      elixirc_paths: ["lib"],
      compile_path: ".",
      compilers: [:asn1, :yecc] ++ Mix.compilers(),
@@ -63,14 +63,6 @@ defmodule Ejabberd.MixProject do
     ]
   end
 
-  defp if_version_above(ver, okResult) do
-    if :erlang.system_info(:otp_release) > ver do
-      okResult
-    else
-      []
-    end
-  end
-
   defp if_version_below(ver, okResult) do
     if :erlang.system_info(:otp_release) < ver do
       okResult
@@ -85,17 +77,6 @@ defmodule Ejabberd.MixProject do
     result = [{:d, :ELIXIR_ENABLED}] ++
              cond_options() ++
              Enum.map(includes, fn (path) -> {:i, path} end) ++
-             if_version_above(~c"20", [{:d, :HAVE_URI_STRING}]) ++
-             if_version_above(~c"20", [{:d, :HAVE_ERL_ERROR}]) ++
-             if_version_below(~c"21", [{:d, :USE_OLD_HTTP_URI}]) ++
-             if_version_below(~c"22", [{:d, :LAGER}]) ++
-             if_version_below(~c"21", [{:d, :NO_CUSTOMIZE_HOSTNAME_CHECK}]) ++
-             if_version_below(~c"23", [{:d, :USE_OLD_CRYPTO_HMAC}]) ++
-             if_version_below(~c"23", [{:d, :USE_OLD_PG2}]) ++
-             if_version_below(~c"24", [{:d, :COMPILER_REPORTS_ONLY_LINES}]) ++
-             if_version_below(~c"24", [{:d, :SYSTOOLS_APP_DEF_WITHOUT_OPTIONAL}]) ++
-             if_version_below(~c"24", [{:d, :OTP_BELOW_24}]) ++
-             if_version_below(~c"25", [{:d, :OTP_BELOW_25}]) ++
              if_version_below(~c"26", [{:d, :OTP_BELOW_26}]) ++
              if_version_below(~c"27", [{:d, :OTP_BELOW_27}]) ++
              if_version_below(~c"27", [{:feature, :maybe_expr, :enable}]) ++
@@ -124,6 +105,7 @@ defmodule Ejabberd.MixProject do
      {:fast_xml, "~> 1.1.56"},
      {:fast_yaml, "~> 1.0"},
      {:idna, "~> 6.0"},
+     {:jose, "~> 1.11.10"},
      {:mqtree, "~> 1.0"},
      {:p1_acme, ">= 1.0.28"},
      {:p1_oauth2, "~> 0.6"},
@@ -155,10 +137,7 @@ defmodule Ejabberd.MixProject do
                          {config(:redis), {:eredis, "~> 1.7.1"}},
                          {config(:sip), {:esip, "~> 1.0"}},
                          {config(:zlib), {:ezlib, "~> 1.0"}},
-                         {if_version_above(~c"23", true), {:jose, "~> 1.11.10"}},
-                         {if_version_below(~c"24", true), {:jose, "1.11.1", override: true}},
                          {if_version_below(~c"27", true), {:jiffy, "~> 1.1.1"}},
-                         {if_version_below(~c"22", true), {:lager, "~> 3.9.1"}},
                          {config(:lua), {:luerl, "~> 1.2.0"}},
                          {config(:mysql), {:p1_mysql, ">= 1.0.24"}},
                          {config(:pgsql), {:p1_pgsql, ">= 1.1.32"}},
@@ -182,7 +161,6 @@ defmodule Ejabberd.MixProject do
                          {config(:redis), :eredis},
                          {Mix.env() == :edoc, :ex_doc},
                          {Mix.env() == :test, :dialyxir},
-                         {if_version_below(~c"22", true), :lager},
                          {config(:mysql), :p1_mysql},
                          {config(:sip), :esip},
                          {config(:odbc), :odbc},
@@ -229,35 +207,6 @@ defmodule Ejabberd.MixProject do
     end
   end
 
-  defp elixir_required_version do
-    case {Map.get(System.get_env(), "RELIVE", "false"),
-          MapSet.member?(MapSet.new(System.argv()), "release")}
-      do
-      {"true", _} ->
-        case Version.match?(System.version(), "~> 1.11") do
-          false ->
-            IO.puts("ERROR: To use 'make relive', Elixir 1.11.0 or higher is required.")
-          _ -> :ok
-        end
-        "~> 1.11"
-      {_, true} ->
-        case Version.match?(System.version(), "~> 1.10") do
-          false ->
-            IO.puts("ERROR: To build releases, Elixir 1.10.0 or higher is required.")
-          _ -> :ok
-        end
-        case Version.match?(System.version(), "< 1.11.4")
-          and :erlang.system_info(:otp_release) > ~c"23" do
-          true ->
-            IO.puts("ERROR: To build releases with Elixir lower than 1.11.4, Erlang/OTP lower than 24 is required.")
-          _ -> :ok
-        end
-        "~> 1.10"
-      _ ->
-        "~> 1.4"
-    end
-  end
-
   defp releases do
     maybe_tar = case Mix.env() do
       :prod -> [:tar]
@@ -296,22 +245,8 @@ defmodule Ejabberd.MixProject do
     ro = "rel/overlays"
     File.rm_rf(ro)
 
-    # Elixir lower than 1.12.0 don't have System.shell
     execute = fn(command) ->
-      case function_exported?(System, :shell, 1) do
-        true ->
-          System.shell(command, into: IO.stream())
-        false ->
-          :os.cmd(to_charlist(command))
-      end
-    end
-
-    # Mix/Elixir lower than 1.11.0 use config/releases.exs instead of runtime.exs
-    case Version.match?(System.version(), "~> 1.11") do
-      true ->
-        :ok
-      false ->
-        execute.("cp config/runtime.exs config/releases.exs")
+      System.shell(command, into: IO.stream())
     end
 
     execute.("sed -e 's|{{\\(\[_a-z\]*\\)}}|<%= @\\1 %>|g' ejabberdctl.template > ejabberdctl.example1")

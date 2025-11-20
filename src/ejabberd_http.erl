@@ -33,7 +33,7 @@
 	 accept/1, receive_headers/1, recv_file/2,
 	 listen_opt_type/1, listen_options/0,
 	 apply_custom_headers/2]).
-
+-export([get_url/4, get_auto_url/2, find_handler_port_path/2]).
 -export([init/3]).
 
 -include("logger.hrl").
@@ -126,7 +126,10 @@ init(SockMod, Socket, Opts) ->
 			     true -> {SockMod, Socket}
 			  end,
     SockPeer =  proplists:get_value(sock_peer_name, Opts, none),
-    RequestHandlers = proplists:get_value(request_handlers, Opts, []),
+    RequestHandlers0 = proplists:get_value(request_handlers, Opts, []),
+    RequestHandlers = ejabberd_hooks:run_fold(http_request_handlers_init,
+                                              RequestHandlers0,
+                                              [Opts]),
     ?DEBUG("S: ~p~n", [RequestHandlers]),
 
     {ok, RE} = re:compile(<<"^(?:\\[(.*?)\\]|(.*?))(?::(\\d+))?$">>),
@@ -718,7 +721,7 @@ file_format_error(Reason) ->
 url_decode_q_split_normalize(Path) ->
     {NPath, Query} = url_decode_q_split(Path),
     LPath = normalize_path([NPE
-		    || NPE <- str:tokens(misc:uri_decode(NPath), <<"/">>)]),
+		    || NPE <- str:tokens(uri_string:percent_decode(NPath), <<"/">>)]),
     {LPath, Query}.
 
 % Code below is taken (with some modifications) from the yaws webserver, which
@@ -867,6 +870,63 @@ apply_custom_headers(Headers, CustomHeaders) ->
     M = maps:merge(maps:from_list(Headers2),
 		   maps:from_list(CustomHeaders)),
     Doctype ++ maps:to_list(M).
+
+%%%--------------------------------
+%%%-export([get_url/4, get_auto_url/2]).
+
+get_url(M, bosh, Tls, Host) ->
+    get_url(M, Tls, Host, bosh_service_url, mod_bosh);
+get_url(M, websocket, Tls, Host) ->
+    get_url(M, Tls, Host, websocket_url, ejabberd_http_ws);
+get_url(M, Option, Tls, Host) ->
+    get_url(M, Tls, Host, Option, M).
+
+get_url(M, Tls, Host, Option, Handler) ->
+    case get_url_preliminar(M, Tls, Host, Option, Handler) of
+        undefined -> undefined;
+        Url -> misc:expand_keyword(<<"@HOST@">>, Url, Host)
+    end.
+
+get_url_preliminar(M, Tls, Host, Option, Handler) ->
+    case gen_mod:get_module_opt(Host, M, Option) of
+        undefined -> undefined;
+        auto -> get_auto_url(Tls, Handler);
+        <<"auto">> -> get_auto_url(Tls, Handler);
+        U when is_binary(U) -> U
+    end.
+
+get_auto_url(Tls, Handler) ->
+    case find_handler_port_path(Tls, Handler) of
+        [] -> undefined;
+        [{ThisTls, Port, Path} | _] ->
+            Protocol = case {ThisTls, Handler} of
+                           {false, ejabberd_http_ws} -> <<"ws">>;
+                           {true, ejabberd_http_ws} -> <<"wss">>;
+                           {false, _} -> <<"http">>;
+                           {true, _} -> <<"https">>
+                       end,
+            <<Protocol/binary,
+              "://@HOST@:",
+              (integer_to_binary(Port))/binary,
+              "/",
+              (str:join(Path, <<"/">>))/binary>>
+    end.
+
+find_handler_port_path(Tls, Handler) ->
+    lists:filtermap(
+      fun({{Port, _, _},
+           ejabberd_http,
+           #{tls := ThisTls, request_handlers := Handlers}})
+            when is_integer(Port) and ((Tls == any) or (Tls == ThisTls)) ->
+              case lists:keyfind(Handler, 2, Handlers) of
+                  false -> false;
+                  {Path, Handler} -> {true, {ThisTls, Port, Path}}
+              end;
+         (_) -> false
+      end, ets:tab2list(ejabberd_listener)).
+
+
+%%%--------------------------------
 
 % The following code is mostly taken from yaws_ssl.erl
 

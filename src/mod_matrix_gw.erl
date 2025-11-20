@@ -24,7 +24,6 @@
 %%%----------------------------------------------------------------------
 
 -module(mod_matrix_gw).
--ifndef(OTP_BELOW_25).
 
 -author('alexey@process-one.net').
 
@@ -816,7 +815,7 @@ sign_json(Host, JSON) ->
 send_request(Host, Method, MatrixServer, Path, Query, JSON,
              HTTPOptions, Options) ->
     URI1 = iolist_to_binary(
-             lists:map(fun(P) -> [$/, misc:uri_quote(P)] end, Path)),
+             lists:map(fun(P) -> [$/, uri_string:quote(P)] end, Path)),
     URI =
         case Query of
             [] -> URI1;
@@ -825,8 +824,8 @@ send_request(Host, Method, MatrixServer, Path, Query, JSON,
                          lists:map(
                            fun({K, V}) ->
                                    iolist_to_binary(
-                                     [misc:uri_quote(K), $=,
-                                      misc:uri_quote(V)])
+                                     [uri_string:quote(K), $=,
+                                      uri_string:quote(V)])
                            end, Query), $&),
                 <<URI1/binary, $?, URI2/binary>>
         end,
@@ -1070,4 +1069,3 @@ mod_doc() ->
                   ?T("Delay in seconds between a user leaving a MUC room and sending 'leave' Matrix event.")}}
           ]
      }.
--endif.
