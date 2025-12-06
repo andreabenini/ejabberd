@@ -234,13 +234,28 @@ transform_insert(Form, TableArg, FieldsArg) ->
     end,
     ParseResOld =
         filter_upsert_sh(Table, ParseRes),
-    set_pos(
-      make_schema_check(
-        make_sql_insert(Table, ParseRes),
-        make_sql_insert(Table, ParseResOld)
-       ),
-      Pos).
-
+    NeedTimestampPass = lists:any(
+	fun({_, _, State}) -> State#state.need_timestamp_pass
+	end, ParseRes),
+    case NeedTimestampPass of
+	true ->
+	    PR = make_sql_upsert_insert(Table, ParseRes),
+	    PRO = make_sql_upsert_insert(Table, ParseResOld),
+	    set_pos(
+		make_schema_check(
+		    erl_syntax:list([erl_syntax:tuple([erl_syntax:atom(pgsql), make_sql_query(PR, pgsql)]),
+				     erl_syntax:tuple([erl_syntax:atom(any), make_sql_query(PR)])]),
+		    erl_syntax:list([erl_syntax:tuple([erl_syntax:atom(pgsql), make_sql_query(PRO, pgsql)]),
+				     erl_syntax:tuple([erl_syntax:atom(any), make_sql_query(PRO)])])),
+		Pos);
+	_ ->
+	    set_pos(
+		make_schema_check(
+		    make_sql_insert(Table, ParseRes),
+		    make_sql_insert(Table, ParseResOld)
+		),
+		Pos)
+    end.
 
 parse(S, Loc, UseNewSchema) ->
     parse1(S, [],
@@ -278,7 +293,10 @@ parse1([$@, $( | S], Acc, State) ->
             string ->
                 EVar;
             timestamp ->
-                EVar;
+                erl_syntax:application(
+                  erl_syntax:atom(ejabberd_sql),
+                  erl_syntax:atom(to_timestamp),
+                  [EVar, erl_syntax:variable("__DbType")]);
             boolean ->
                 erl_syntax:application(
                   erl_syntax:atom(ejabberd_sql),
@@ -349,19 +367,16 @@ parse1([$%, $( | S], Acc, State) ->
                              param_pos = State2#state.param_pos + 1,
                              used_vars = [Name | State2#state.used_vars]};
             _ ->
-                {TS, Type2} = case Type of
-                            timestamp -> {true, string};
-                            Other -> {State2#state.need_timestamp_pass, Other}
-                        end,
                 Convert =
                     erl_syntax:application(
                       erl_syntax:record_access(
                         erl_syntax:variable(?ESCAPE_VAR),
                         erl_syntax:atom(?ESCAPE_RECORD),
-                        erl_syntax:atom(Type2)),
+                        erl_syntax:atom(Type)),
                       [erl_syntax:variable(Name)]),
-                State2#state{'query' = [{var, Var, Type} | State2#state.'query'],
-                             need_timestamp_pass = TS,
+                State2#state{
+                  'query' = [{var, Var, Type} | State2#state.'query'],
+                  need_timestamp_pass = Type == timestamp orelse State2#state.need_timestamp_pass,
                              args = [Convert | State2#state.args],
                              params = [Var | State2#state.params],
                              param_pos = State2#state.param_pos + 1,
@@ -517,7 +532,7 @@ make_sql_query(State, Type) ->
        erl_syntax:atom(format_res),
         erl_syntax:fun_expr(
           [erl_syntax:clause(
-             [erl_syntax:list(State#state.res_vars)],
+              [erl_syntax:list(State#state.res_vars), erl_syntax:variable("__DbType")],
              none,
              [erl_syntax:tuple(State#state.res)]
             )])),
