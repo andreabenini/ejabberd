@@ -33,7 +33,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Cache build directory
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/build/
           key: installers-ubuntu-22.04-${{runner.arch}}-${{hashFiles('tools/make-binaries')}}
@@ -62,7 +62,7 @@ jobs:
         uses: ./.github/actions/manage-ejabberd
         with:
           for: run
-          do: deploy, no_acme, start, register, stop, logs, check
+          do: deploy, no_acme, start, register, stop, check, logs
           username: user1
           host: $(hostname --fqdn)
           rel_name_vsn: ${{ steps.vsn.outputs.rel_name_vsn }}
@@ -80,7 +80,7 @@ jobs:
           mkdir ejabberd-packages
           mv ejabberd_*.deb ejabberd-*.rpm ejabberd-*.run ejabberd-packages
       - name: Upload packages
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ejabberd-packages-${{ matrix.platform }}
           #
@@ -99,7 +99,7 @@ jobs:
     if: github.ref_type == 'tag'
     steps:
       - name: Download packages
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           merge-multiple: true
       - name: Draft Release

@@ -68,6 +68,7 @@ start(normal, _Args) ->
 			maybe_print_elixir_version(),
 			?INFO_MSG("~ts",
 				  [erlang:system_info(system_version)]),
+			print_distribution_listening(),
 			{ok, SupPid};
 		    Err ->
 			?CRITICAL_MSG("Failed to start ejabberd application: ~p", [Err]),
@@ -224,3 +225,20 @@ start_elixir_application() -> ok.
 maybe_start_exsync() -> ok.
 maybe_print_elixir_version() -> ok.
 -endif.
+
+print_distribution_listening() ->
+    Links = case erlang:whereis(net_kernel) of
+        undefined ->
+            [];
+        P ->
+            {links, L} = erlang:process_info(P, links),
+            L
+    end,
+    {Addr, Port} = lists:foldl(
+          fun(Link, Acc) ->
+                  case catch inet:sockname(Link) of
+                      {ok, {A1, P1}} -> {misc:ip_to_list(A1), P1};
+                      _ -> Acc
+                  end
+          end, {"UnknownAddress", "UnknownPort"}, Links),
+    ?INFO_MSG("Start accepting TCP connections at ~ts:~p for erlang distribution", [Addr, Port]).

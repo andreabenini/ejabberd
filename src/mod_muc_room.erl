@@ -672,8 +672,11 @@ normal_state({route, ToNick,
 normal_state({route, ToNick,
 	      #iq{from = From, lang = Lang} = Packet},
 	     #state{config = #config{allow_query_users = AllowQuery}} = StateData) ->
+    DirectIqType = direct_iq_type(Packet),
     try maps:get(jid:tolower(From), StateData#state.users) of
-	#user{nick = FromNick} when AllowQuery orelse ToNick == FromNick ->
+	#user{nick = FromNick} when AllowQuery
+                                    orelse DirectIqType == vcard
+                                    orelse ToNick == FromNick ->
 	    case find_jid_by_nick(ToNick, StateData) of
 		false ->
 		    ErrText = ?T("Recipient is not in the conference room"),
@@ -681,7 +684,7 @@ normal_state({route, ToNick,
 		    ejabberd_router:route_error(Packet, Err);
 		To ->
 		    FromJID = jid:replace_resource(StateData#state.jid, FromNick),
-		    case direct_iq_type(Packet) of
+		    case DirectIqType of
 			vcard ->
 			    ejabberd_router:route_iq(
 			      xmpp:set_from_to(Packet, FromJID, jid:remove_resource(To)),
@@ -5130,14 +5133,21 @@ process_iq_adhoc_hats(?MUC_HAT_UNASSIGN_CMD, StateData, Lang) ->
 process_iq_adhoc_hats(?MUC_HAT_LISTUSERS_CMD, StateData, Lang) ->
     Hats = get_assigned_hats(StateData),
     Items =
-        lists:map(fun({JID, URI}) ->
-                     {URI, Title, Hue} = get_hat_details(URI, StateData),
-                     [#xdata_field{var = <<"hats#jid">>, values = [jid:encode(JID)]},
-                      #xdata_field{var = <<"hats#uri">>, values = [URI]},
-                      #xdata_field{var = <<"hats#title">>, values = [Title]},
-                      #xdata_field{var = <<"hats#hue">>, values = [Hue]}]
-                  end,
-                  Hats),
+        lists:filtermap(fun({JID, URI}) ->
+                           case get_hat_details(URI, StateData) of
+                               false ->
+                                   false;
+                               {URI, Title, Hue} ->
+                                   Fields =
+                                       [#xdata_field{var = <<"hats#jid">>,
+                                                     values = [jid:encode(JID)]},
+                                        #xdata_field{var = <<"hats#uri">>, values = [URI]},
+                                        #xdata_field{var = <<"hats#title">>, values = [Title]},
+                                        #xdata_field{var = <<"hats#hue">>, values = [Hue]}],
+                                   {true, Fields}
+                           end
+                        end,
+                        Hats),
     Form =
         #xdata{title = translate:translate(Lang, ?T("List users with hats")),
                type = result,
@@ -5155,27 +5165,21 @@ process_iq_adhoc_hats(?MUC_HAT_LISTUSERS_CMD, StateData, Lang) ->
 process_iq_adhoc_hats(_, _, _) ->
     {executing, aaa}.
 
+get_xdata_nonempty(Var, XData) ->
+    maybe
+        [Value] ?= xmpp_util:get_xdata_values(Var, XData),
+        true ?= Value /= <<>>,
+        Value
+    else
+        _ ->
+            []
+    end.
+
 process_iq_adhoc_hats_complete(?MUC_HAT_CREATE_CMD, XData, StateData, _Lang) ->
-    URI = try
-              hd(xmpp_util:get_xdata_values(<<"hats#uri">>, XData))
-          catch
-              _:_ ->
-                  error
-          end,
-    Title =
-        case xmpp_util:get_xdata_values(<<"hats#title">>, XData) of
-            [] ->
-                <<"">>;
-            [T] ->
-                T
-        end,
-    Hue = try
-              hd(xmpp_util:get_xdata_values(<<"hats#hue">>, XData))
-          catch
-              _:_ ->
-                  error
-          end,
-    if (Title /= error) and (URI /= error) ->
+    URI = get_xdata_nonempty(<<"hats#uri">>, XData),
+    Title = get_xdata_nonempty(<<"hats#title">>, XData),
+    Hue = get_xdata_nonempty(<<"hats#hue">>, XData),
+    if is_binary(Title) and is_binary(URI) ->
            {ok, AffectedJids, NewStateData} = create_hat(URI, Title, Hue, StateData),
            store_room(NewStateData),
            broadcast_hats_change(NewStateData),
@@ -5185,13 +5189,8 @@ process_iq_adhoc_hats_complete(?MUC_HAT_CREATE_CMD, XData, StateData, _Lang) ->
            error
     end;
 process_iq_adhoc_hats_complete(?MUC_HAT_DESTROY_CMD, XData, StateData, _Lang) ->
-    URI = try
-              hd(xmpp_util:get_xdata_values(<<"hat">>, XData))
-          catch
-              _:_ ->
-                  error
-          end,
-    if URI /= error ->
+    URI = get_xdata_nonempty(<<"hat">>, XData),
+    if is_binary(URI) ->
            {ok, AffectedJids, NewStateData} = destroy_hat(URI, StateData),
            store_room(NewStateData),
            broadcast_hats_change(NewStateData),
@@ -5202,18 +5201,13 @@ process_iq_adhoc_hats_complete(?MUC_HAT_DESTROY_CMD, XData, StateData, _Lang) ->
     end;
 process_iq_adhoc_hats_complete(?MUC_HAT_ASSIGN_CMD, XData, StateData, Lang) ->
     JID = try
-              jid:decode(hd(xmpp_util:get_xdata_values(<<"hats#jid">>, XData)))
+              jid:decode(get_xdata_nonempty(<<"hats#jid">>, XData))
           catch
               _:_ ->
                   error
           end,
-    URI = try
-              hd(xmpp_util:get_xdata_values(<<"hat">>, XData))
-          catch
-              _:_ ->
-                  error
-          end,
-    if (JID /= error) and (URI /= error) ->
+    URI = get_xdata_nonempty(<<"hat">>, XData),
+    if (JID /= error) and is_binary(URI) ->
            case assign_hat(JID, URI, StateData) of
                {ok, NewStateData} ->
                    store_room(NewStateData),
@@ -5228,18 +5222,13 @@ process_iq_adhoc_hats_complete(?MUC_HAT_ASSIGN_CMD, XData, StateData, Lang) ->
     end;
 process_iq_adhoc_hats_complete(?MUC_HAT_UNASSIGN_CMD, XData, StateData, _Lang) ->
     JID = try
-              jid:decode(hd(xmpp_util:get_xdata_values(<<"hats#jid">>, XData)))
+              jid:decode(get_xdata_nonempty(<<"hats#jid">>, XData))
           catch
               _:_ ->
                   error
           end,
-    URI = try
-              hd(xmpp_util:get_xdata_values(<<"hat">>, XData))
-          catch
-              _:_ ->
-                  error
-          end,
-    if (JID /= error) and (URI /= error) ->
+    URI = get_xdata_nonempty(<<"hat">>, XData),
+    if (JID /= error) and is_binary(URI) ->
            {ok, NewStateData} = unassign_hat(JID, URI, StateData),
            store_room(NewStateData),
            send_update_presence(JID, NewStateData, StateData),
@@ -5248,7 +5237,6 @@ process_iq_adhoc_hats_complete(?MUC_HAT_UNASSIGN_CMD, XData, StateData, _Lang) -
            error
     end.
 
-%% TODO +++ clean
 create_hat(URI, Title, Hue, #state{hats_defs = Hats, hats_users = Users} = StateData) ->
     Hats2 = maps:put(URI, {Title, Hue}, Hats),
 
@@ -5333,8 +5321,13 @@ unassign_hat(JID, URI, StateData) ->
         jid:remove_resource(
             jid:tolower(JID)),
     UserHats = maps:get(LJID, Hats, []),
-    UserHats2 = lists:delete(URI, UserHats),
-    Hats2 = maps:put(LJID, UserHats2, Hats),
+    Hats2 =
+        case lists:delete(URI, UserHats) of
+            [] ->
+                maps:remove(LJID, Hats);
+            UserHats2 ->
+                maps:put(LJID, UserHats2, Hats)
+        end,
     {ok, StateData#state{hats_users = Hats2}}.
 
 -spec get_defined_hats(state()) -> [{binary(), binary(), binary()}].
@@ -5354,6 +5347,7 @@ get_hats_hash(StateData) ->
     str:sha(
         misc:term_to_base64(get_assigned_hats(StateData))).
 
+-spec get_hat_details(binary(), state()) -> {binary(), binary(), binary()} | false.
 get_hat_details(Uri, StateData) ->
     lists:keyfind(Uri, 1, get_defined_hats(StateData)).
 
@@ -5371,13 +5365,17 @@ add_presence_hats(JID, Pres, StateData) ->
                     Pres;
                 _ ->
                     Items =
-                        lists:map(fun(URI) ->
-                                     {URI, Title, Hue} = get_hat_details(URI, StateData),
-                                     #muc_hat{uri = URI,
-                                              title = Title,
-                                              hue = Hue}
-                                  end,
-                                  UserHats),
+                        lists:filtermap(fun(URI) ->
+                                           case get_hat_details(URI, StateData) of
+                                               false ->
+                                                   false;
+                                               {URI, Title, Hue} ->
+                                                   #muc_hat{uri = URI,
+                                                            title = Title,
+                                                            hue = Hue}
+                                           end
+                                        end,
+                                        UserHats),
                     xmpp:set_subtag(Pres, #muc_hats{hats = Items})
             end;
         false ->

@@ -1,5 +1,5 @@
 #' Define default build variables
-ARG OTP_VSN='28.2.0.0'
+ARG OTP_VSN='28.3.0.0'
 ARG ELIXIR_VSN='1.19.4'
 ARG UID='9000'
 ARG USER='ejabberd'
@@ -165,11 +165,10 @@ RUN apk -U upgrade --available --no-cache \
     && apk add --no-cache \
         $(cat /tmp/runDeps) \
         so:libcap.so.2 \
-        so:libtdsodbc.so.0 \
+        so:libtdsodbc.so \
         curl \
         tini \
-    && rm /tmp/runDeps \
-    && ln -fs /usr/lib/libtdsodbc.so.0 /usr/lib/libtdsodbc.so
+    && rm /tmp/runDeps
 
 ARG USER
 ARG UID
