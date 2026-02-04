@@ -41,7 +41,7 @@
 -export([process/2]).
 
 %% utility for other http modules
--export([content_type/3]).
+-export([content_type/3, build_list_content_types/1]).
 
 -export([reopen_log/0, mod_opt_type/1, mod_options/1, depends/2, mod_doc/0]).
 
@@ -74,30 +74,53 @@
 	{-1, 410, [], <<"Host unknown">>}).
 
 -define(DEFAULT_CONTENT_TYPES,
-	[{<<".css">>, <<"text/css">>},
+	[{<<".avi">>, <<"video/avi">>},
+	 {<<".bmp">>, <<"image/bmp">>},
+	 {<<".bz2">>, <<"application/x-bzip2">>},
+	 {<<".css">>, <<"text/css">>},
 	 {<<".gif">>, <<"image/gif">>},
+	 {<<".gz">>, <<"application/x-gzip">>},
 	 {<<".html">>, <<"text/html">>},
+	 {<<".ico">>, <<"image/vnd.microsoft.icon">>},
 	 {<<".jar">>, <<"application/java-archive">>},
 	 {<<".jpeg">>, <<"image/jpeg">>},
 	 {<<".jpg">>, <<"image/jpeg">>},
 	 {<<".js">>, <<"text/javascript">>},
+	 {<<".json">>, <<"application/json">>},
+	 {<<".m4a">>, <<"audio/mp4">>},
+	 {<<".map">>, <<"application/json">>},
+	 {<<".mp3">>, <<"audio/mpeg">>},
+	 {<<".mp4">>, <<"video/mp4">>},
+	 {<<".mpeg">>, <<"video/mpeg">>},
+	 {<<".mpg">>, <<"video/mpeg">>},
+	 {<<".ogg">>, <<"application/ogg">>},
+	 {<<".pdf">>, <<"application/pdf">>},
 	 {<<".png">>, <<"image/png">>},
+	 {<<".rtf">>, <<"application/rtf">>},
 	 {<<".svg">>, <<"image/svg+xml">>},
+	 {<<".tiff">>, <<"image/tiff">>},
+	 {<<".ttf">>, <<"font/ttf">>},
 	 {<<".txt">>, <<"text/plain">>},
+	 {<<".wav">>, <<"audio/wav">>},
+	 {<<".webp">>, <<"image/webp">>},
+	 {<<".woff">>, <<"font/woff">>},
+	 {<<".woff2">>, <<"font/woff2">>},
 	 {<<".xml">>, <<"application/xml">>},
 	 {<<".xpi">>, <<"application/x-xpinstall">>},
-	 {<<".xul">>, <<"application/vnd.mozilla.xul+xml">>}]).
+	 {<<".xul">>, <<"application/vnd.mozilla.xul+xml">>},
+	 {<<".xz">>, <<"application/x-xz">>},
+	 {<<".zip">>, <<"application/zip">>}]).
 
 %%====================================================================
 %% gen_mod callbacks
 %%====================================================================
 
 start(Host, Opts) ->
-    ejabberd_hooks:add(webadmin_menu_system_post, global, ?MODULE, web_menu_system, 896),
+    ejabberd_hooks:add(webadmin_menu_system_post, global, ?MODULE, web_menu_system, 1000-$f),
     gen_mod:start_child(?MODULE, Host, Opts).
 
 stop(Host) ->
-    ejabberd_hooks:delete(webadmin_menu_system_post, global, ?MODULE, web_menu_system, 896),
+    ejabberd_hooks:delete(webadmin_menu_system_post, global, ?MODULE, web_menu_system, 1000-$f),
     gen_mod:stop_child(?MODULE, Host).
 
 reload(Host, NewOpts, OldOpts) ->
@@ -142,8 +165,7 @@ initialize(Host, Opts) ->
 			 maps:from_list(UserAccess0)
 		 end,
     ContentTypes = build_list_content_types(
-                     mod_http_fileserver_opt:content_types(Opts),
-                     ?DEFAULT_CONTENT_TYPES),
+                     mod_http_fileserver_opt:content_types(Opts)),
     ?DEBUG("Known content types: ~ts",
 	   [str:join([[$*, K, " -> ", V] || {K, V} <- ContentTypes],
 		     <<", ">>)]),
@@ -156,6 +178,9 @@ initialize(Host, Opts) ->
 	   default_content_type = DefaultContentType,
 	   content_types = ContentTypes,
 	   user_access = UserAccess}.
+
+build_list_content_types(AdminCTs) ->
+    build_list_content_types(AdminCTs, ?DEFAULT_CONTENT_TYPES).
 
 -spec build_list_content_types(AdminCTs::[{binary(), binary()|undefined}],
                                Default::[{binary(), binary()|undefined}]) ->
@@ -494,7 +519,7 @@ ip_to_string(Address) when size(Address) == 8 ->
 %%----------------------------------------------------------------------
 
 web_menu_system(Result, _Request, _Level) ->
-    Els = ejabberd_web_admin:make_menu_system(?MODULE, "📁", "HTTP Fileserver: {URLPATH}", ""),
+    Els = ejabberd_web_admin:make_menu_system(?MODULE, "📁", "Fileserver: {URLPATH}", ""),
     Els ++ Result.
 
 %%----------------------------------------------------------------------
@@ -537,7 +562,7 @@ mod_options(_) ->
 mod_doc() ->
     #{desc =>
           ?T("This simple module serves files from the local disk over HTTP."),
-      note => "improved 'docroot' in 26.xx",
+      note => "improved 'docroot' in 26.01",
       opts =>
           [{accesslog,
             #{value => ?T("Path"),
@@ -546,7 +571,7 @@ mod_doc() ->
                      "No log will be recorded if this option is not specified.")}},
            {docroot,
             #{value => ?T("PathDir | {PathURL, PathDir}"),
-              note => "improved in 26.xx",
+              note => "improved in 26.01",
               desc =>
                   ?T("Directory to serve the files from, "
                      "or a map with several URL path "

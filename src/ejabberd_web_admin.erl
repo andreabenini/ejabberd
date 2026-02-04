@@ -33,6 +33,7 @@
          make_command/2, make_command/4, make_command_raw_value/3,
          make_table/2, make_table/4,
          make_menu_system/4, make_menu_system_el/4,
+         nice_this/1,
          term_to_id/1, id_to_term/1]).
 
 %% Internal commands
@@ -2010,14 +2011,14 @@ nice_this(This, integer) ->
 nice_this(This, _Format) ->
     nice_this(This).
 
--spec nice_this(This :: atom() | string() | [byte()]) -> NiceThis :: binary().
+-spec nice_this(This :: atom() | string() | binary()) -> NiceThis :: binary().
 nice_this(This) when is_atom(This) ->
     nice_this(atom_to_list(This));
 nice_this(This) when is_binary(This) ->
     nice_this(binary_to_list(This));
 nice_this(This) when is_list(This) ->
-    list_to_binary(lists:flatten([string:titlecase(Word)
-                                  || Word <- string:replace(This, "_", " ", all)])).
+    list_to_binary(lists:append([string:titlecase(Word)
+                                 || Word <- string:replace(This, "_", " ", all)])).
 
 -spec long_this(These :: [This :: atom()]) -> Long :: binary().
 long_this(These) ->

@@ -84,6 +84,7 @@ defmodule Ejabberd.MixProject do
     includes = ["include", deps_include()]
     result = [{:d, :ELIXIR_ENABLED}] ++
              cond_options() ++
+             if Mix.env == :test do [{:d, :TEST}] else [] end ++
              Enum.map(includes, fn (path) -> {:i, path} end) ++
              if_version_below(~c"26", [{:d, :OTP_BELOW_26}]) ++
              if_version_below(~c"27", [{:d, :OTP_BELOW_27}]) ++
@@ -108,6 +109,7 @@ defmodule Ejabberd.MixProject do
     [{:cache_tab, "~> 1.0"},
      {:dialyxir, "~> 1.2", only: [:test], runtime: false},
      {:eimp, "~> 1.0"},
+     {:erlydtl, "~> 0.14.0"},
      {:ex_doc, "~> 0.31", only: [:edoc], runtime: false},
      {:fast_tls, "~> 1.1.24"},
      {:fast_xml, "~> 1.1.56"},
@@ -119,7 +121,7 @@ defmodule Ejabberd.MixProject do
      {:p1_utils, "~> 1.0"},
      {:pkix, "~> 1.0"},
      {:stringprep, ">= 1.0.26"},
-     {:xmpp, git: "https://github.com/processone/xmpp", ref: "7285aa7802bfa90bcefafdad3a342fbb93ce7eea", override: true},
+     {:xmpp, ">= 1.12.0"},
      {:yconf, ">= 1.0.22"}]
     ++ cond_deps()
   end
@@ -148,8 +150,8 @@ defmodule Ejabberd.MixProject do
                          {if_version_below(~c"26", true), {:jose, "1.11.10", override: true}},
                          {if_version_above(~c"25", true), {:jose, "~> 1.11.12"}},
                          {config(:lua), {:luerl, "~> 1.2.0"}},
-                         {config(:mysql), {:p1_mysql, git: "https://github.com/processone/p1_mysql", ref: "ddd19938519c5f0319e0e0fe18ae98f856d64041"}},
-                         {config(:pgsql), {:p1_pgsql, ">= 1.1.32"}},
+                         {config(:mysql), {:p1_mysql, ">= 1.0.27"}},
+                         {config(:pgsql), {:p1_pgsql, ">= 1.1.38"}},
                          {config(:sqlite), {:sqlite3, "~> 1.1"}},
                          {config(:stun), {:stun, "~> 1.0"}}], do:
       dep

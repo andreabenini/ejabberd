@@ -121,15 +121,18 @@ process2(LocalPath, #request{host = Host}) ->
 %% File server
 %%----------------------------------------------------------------------
 
-is_served_file([<<"converse.min.js">>]) -> true;
 is_served_file([<<"converse.min.css">>]) -> true;
-is_served_file([<<"converse.min.js.map">>]) -> true;
 is_served_file([<<"converse.min.css.map">>]) -> true;
+is_served_file([<<"converse.min.js">>]) -> true;
+is_served_file([<<"converse.min.js.map">>]) -> true;
+is_served_file([<<"emoji.json">>]) -> true;
 is_served_file([<<"emojis.js">>]) -> true;
-is_served_file([<<"locales">>, _]) -> true;
+is_served_file([<<"images">>, _]) -> true;
 is_served_file([<<"locales">>, <<"dayjs">>, _]) -> true;
-is_served_file([<<"webfonts">>, _]) -> true;
+is_served_file([<<"locales">>, _]) -> true;
 is_served_file([<<"plugins">>, _]) -> true;
+is_served_file([<<"sounds">>, _]) -> true;
+is_served_file([<<"webfonts">>, _]) -> true;
 is_served_file(_) -> false.
 
 serve(Host, LocalPath) ->
@@ -150,11 +153,12 @@ serve2(LocalPathBin, MainPathBin) ->
     LocalPath = [binary_to_list(LPB) || LPB <- LocalPathBin],
     MainPath = binary_to_list(MainPathBin),
     FileName = filename:join(filename:split(MainPath) ++ LocalPath),
+    ContentType = get_content_type(iolist_to_binary(FileName)),
     case file:read_file(FileName) of
         {ok, FileContents} ->
             ?DEBUG("Delivering content.", []),
             {200,
-             [{<<"Content-Type">>, content_type(FileName)}],
+             [{<<"Content-Type">>, ContentType}],
              FileContents};
         {error, eisdir} ->
             {403, [], "Forbidden"};
@@ -167,15 +171,14 @@ serve2(LocalPathBin, MainPathBin) ->
             end
     end.
 
-content_type(Filename) ->
-    case string:to_lower(filename:extension(Filename)) of
-        ".css"  -> "text/css";
-        ".js"   -> "text/javascript";
-        ".map"  -> "application/json";
-        ".ttf"  -> "font/ttf";
-        ".woff"  -> "font/woff";
-        ".woff2"  -> "font/woff2"
-    end.
+-define(DEFAULT_CONTENT_TYPE, <<"application/octet-stream">>).
+
+-spec get_content_type(binary()) -> binary().
+get_content_type(FileName) ->
+    ContentTypes = mod_http_fileserver:build_list_content_types([]),
+    mod_http_fileserver:content_type(FileName,
+				     ?DEFAULT_CONTENT_TYPE,
+				     ContentTypes).
 
 %%----------------------------------------------------------------------
 %% Options parsing
