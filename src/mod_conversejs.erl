@@ -54,11 +54,14 @@ reload(_Host, _NewOpts, _OldOpts) ->
 depends(_Host, _Opts) ->
     [].
 
-process(LocalPath, #request{auth = Auth, path = Path} = Request) ->
+process(LocalPath, #request{auth = Auth, path = Path, opts = Opts} = Request) ->
     AutologinPath = lists:member(?AUTOLOGIN_PATH, Path),
-    case {AutologinPath, Auth} of
-        {true, undefined} ->
+    HasWebsocket = has_websocket(Opts),
+    case {AutologinPath, Auth, HasWebsocket} of
+        {true, undefined, _} ->
             ejabberd_web:error(not_found);
+        {true, _, false} ->
+            process_websocket();
         _ ->
             process2(LocalPath, Request)
     end.
@@ -66,7 +69,7 @@ process(LocalPath, #request{auth = Auth, path = Path} = Request) ->
 process2([], #request{method = 'GET', host = Host, auth = Auth, raw_path = RawPath1}) ->
     [RawPath | _] = string:split(RawPath1, "?"),
     ExtraOptions = get_auth_options(Host)
-        ++ get_autologin_options(Auth)
+        ++ get_autologin_options(Auth, Host)
         ++ get_register_options(Host)
         ++ get_extra_options(Host),
     Domain = mod_conversejs_opt:default_domain(Host),
@@ -116,6 +119,29 @@ process2(LocalPath, #request{host = Host}) ->
         true -> serve(Host, LocalPath);
         false -> ejabberd_web:error(not_found)
     end.
+
+%%----------------------------------------------------------------------
+%% WebSocket
+%%----------------------------------------------------------------------
+
+has_websocket(Opts) ->
+    maybe
+        {_, Handlers} ?= lists:keyfind(request_handlers, 1, Opts),
+        true ?= lists:keymember(ejabberd_web_admin, 2, Handlers),
+        true ?= lists:keymember(ejabberd_http_ws, 2, Handlers)
+    else
+        _ -> false
+    end.
+
+process_websocket() ->
+    {200, [html],
+     [<<"<!DOCTYPE html>">>,
+      <<"<html><body>">>,
+      <<"<p>To use Conversejs, please enable WebSocket as a request_handler in this port, like:</p>">>,
+      <<"<pre>    request_handlers:</pre>">>,
+      <<"<pre>      /admin: ejabberd_web_admin</pre>">>,
+      <<"<pre>      /websocket: ejabberd_http_ws</pre>">>,
+      <<"</body></html>">>]}.
 
 %%----------------------------------------------------------------------
 %% File server
@@ -196,9 +222,15 @@ get_auth_options(Domain) ->
              {<<"jid">>, Domain}]
     end.
 
-get_autologin_options({Jid, Password}) ->
+get_autologin_options({Jid1, Password}, Host) ->
+    Jid = case jid:decode(Jid1) of
+              #jid{luser = <<>>} ->
+                  jid:encode(jid:make(Jid1, Host));
+              _ ->
+                  Jid1
+          end,
     [{<<"auto_login">>, <<"true">>}, {<<"jid">>, Jid}, {<<"password">>, Password}];
-get_autologin_options(undefined) ->
+get_autologin_options(undefined, _) ->
     [].
 
 get_register_options(Server) ->
@@ -344,6 +376,9 @@ mod_doc() ->
               "are enabled in at least one 'request_handlers'."), "",
            ?T("When 'conversejs_css' and 'conversejs_script' are 'auto', "
               "by default they point to the public Converse client."), "",
+           ?T("When this module is enabled in 'modules', "
+              "it adds automatically a requesthandler and link in WebAdmin. "
+              "."), "",
            ?T("This module is available since ejabberd 21.12.")
           ],
       note => "improved in 25.07",

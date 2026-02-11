@@ -24,6 +24,7 @@
 {"Account doesn't exist","La cuenta no existe"}.
 {"Action on user","Acción en el usuario"}.
 {"Add {{ inviter }} to your contact list","Añade {{ inviter }} a tu lista de contactos"}.
+{"Add Contact","Añadir Contacto"}.
 {"Add User","Añadir usuario"}.
 {"Administration of ","Administración de "}.
 {"Administration","Administración"}.
@@ -57,6 +58,7 @@
 {"Anyone with Voice","Cualquiera con Voz"}.
 {"Anyone","Cualquiera"}.
 {"API Commands","Comandos API"}.
+{"Apple Store Logo","Logo de la Apple Store"}.
 {"April","Abril"}.
 {"Arguments","Argumentos"}.
 {"As a final reminder, your account details are shown below:","Como último recordatorio, los detalles de tu cuenta se muestran aquí:"}.
@@ -75,6 +77,7 @@
 {"Bad format","Mal formato"}.
 {"BAD REQUEST","MALA PETICIÓN"}.
 {"Beagle IM by Tigase, Inc. is a lightweight and powerful XMPP client for macOS.","Beagle IM de Tigase, Inc. es un cliente XMPP ligero y potente para macOS."}.
+{"Beagle IM Logo","Logo de Beagle IM"}.
 {"Birthday","Cumpleaños"}.
 {"Both the username and the resource are required","Se requiere tanto el nombre de usuario como el recurso"}.
 {"Bytestream already activated","Bytestream ya está activado"}.
@@ -115,6 +118,7 @@
 {"Contact Addresses (normally, room owner or owners)","Direcciones de contacto (normalmente la del dueño o dueños de la sala)"}.
 {"Contacts","Contactos"}.
 {"Conversations is a Jabber/XMPP client for Android 6.0+ smartphones that has been optimized to provide a unique mobile experience.","Conversations es un cliente Jabber/XMPP para móviles Android 6.0+ optimizado para proporcionar una experiencia móvil única."}.
+{"Conversations Logo","Logo de Conversations"}.
 {"Country","País"}.
 {"Create a Hat","Crear un sombrero"}.
 {"Create Account","Crear Cuenta"}.
@@ -133,6 +137,7 @@
 {"Deliver event notifications","Entregar notificaciones de eventos"}.
 {"Deliver payloads with event notifications","Enviar contenidos junto con las notificaciones de eventos"}.
 {"Destroy a Hat","Destruir un sombrero"}.
+{"Dino Logo","Logo de Dino"}.
 {"Disable User","Deshabilitar un usuario"}.
 {"Disc only copy","Copia en disco solamente"}.
 {"Don't tell your password to anybody, not even the administrators of the XMPP server.","No le digas tu contraseña a nadie, ni siquiera a los administradores del servidor XMPP."}.
@@ -183,6 +188,7 @@
 {"Failed to process option '~s'","Falló el procesado de la opción '~s'"}.
 {"Family Name","Apellido"}.
 {"FAQ Entry","Apunte en la FAQ"}.
+{"F-Droid Store Logo","Logo de la F-Droid Store"}.
 {"February","Febrero"}.
 {"File larger than ~w bytes","El fichero es más grande que ~w bytes"}.
 {"Fill in the form to search for any matching XMPP User","Rellena campos para buscar usuarios XMPP que concuerden"}.
@@ -191,6 +197,7 @@
 {"Full List of Room Admins","Lista completa de administradores de la sala"}.
 {"Full List of Room Owners","Lista completa de dueños de la sala"}.
 {"Full Name","Nombre completo"}.
+{"Gajim Logo","Logo de Gajim"}.
 {"Get List of Active Users","Ver lista de usuarios activos"}.
 {"Get List of Disabled Users","Ver lista de usuarios deshabilitados"}.
 {"Get List of Idle Users","Ver lista de usuarios inactivos"}.
@@ -207,6 +214,7 @@
 {"Get User Roster","Ver lista de contactos del usuario"}.
 {"Get User Statistics","Ver estadísticas de usuario"}.
 {"Given Name","Nombre de pila"}.
+{"Google Play Store Logo","Logo de la Google Play Store"}.
 {"Grant voice to this person?","¿Conceder voz a esta persona?"}.
 {"has been banned","ha sido bloqueado"}.
 {"has been kicked because of a system shutdown","ha sido expulsado porque el sistema se va a detener"}.
@@ -277,7 +285,7 @@
 {"Last month","Último mes"}.
 {"Last year","Último año"}.
 {"Launch {{ app_name }} and sign in using your account credentials.","Lanza {{ app_name }} y entra en la cuenta usando tus credenciales."}.
-{"Launch Beagle IM, and select 'Yes' to add a new account. Click the '+' button under the empty account list and then enter your credentials.","Inicia Beagle IM, y pulsa 'Sí' para añadir una nueva cuenta. Pulsa el botón '+' debajo de la lista de cuentas vacía e introduce tus credenciales."}.
+{"Launch Beagle IM, and select \\'Yes\\' to add a new account. Click the \\'+\\' button under the empty account list and then enter your credentials.","Inicia Beagle IM, y pulsa \\'Sí\\' para añadir una nueva cuenta. Pulsa el botón \\'+\\' debajo de la lista de cuentas vacía e introduce tus credenciales."}.
 {"Least significant bits of SHA-256 hash of text should equal hexadecimal label","Los bits menos significativos del hash SHA-256 del texto deberían ser iguales a la etiqueta hexadecimal"}.
 {"leaves the room","sale de la sala"}.
 {"List of Hats","Lista de sombreros"}.
@@ -318,6 +326,7 @@
 {"Moderator","Moderador"}.
 {"Moderators Only","Solo moderadores"}.
 {"Module failed to handle the query","El módulo falló al gestionar la petición"}.
+{"Monal Logo","Logo de Monal"}.
 {"Monday","Lunes"}.
 {"Multicast","Multidifusión"}.
 {"Multiple <item/> elements are not allowed by RFC6121","No se permiten múltiples elementos <item/> en RFC6121"}.
@@ -417,6 +426,7 @@
 {"Outgoing s2s Connections","Conexiones S2S salientes"}.
 {"Owner privileges required","Se requieren privilegios de propietario de la sala"}.
 {"Packet relay is denied by service policy","Se ha denegado el reenvío del paquete por política del servicio"}.
+{"Page navigation","Navegación de Página"}.
 {"Participant ID","ID del Participante"}.
 {"Participant","Participante"}.
 {"Password Verification","Verificación de la contraseña"}.
@@ -432,6 +442,8 @@
 {"Ping query is incorrect","La petición de Ping es incorrecta"}.
 {"Ping","Ping"}.
 {"Please note that these options will only backup the builtin Mnesia database. If you are using the ODBC module, you also need to backup your SQL database separately.","Ten en cuenta que estas opciones solo harán copia de seguridad de la base de datos Mnesia embebida. Si estás usando ODBC tendrás que hacer también copia de seguridad de tu base de datos SQL."}.
+{"Please provide a password! Minimum length: {{ password_min_length }}","¡Por favor proporciona una contraseña! Longitud mínima: {{ password_min_length }}"}.
+{"Please provide a valid username!","¡Por favor proporciona un nombre de usuario válido!"}.
 {"Please, wait for a while before sending new voice request","Por favor, espera un poco antes de enviar otra petición de voz"}.
 {"Pong","Pong"}.
 {"Possessing 'ask' attribute is not allowed by RFC6121","Poseer el atributo 'ask' no está permitido por RFC6121"}.
@@ -441,6 +453,7 @@
 {"Previous session PID has exited","El proceso de la sesión previa ha terminado"}.
 {"Previous session PID is dead","El proceso de la sesión previa está muerto"}.
 {"Previous session timed out","La sesión previa ha caducado"}.
+{"Previous","Previo"}.
 {"private, ","privado, "}.
 {"Public","Público"}.
 {"Publish model","Modelo de publicación"}.
@@ -448,7 +461,6 @@
 {"PubSub subscriber request","Petición de subscriptor de PubSub"}.
 {"Purge all items when the relevant publisher goes offline","Borra todos los elementos cuando el publicador relevante se desconecta"}.
 {"Push record not found","No se encontró registro Push"}.
-{"QR code icon","Icono de código QR"}.
 {"Queries to the conference members are not allowed in this room","En esta sala no se permiten solicitudes a los miembros de la sala"}.
 {"Query to another users is forbidden","Enviar solicitudes a otros usuarios está prohibido"}.
 {"RAM and disc copy","Copia en RAM y disco"}.
@@ -463,10 +475,12 @@
 {"Register an XMPP account","Registrar una cuenta XMPP"}.
 {"Register on {{ site_name }}","Registrar en {{ site_name }}"}.
 {"Register","Registrar"}.
+{"Registration Error","Error al Registrar"}.
 {"Registration error","Error en el registro"}.
 {"Remote copy","Copia remota"}.
 {"Remove a hat from a user","Quitarle un sombrero a un usuario"}.
 {"Remove User","Eliminar usuario"}.
+{"Renga Logo","Logo de Renga"}.
 {"Replaced by new connection","Reemplazado por una nueva conexión"}.
 {"Request has timed out","La petición ha caducado"}.
 {"Request is ignored","La petición ha sido ignorada"}.
@@ -520,6 +534,7 @@
 {"Showing apps for <span class='platform-name'>your current platform</span> only. You may also <a href='#' id='show-all-clients-button'>view all apps.</a>","Mostrando aplicaciones para <span class='platform-name'>tu plataforma actual</span> nada más. También puedes <a href='#' id='show-all-clients-button'>mostrar todas las aplicaciones.</a>"}.
 {"Show","Mostrar"}.
 {"Shut Down Service","Detener el servicio"}.
+{"Siskin IM Logo","Logo de Siskin IM"}.
 {"SOCKS5 Bytestreams","SOCKS5 Bytestreams"}.
 {"Some XMPP clients can store your password in the computer, but you should do this only in your personal computer for safety reasons.","Algunos clientes XMPP pueden guardar tu contraseña en la máquina, pero solo deberías hacer esto en tu propia máquina personal, por razones de seguridad."}.
 {"Sorry, it looks like this invite code has expired!","Lo siento ¡parece que este código de invitación ha caducado!"}.
@@ -543,7 +558,7 @@
 {"<strong>{{ site_name }}</strong> is part of XMPP, a secure and decentralized messaging network. To begin chatting using <strong>{{ app_name }}</strong> you need to first register an account.","<strong>{{ site_name }}</strong> es parte de XMPP, una red de mensajería segura y decentralizada. Para comenzar a charlar usando <strong>{{ app_name }}</strong>, primero créate una cuenta."}.
 {"<strong>{{ site_name }}</strong> is part of XMPP, a secure and decentralized messaging network. To begin chatting you need to first register an account.","<strong>{{ site_name }}</strong> es parte de XMPP, una red de mensajería segura y decentralizada. Para comenzar a charlar, primero has de registrar una cuenta."}.
 {"<strong>No suitable software installed right now?</strong> You can also log in to your account through our online web chat!","<strong>¿No tienes instalada ninguna aplicación ahora mismo?</strong> También puedes entrar en tu cuenta ¡usando el chat web en linea!"}.
-{"<strong>Tip:</strong> You can open this invite on your mobile device by scanning a barcode with your camera.","<strong>Truco:</strong> Puedes abrir esta invitación en tu móvil escaneando el código QR con la cámara de fotos."}.
+{"<strong>Tip:</strong> You can open this invite on your mobile device by scanning a barcode with your camera.","<strong>Truco:</strong> Puedes abrir esta invitación en tu móvil escaneando el código con la cámara de fotos."}.
 {"Subject","Asunto"}.
 {"Submit","Enviar"}.
 {"Submitted","Enviado"}.
@@ -563,7 +578,7 @@
 {"The body text of the last received message","El contenido de texto del último mensaje recibido"}.
 {"The CAPTCHA is valid.","El CAPTCHA es válido."}.
 {"The CAPTCHA verification has failed","La verificación de CAPTCHA ha fallado"}.
-{"The captcha you entered is wrong","El CAPTCHA que has introducido es erróneo"}.
+{"The captcha you entered is wrong","El captcha que has introducido es erróneo"}.
 {"The child nodes (leaf or collection) associated with a collection","Los nodos hijos (ya sean hojas o colecciones) asociados con una colección"}.
 {"The collections with which a node is affiliated","Las colecciones a las que un nodo está afiliado"}.
 {"The DateTime at which a leased subscription will end or has ended","La FechayHora en la que una suscripción prestada acabará o ha terminado"}.
@@ -702,7 +717,7 @@
 {"Who can send private messages","Quién puede enviar mensajes privados"}.
 {"Who may associate leaf nodes with a collection","Quien puede asociar nodos hoja con una colección"}.
 {"Wrong parameters in the web formulary","Parámetros incorrectos en el formulario web"}.
-{"Wrong xmlns","XMLNS incorrecto"}.
+{"Wrong xmlns","Xmlns incorrecto"}.
 {"XMPP Account Registration","Registro de Cuenta XMPP"}.
 {"XMPP client for Haiku","Cliente XMPP para Haiku"}.
 {"XMPP Domains","Dominios XMPP"}.
@@ -718,7 +733,7 @@
 {"You can later change your password using an XMPP client.","Puedes cambiar tu contraseña después, usando un cliente XMPP."}.
 {"You can now set up {{ app_name }} and connect it to your new account.","Ahora puedes configurar {{ app_name }} y conectarte a tu nueva cuenta."}.
 {"You can start chatting right away with {{ app_name }}. Let's get started!","Puedes empezar ya a charlar usando {{ app_name }}. ¡Empecemos!"}.
-{"You can transfer this invite to your mobile device by scanning a code with your camera.","Puedes transferir esta invitación a tu móvil si escaneas el código QR con la cámara de fotos."}.
+{"You can transfer this invite to your mobile device by scanning a code with your camera.","Puedes transferir esta invitación a tu móvil si escaneas el código con la cámara de fotos."}.
 {"You have been banned from this room","Has sido bloqueado en esta sala"}.
 {"You have been invited to chat on {{ site_name }}, part of the XMPP secure and decentralized messaging network.","Te han invitado a charlar en {{ site_name }}, que forma parte de la red XMPP de mensajería segura y decentralizada."}.
 {"You have been invited to chat on <strong>{{ site_name }}</strong>, part of the XMPP secure and decentralized messaging network.","Te han invitado a charlar en <strong>{{ site_name }}</strong>, que forma parte de la red XMPP de mensajería segura y decentralizada."}.

@@ -26,6 +26,7 @@
 -author('alexey@process-one.net').
 -protocol({xep, 45, '1.35.3', '0.5.0', "complete", ""}).
 -protocol({xep, 249, '1.2', '0.5.0', "complete", ""}).
+-protocol({xep, 421, '1.0.1', '23.10', "complete", ""}).
 -protocol({xep, 486, '0.1.0', '24.07', "complete", ""}).
 -ifndef(GEN_SERVER).
 -define(GEN_SERVER, gen_server).
@@ -729,10 +730,6 @@ process_disco_info(#iq{type = get, from = From, to = To, lang = Lang,
 		      true -> [?NS_MAM_TMP, ?NS_MAM_0, ?NS_MAM_1, ?NS_MAM_2];
 		      false -> []
 		  end,
-    OccupantIdFeatures = case gen_mod:is_loaded(ServerHost, mod_muc_occupantid) of
-		      true -> [?NS_OCCUPANT_ID];
-		      false -> []
-		  end,
     RSMFeatures = case RMod:rsm_supported() of
 		      true -> [?NS_RSM];
 		      false -> []
@@ -743,8 +740,8 @@ process_disco_info(#iq{type = get, from = From, to = To, lang = Lang,
 		       end,
     Features = [?NS_DISCO_INFO, ?NS_DISCO_ITEMS,
 		?NS_MUC, ?NS_VCARD, ?NS_MUCSUB, ?NS_MUC_UNIQUE,
-		?NS_MUC_STABLE_ID
-		| RegisterFeatures ++ RSMFeatures ++ MAMFeatures ++ OccupantIdFeatures],
+		?NS_MUC_STABLE_ID, ?NS_OCCUPANT_ID
+		| RegisterFeatures ++ RSMFeatures ++ MAMFeatures],
     Name = mod_muc_opt:name(ServerHost),
     Identity = #identity{category = <<"conference">>,
 			 type = <<"text">>,
@@ -1512,9 +1509,21 @@ mod_options(Host) ->
 
 mod_doc() ->
     #{desc =>
-          [?T("This module provides support for https://xmpp.org/extensions/xep-0045.html"
-             "[XEP-0045: Multi-User Chat]. Users can discover existing rooms, "
-             "join or create them. Occupants of a room can chat in public or have private chats."), "",
+          [?T("This module provides support for "
+              "https://xmpp.org/extensions/xep-0045.html[Multi-User Chat] (MUC). "
+              "Users can discover existing rooms, join or create them. "
+              "Occupants of a room can chat in public or have private chats."), "",
+           ?T("Protocols implemented in this module:"), "",
+              "- https://xmpp.org/extensions/xep-0045.html"
+              "[XEP-0045: Multi-User Chat]",
+              "- https://xmpp.org/extensions/xep-0249.html"
+              "[XEP-0249: Direct MUC Invitations]",
+              "- https://xmpp.org/extensions/xep-0421.html"
+              "[XEP-0421: Occupant identifiers for semi-anonymous MUCs]",
+              "- https://xmpp.org/extensions/xep-0486.html"
+              "[XEP-0486: MUC Avatars]",
+              "- https://docs.ejabberd.im/developer/xmpp-clients-bots/extensions/muc-sub/"
+              "[Muc/Sub: Multi-User Chat Subscriptions]", "",
 	   ?T("The MUC service allows any Jabber ID to register a nickname, so "
 	      "nobody else can use that nickname in any room in the MUC "
 	      "service. To register a nickname, open the Service Discovery in "
@@ -1531,6 +1540,7 @@ mod_doc() ->
 	      "are not clustered nor fault-tolerant: if the node managing a "
 	      "set of rooms goes down, the rooms disappear and they will be "
 	      "recreated on an available node on first connection attempt.")],
+      note => "incorporated 'mod_muc_occupantid' in 26.02",
       opts =>
           [{access,
             #{value => ?T("AccessName"),
