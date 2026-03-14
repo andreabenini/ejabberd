@@ -32,6 +32,8 @@
 -include("mod_invites.hrl").
 -include("mod_roster.hrl").
 
+-include_lib("eunit/include/eunit.hrl").
+
 %% killme
 -record(ejabberd_module,
         {module_host = {undefined, <<"">>} :: {atom(), binary()},
@@ -40,6 +42,80 @@
          order = 0 :: integer()}).
 
 %% @format-begin
+
+find_invites_tree_root_t_test_() ->
+    {setup,
+     fun() ->
+        meck:new(db, [non_strict]),
+        meck:expect(db,
+                    get_invite_by_invitee_t,
+                    fun (_, <<"4@host">>) ->
+                            #invite_token{inviter = {<<"3">>, <<"host">>}};
+                        (_, <<"3@host">>) ->
+                            #invite_token{inviter = {<<"2">>, <<"host">>}};
+                        (_, <<"2@host">>) ->
+                            #invite_token{inviter = {<<"1">>, <<"host">>}};
+                        (_, _) ->
+                            {error, not_found}
+                    end),
+        meck:new(gen_mod, [passthrough]),
+        meck:expect(gen_mod, db_mod, 2, db),
+        meck:new(calendar, [unstick, passthrough]),
+        meck:expect(calendar, now_to_datetime, 1, then),
+        meck:expect(calendar, datetime_to_gregorian_seconds, fun(then) -> 1 end),
+        [db, gen_mod, calendar]
+     end,
+     fun meck:unload/1,
+     fun(_) ->
+        [%% lvl not reached
+         ?_assertMatch({<<"1">>, <<"host">>},
+                       mod_invites:find_invites_tree_root_t(2, host, {<<"3">>, <<"host">>}, 0)),
+         %% lvl reached
+         ?_assertThrow(speedy_goat, mod_invites:find_invites_tree_root_t(2, host, {<<"4">>, <<"host">>}, 0)),
+         %% lvl reached but later
+         ?_assertMatch({<<"1">>, <<"host">>},
+                       mod_invites:find_invites_tree_root_t(?SPEEDY_GOAT_SECONDS + 1,
+                                                host,
+                                                {<<"4">>, <<"host">>},
+                                                0)),
+         ?_assert(meck:validate(db))]
+     end}.
+
+get_invites_tree_as_root_t_test_() ->
+    {setup,
+     fun() ->
+        meck:new(db, [non_strict]),
+        meck:expect(db,
+                    get_invites_t,
+                    fun (_, {<<"1">>, _}) ->
+                            [#invite_token{invitee = <<"2@host">>, type = account_only},
+                             #invite_token{invitee = <<"rosterinvite@forcecrash">>}];
+                        (_, {<<"2">>, _}) ->
+                            [#invite_token{invitee = <<"3@host">>, type = account_only},
+                             #invite_token{invitee = <<"4@host">>, type = account_only}];
+                        (_, {<<"3">>, _}) ->
+                            [#invite_token{invitee = <<"5@host">>, type = account_subscription},
+                             #invite_token{invitee = <<"6@host">>, account_name = <<"6">>},
+                             #invite_token{type = account_only}];
+                        (_, {_, <<"host">>}) ->
+                            []
+                    end),
+        meck:new(gen_mod, [passthrough]),
+        meck:expect(gen_mod, db_mod, 2, db),
+        meck:expect(jid,
+                    decode,
+                    fun(Str) ->
+                       [LUser, LServer] =
+                           [list_to_binary(T) || T <- string:tokens(binary_to_list(Str), "@")],
+                       #jid{luser = LUser, lserver = LServer}
+                    end),
+        [db, gen_mod, jid]
+     end,
+     fun meck:unload/1,
+     fun(_) ->
+        [?_assertMatch(6, length(mod_invites:get_invites_tree_as_root_t(<<"host">>, {<<"1">>, <<"host">>})))]
+     end}.
+
 
 %%%===================================================================
 %%% API
@@ -476,14 +552,41 @@ ibr(Config0) ->
            send_get_iq_register(Config3)),
     ?match(#iq{type = result}, send_iq_register(Config3, <<"some_self_chosen_name">>)),
 
+    RedirectUrl = <<"http://localhost">>,
+    NewRegisterOpts2 = gen_mod:set_opt(redirect_url, RedirectUrl, NewRegisterOpts),
+    update_module_opts(Server, mod_register, NewRegisterOpts2),
+    Config4 = reconnect(Config3),
+    %% check redirect_url works
+    #iq{type = result, sub_els = [#register{sub_els = [SubEl]}]} =
+        send_get_iq_register(Config4),
+    ?match(#oob_x{url = RedirectUrl}, xmpp:decode(SubEl)),
+    #invite_token{token = Token4} = create_account_invite(Server, {<<>>, Server}),
+    ?match(#iq{type = result}, send_pars(Config4, Token4)),
+    #iq{type = result, sub_els = [#register{sub_els = SubEls}]} =
+        send_get_iq_register(Config4),
+    %% check for absence of redirect_url
+    ?match([],
+           lists:filter(fun(El) ->
+                           Decoded = xmpp:decode(El),
+                           case Decoded of
+                               #oob_x{url = RedirectUrl} ->
+                                   true;
+                               _ ->
+                                   false
+                           end
+                        end,
+                        SubEls)),
+    ?match(#iq{type = result}, send_iq_register(Config4, <<"yet_another_self_chosen_name">>)),
+
     ejabberd_auth:remove_user(AccountName, Server),
+    ejabberd_auth:remove_user(<<"yet_another_self_chosen_name">>, Server),
     ejabberd_auth:remove_user(<<"some_self_chosen_name">>, Server),
     ejabberd_auth:remove_user(<<"some_much_better_name">>, Server),
     update_module_opts(Server, mod_register, OldRegisterOpts),
     mod_invites:remove_user(<<"inviter">>, Server),
     mod_invites:expire_tokens(<<>>, Server),
-    ?match(3, mod_invites:cleanup_expired()),
-    disconnect(Config3).
+    ?match(4, mod_invites:cleanup_expired()),
+    disconnect(Config4).
 
 ibr_reserved(Config0) ->
     Server = ?config(server, Config0),
@@ -673,7 +776,10 @@ http(Config) ->
     User = ?config(user, Config),
     {TokenURI, LandingPage} = mod_invites:gen_invite(Server),
     Token = token_from_uri(TokenURI),
-    {ok, {{_, 200, _}, _Headers, Body}} = httpc:request(LandingPage),
+    {ok, {{_, 200, _}, Headers, Body}} = httpc:request(LandingPage),
+    {match, [TokenURI]} =
+        re:run(
+            proplists:get_value("link", Headers), "<(.+)>", [{capture, [1], binary}]),
     {match, RegistrationURLs} =
         re:run(Body,
                <<"href=\"", Token/binary, "([a-zA-Z0-9\/\-]+)\"">>,
@@ -695,11 +801,25 @@ http(Config) ->
 
     [Last] = hd(lists:reverse(RegistrationURLs)),
     RegURL = <<BaseURL/binary, Last/binary>>,
-    {ok, {{_, 400, _}, _, _}} = post(RegURL, <<"badtoken">>, <<"foo">>, <<"bar">>),
-    {ok, {{_, 400, _}, _, _}} = post(RegURL, Token, User, <<"bar">>),
-    {ok, {{_, 400, _}, _, _}} = post(RegURL, Token, <<"@invalidUser">>, <<"bar">>),
-    {ok, {{_, 200, _}, _, _}} = post(RegURL, Token, <<"foo">>, <<"bar">>),
-    {ok, {{_, 404, _}, _, _}} = post(RegURL, Token, <<"foo">>, <<"bar">>),
+    {ok, {{_, 200, _}, _, RegURLBody}} = httpc:request(RegURL),
+    {match, [[CSRFToken]]} =
+        re:run(RegURLBody,
+               <<"<input.+name=\"csrf_token\" value=\"(.+)\"">>,
+               [global, {capture, [1], binary}]),
+    ct:pal("extracted csrf token: ~p", [CSRFToken]),
+    {ok, {{_, 400, _}, _, _}} = post(RegURL, <<"badtoken">>, CSRFToken, <<"foo">>, <<"bar">>),
+    {ok, {{_, 400, _}, _, _}} = post(RegURL, Token, CSRFToken, User, <<"bar">>),
+    {ok, {{_, 400, _}, _, _}} = post(RegURL, Token, CSRFToken, <<"@invalidUser">>, <<"bar">>),
+    {ok, {{_, 400, _}, _, _}} = post(RegURL, Token, <<"foo">>, <<"bar">>),
+    {ok, {{_, 400, _}, _, _}} =
+        post(RegURL,
+             Token,
+             <<"guLRkZZFv+CGI7UbCnyija0KwPFmob71RGvGa7dQ5G4=">>,
+             <<"foo">>,
+             <<"bar">>),
+    {ok, {{_, 400, _}, _, _}} = post(RegURL, Token, <<"nohashtoken">>, <<"foo">>, <<"bar">>),
+    {ok, {{_, 200, _}, _, _}} = post(RegURL, Token, CSRFToken, <<"foo">>, <<"bar">>),
+    {ok, {{_, 404, _}, _, _}} = post(RegURL, Token, CSRFToken, <<"foo">>, <<"bar">>),
     {ok, {{_, 404, _}, _, _}} = httpc:request(LandingPage),
     lists:foreach(fun([URL]) ->
                      FullURL = <<BaseURL/binary, "/", URL/binary>>,
@@ -713,7 +833,8 @@ http(Config) ->
     RosterURL = mod_invites_http:landing_page(Server, RosterInvite),
     {ok, {{_, 200, _}, _, _}} = httpc:request(RosterURL),
     FakeRegURL = <<RosterURL/binary, "/registration">>,
-    {ok, {{_, 404, _}, _, _}} = post(FakeRegURL, RosterToken, <<"baz">>, <<"bar">>),
+    {ok, {{_, 404, _}, _, _}} =
+        post(FakeRegURL, RosterToken, CSRFToken, <<"baz">>, <<"bar">>),
     ejabberd_auth:remove_user(<<"foo">>, Server),
     mod_invites:remove_user(<<"inviter">>, Server),
     mod_invites:expire_tokens(<<>>, Server),
@@ -837,8 +958,23 @@ send_pars(Config, Token) ->
                   to = ServerJID,
                   sub_els = [#preauth{token = Token}]}).
 
-post(URL, Token, User, Password) ->
+post(URL, Token0, User0, Password0) ->
+    [Token, User, Password] = [uri_string:quote(V) || V <- [Token0, User0, Password0]],
     Data = <<"token=", Token/binary, "&user=", User/binary, "&password=", Password/binary>>,
+    httpc:request(post, {URL, [], "application/x-www-form-urlencoded", Data}, [], []).
+
+post(URL, Token0, CSRFToken0, User0, Password0) ->
+    [Token, CSRFToken, User, Password] =
+        [uri_string:quote(V) || V <- [Token0, CSRFToken0, User0, Password0]],
+    Data =
+        <<"token=",
+          Token/binary,
+          "&csrf_token=",
+          CSRFToken/binary,
+          "&user=",
+          User/binary,
+          "&password=",
+          Password/binary>>,
     httpc:request(post, {URL, [], "application/x-www-form-urlencoded", Data}, [], []).
 
 gen_mod_set_opts(OldOpts, NewOpts) ->

@@ -12,8 +12,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     strategy:
       matrix:
-        otp: ['25', '26', '27', '28']
-
+        otp: ['25', '26', '27', '28', '29.0-rc1']
 
     steps:
 
@@ -22,9 +21,6 @@ jobs:
     - uses: erlef/setup-beam@v1
       with:
         otp-version: ${{ matrix.otp }}
-        hexpm-mirrors: |
-          https://cdn.jsdelivr.net/hex
-          https://builds.hex.pm
 
     - uses: awalsh128/cache-apt-pkgs-action@latest
       with:
@@ -59,7 +55,7 @@ jobs:
     - run: make options
     - run: make xref
     - run: make dialyzer
-    - run: make test-eunit
+    - run: make testeunit
     - run: make elvis
       if: matrix.otp > '25'
 
@@ -118,6 +114,7 @@ jobs:
       run: make test
 
     - name: Send to coveralls
+      continue-on-error: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |

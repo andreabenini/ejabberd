@@ -46,15 +46,16 @@
 -export([cleanup_expired/0, expire_tokens/2, generate_invite/1, generate_invite/2, list_invites/1]).
 
 %% helpers
--export([create_account_allowed/2, get_invite/2, get_invites/2, get_max_invites/2, is_create_allowed/2,
-         is_expired/1, is_reserved/3, is_token_valid/2, roster_add/2, send_presence/3,
-         set_invitee/3, set_invitee/5, token_uri/1, xdata_field/3]).
+-export([create_account_allowed/2, get_invite/2, get_invites_tree_t/2, get_max_invites/2,
+         is_create_allowed/2, is_expired/1, is_reserved/3, is_token_valid/2, roster_add/2,
+         send_presence/3, set_invitee/3, set_invitee/5, token_uri/1, transaction/2, xdata_field/3]).
 
 %% ejabberd_http
 -export([process/2]).
 
 -ifdef(TEST).
--export([create_roster_invite/2, create_account_invite/4, gen_invite/1, gen_invite/2, is_token_valid/3]).
+-export([create_roster_invite/2, create_account_invite/4, find_invites_tree_root_t/4, gen_invite/1,
+         gen_invite/2, get_invites/2, get_invites_tree_as_root_t/2, is_token_valid/3]).
 -endif.
 
 -include("logger.hrl").
@@ -66,13 +67,16 @@
 -include("translate.hrl").
 
 -type invite_token() :: #invite_token{}.
+-export_type([invite_token/0]).
 
 -callback cleanup_expired(Host :: binary()) -> non_neg_integer().
--callback create_invite(Invite :: invite_token()) -> invite_token().
+-callback create_invite_t(Invite :: invite_token()) -> invite_token().
 -callback expire_tokens(User :: binary(), Server :: binary()) -> non_neg_integer().
 -callback get_invite(Host :: binary(), Token :: binary()) ->
     invite_token() | {error, not_found}.
--callback get_invites(Host :: binary(), Inviter :: {User :: binary(), Host :: binary()}) ->
+-callback get_invite_by_invitee_t(Host :: binary(), InviteeJid :: binary()) ->
+    invite_token() | {error, not_found}.
+-callback get_invites_t(Host :: binary(), Inviter :: {User :: binary(), Host :: binary()}) ->
     [invite_token()].
 -callback init(Host :: binary(), gen_mod:opts()) -> any().
 -callback is_reserved(Host :: binary(), Token :: binary(), User :: binary()) -> boolean().
@@ -85,6 +89,7 @@
                                 Invitee :: binary(),
                                 AccountName :: binary()) -> OkOrError | {error, conflict}
  when OkOrError :: ok | {error, term()}.
+-callback transaction(Host:: binary(), fun(() -> T)) -> {atomic, T} | {aborted, any()}.
 
 %% @format-begin
 
@@ -124,28 +129,15 @@ mod_doc() ->
               "then guide the recipient with setting up a client "
               "and creating an account if required."),
            "",
-           ?T("In order to use the included landing page feature, you have to"),
+           ?T("In order to use the included landing page feature, you have to"
+              " set `landing_page` to either `auto` or an URL template like "
+              "`https://{{ host }}/invites/{{ invite.token }}` "
+              " if your server setup includes a so called reverse proxy"),
            "",
-           ?T(" * have a copy of https://code.jquery.com/jquery-3.7.1.min.js[jQuery 3] and "
-              "   https://github.com/twbs/bootstrap/releases/download/v4.6.2/bootstrap-4.6.2-dist.zip[Bootstrap 4] "
-              "   in a shared directory on your system. If you're using Debian or "
-              "   derivatives this is easiest accomplished by installing both "
-              "   `libjs-jquery` and `libjs-bootstrap4` which will put them under "
-              "   `/usr/share/javascript/{jquery,bootstrap4}`. Alternatively you can use "
-              "   `tools/dl_invites_page_deps.sh <outdir>`."),
-           ?T(" * in `ejabberd.yml` configure a listener for module `ejabberd_http` "
-              "   with a request handler for `/share: mod_http_fileserver`"),
-           ?T(" * in the `modules` section configure `mod_http_fileserver` so that "
-              "   `docroot` points to the shared directory from above "
-              "   (e.g. `docroot: /usr/share/javascript`)"),
-           ?T(" * configure `mod_invites` and set `landing_page` to either `auto` "
-              "   or an URL template like `https://{{ host }}/invites/{{ invite.token }}` "
-              "   if your server setup includes a so called reverse proxy"),
-           "",
-           "If you'd rather want to use an external service, set `landing_page` "
-           "to something like "
-           "`http://{{ host }}:8080/easy-xmpp-invites/#{{ invite.uri|strip_protocol }}` "
-           "or `https://invites.joinjabber.org/#{{ invite.uri|strip_protocol }}`."],
+           ?T("If you'd rather want to use an external service, set `landing_page` "
+              "to something like "
+              "`http://{{ host }}:8080/easy-xmpp-invites/#{{ invite.uri|strip_protocol }}` "
+              "or `https://invites.joinjabber.org/#{{ invite.uri|strip_protocol }}`.")],
       note => "added in 26.01",
       opts =>
           [{access_create_account,
@@ -197,7 +189,13 @@ mod_doc() ->
             #{value => "pos_integer()",
               desc =>
                   ?T("Number of seconds until token expires. Default value "
-                     "is `432000` (that is five days: `5 * 24 * 60 * 60`)")}}],
+                     "is `432000` (that is five days: `5 * 24 * 60 * 60`)")}},
+           {webchat_url,
+            #{value => "none | auto | Webchat URL",
+              desc =>
+                  ?T("URL to a webchat client. Upon manual registration through web-form this will be"
+                     "recommended in order to get started. If `auto` is chosen, we pick the "
+                     "`mod_conversejs` from the listeners section. Default is `auto`.")}}],
       example =>
           [{?T("Basic configuration with landing page but without creating "
                "accounts, just roster invites:"),
@@ -207,11 +205,8 @@ mod_doc() ->
              "    module: ejabberd_http",
              "    request_handlers:",
              "      /invites: mod_invites",
-             "      /share: mod_http_fileserver",
              "# [...]",
              "modules:",
-             "  mod_http_fileserver:",
-             "    docroot: /usr/share/javascript",
              "  mod_invites:",
              "    landing_page: auto"]},
            {?T("To allow only admin users to create invites of 'create account' and "
@@ -249,6 +244,7 @@ mod_doc() ->
              "    allow_modules:",
              "      - mod_invites"]}]}.
 
+-spec mod_options(binary()) -> [{landing_page, none | auto | binary()} | {atom(), any()}].
 mod_options(Host) ->
     [{access_create_account, none},
      {db_type, ejabberd_config:default_db(Host, ?MODULE)},
@@ -256,7 +252,8 @@ mod_options(Host) ->
      {max_invites, infinity},
      {site_name, Host},
      {templates_dir, filename:join([code:priv_dir(ejabberd), ?MODULE, <<>>])},
-     {token_expire_seconds, ?INVITE_TOKEN_EXPIRE_SECONDS_DEFAULT}].
+     {token_expire_seconds, ?INVITE_TOKEN_EXPIRE_SECONDS_DEFAULT},
+     {webchat_url, auto}].
 
 reload(ServerHost, NewOpts, OldOpts) ->
     NewMod = gen_mod:db_mod(NewOpts, ?MODULE),
@@ -292,7 +289,23 @@ mod_opt_type(db_type) ->
     econf:db_type(?MODULE);
 mod_opt_type(landing_page) ->
     econf:either(
-        econf:enum([none, auto]), econf:binary());
+        econf:enum([none, auto]),
+        econf:and_then(
+            econf:binary(),
+            fun(Tmpl) ->
+               try mod_invites_http:tmpl_to_renderer(Tmpl) of
+                   R when is_atom(R) ->
+                       Tmpl
+               catch
+                   error:{badmatch, error} ->
+                       T = <<"There is some problem in the value you configured "
+                             "for option 'landing_page' in 'mod_invites'. "
+                             "Please consult the documentation and fix it: ",
+                             Tmpl/binary>>,
+                       ?CRITICAL_MSG(T, []),
+                       throw({error, T})
+               end
+            end));
 mod_opt_type(max_invites) ->
     econf:pos_int(infinity);
 mod_opt_type(site_name) ->
@@ -300,7 +313,10 @@ mod_opt_type(site_name) ->
 mod_opt_type(templates_dir) ->
     econf:directory();
 mod_opt_type(token_expire_seconds) ->
-    econf:pos_int().
+    econf:pos_int();
+mod_opt_type(webchat_url) ->
+    econf:either(
+        econf:enum([none, auto]), econf:url()).
 
 %%--------------------------------------------------------------------
 %%| ejabberd command callbacks
@@ -421,8 +437,6 @@ gen_invite(Host) ->
 gen_invite(AccountName, Host0) ->
     Host = jid:nameprep(Host0),
     case create_account_invite(Host, {<<>>, Host}, AccountName, false) of
-        {error, {module_not_loaded, ?MODULE, Host}} ->
-            {error, host_unknown};
         {error, _Reason} = Error ->
             Error;
         Invite ->
@@ -732,8 +746,15 @@ process(LocalPath, Request) ->
 get_invite(Host, Token) ->
     db_call(Host, get_invite, [Host, Token]).
 
+-ifdef(TEST).
+
 get_invites(Host, Inviter) ->
-    db_call(Host, get_invites, [Host, Inviter]).
+    transaction(Host, fun() -> get_invites_t(Host, Inviter) end).
+
+-endif.
+
+get_invites_t(Host, Inviter) ->
+    db_call(Host, get_invites_t, [Host, Inviter]).
 
 is_expired(#invite_token{expires = Expires}) ->
     Now = erlang:timestamp(),
@@ -779,10 +800,13 @@ create_account_invite(Host, Inviter, AccountName, _Subcribe = false) ->
     create_invite(account_only, Host, Inviter, AccountName).
 
 create_invite(Type, Host, Inviter, AccountName) ->
-    try invite_token(Type, Host, Inviter, AccountName) of
+    F = fun() -> create_invite_t(Type, Host, Inviter, AccountName) end,
+    transaction(Host, F).
+
+create_invite_t(Type, Host, Inviter, AccountName) ->
+    try invite_token_t(Type, Host, Inviter, AccountName) of
         Invite ->
-            ?DEBUG("Created invite: ~p", [Invite]),
-            db_call(Host, create_invite, [Invite])
+            db_call(Host, create_invite_t, [Invite])
     catch
         _:({error, _Reason} = Error) ->
             Error;
@@ -815,10 +839,10 @@ check_account_name(AccountName, Host) ->
             end
     end.
 
-check_max_invites(roster_only, _) ->
+check_max_invites_t(roster_only, _) ->
     ok;
-check_max_invites(_Type, {User, Host}) ->
-    case is_create_allowed(User, Host) of
+check_max_invites_t(_Type, {User, Host}) ->
+    case is_create_allowed_t(User, Host) of
         true ->
             ok;
         false ->
@@ -826,11 +850,14 @@ check_max_invites(_Type, {User, Host}) ->
     end.
 
 is_create_allowed(User, Host) ->
+    transaction(Host, fun() -> is_create_allowed_t(User, Host) end).
+
+is_create_allowed_t(User, Host) ->
     case get_max_invites(User, Host) of
         infinity ->
             true;
         MaxInvites ->
-            Invites = get_invites(Host, {User, Host}),
+            Invites = get_invites_t(Host, {User, Host}),
             NumCreated =
                 lists:foldl(fun (#invite_token{type = roster_only, account_name = <<>>}, Num) ->
                                     Num;
@@ -871,13 +898,97 @@ get_max_invites(User, Server) ->
             MaxInvites
     end.
 
+check_overuse_t(roster_only, {User, Host}) ->
+    NumInvites = length(get_invites_t(Host, {User, Host})),
+    case NumInvites >= ?OVERUSE_LIMIT of
+        true ->
+            {error, num_invites_exceeded};
+        false ->
+            ok
+    end;
+check_overuse_t(_Type, {User, Host}) ->
+    NumInvites = length(get_invites_tree_t(Host, {User, Host})),
+    case NumInvites >= ?OVERUSE_LIMIT of
+        true ->
+            {error, num_invites_exceeded};
+        false ->
+            ok
+    end.
+
+get_invites_tree_t(Host, Inviter) ->
+    Now = calendar:datetime_to_gregorian_seconds(
+              calendar:now_to_datetime(
+                  erlang:timestamp())),
+    Root = find_invites_tree_root_t(Now, Host, Inviter, 0),
+    get_invites_tree_as_root_t(Host, Root).
+
+find_invites_tree_root_t(Now, Host, Invitee, Lvl) ->
+    case get_invite_by_invitee_t(Host, Invitee) of
+        #invite_token{inviter = Inviter, created_at = CreatedAt} ->
+            maybe_block_speedy_goat(Now, CreatedAt, Lvl),
+            find_invites_tree_root_t(Now, Host, Inviter, Lvl + 1);
+        {error, not_found} ->
+            Invitee
+    end.
+
+-spec get_invite_by_invitee_t(binary(), {binary(), binary()}) ->
+                                 invite_token() | {error, not_found}.
+get_invite_by_invitee_t(Host, {User, Server}) ->
+    InviteeJid =
+        jid:encode(
+            jid:make(User, Server)),
+    db_call(Host, get_invite_by_invitee_t, [Host, InviteeJid]).
+
+maybe_block_speedy_goat(Now, CreatedAt, Lvl) when Lvl == ?SPEEDY_GOAT_LEVELS ->
+    Then = calendar:datetime_to_gregorian_seconds(CreatedAt),
+    if Now - Then < ?SPEEDY_GOAT_SECONDS ->
+           throw(speedy_goat);
+       true ->
+           ok
+    end;
+maybe_block_speedy_goat(_, _, _) ->
+    ok.
+
+-spec get_invites_tree_as_root_t(binary(), {binary(), binary()}) -> [invite_token()].
+get_invites_tree_as_root_t(Host, Inviter) ->
+    Invites = get_invites_t(Host, Inviter),
+    get_invites_tree_as_root_t(Host, Inviter, Invites, []).
+
+get_invites_tree_as_root_t(_Host, _Inviter, [], Acc) ->
+    Acc;
+get_invites_tree_as_root_t(Host,
+                           Inviter,
+                           [#invite_token{type = roster_only, account_name = <<>>} | Invites],
+                           Acc) ->
+    get_invites_tree_as_root_t(Host, Inviter, Invites, Acc);
+get_invites_tree_as_root_t(Host,
+                           Inviter,
+                           [#invite_token{invitee = <<>>} = Invite | Invites],
+                           Acc) ->
+    get_invites_tree_as_root_t(Host, Inviter, Invites, [Invite | Acc]);
+get_invites_tree_as_root_t(Host,
+                           Inviter,
+                           [#invite_token{invitee = InviteeJID} = Invite | Invites],
+                           Acc) ->
+    case jid:decode(InviteeJID) of
+        #jid{luser = Invitee, lserver = Host} ->
+            get_invites_tree_as_root_t(Host,
+                                       Inviter,
+                                       Invites,
+                                       [Invite | Acc]
+                                       ++ get_invites_tree_as_root_t(Host, {Invitee, Host}));
+        _Nomatch ->
+            get_invites_tree_as_root_t(Host, Inviter, Invites, [Invite | Acc])
+    end.
+
 maybe_throw({error, _} = Error) ->
     throw(Error);
 maybe_throw(Good) ->
     Good.
 
-invite_token(Type, Host, Inviter, AccountName0) ->
-    maybe_throw(check_max_invites(Type, Inviter)),
+invite_token_t(Type, Host, Inviter, AccountName0) ->
+    maybe_throw(check_max_invites_t(Type, Inviter)),
+    maybe_throw(check_overuse_t(Type, Inviter)),
     Token = p1_rand:get_alphanum_string(?INVITE_TOKEN_LENGTH_DEFAULT),
     AccountName = maybe_throw(check_account_name(jid:nodeprep(AccountName0), Host)),
     set_token_expires(#invite_token{token = Token,
@@ -921,8 +1032,13 @@ landing_page(Host, Invite) ->
 
 -spec db_call(binary(), atom(), [any()]) -> any().
 db_call(Host, Fun, Args) ->
-    Mod = gen_mod:db_mod(Host, ?MODULE),
-    apply(Mod, Fun, Args).
+    try gen_mod:db_mod(Host, ?MODULE) of
+        Mod ->
+            apply(Mod, Fun, Args)
+    catch
+        _:{module_not_loaded, ?MODULE, Host} ->
+            throw({error, host_unknown})
+    end.
 
 %% father forgive me
 lift({error, _R} = E) ->
@@ -938,10 +1054,21 @@ try_db_call(Host, Fun, Args) ->
     try
         lift(db_call(Host, Fun, Args))
     catch
-        error:({error, _Reason} = Error) ->
+        _:({error, _Reason} = Error) ->
             Error;
         error:Error ->
             {error, Error}
+    end.
+
+transaction(Host, F) ->
+    try db_call(Host, transaction, [Host, F]) of
+        {atomic, Result} ->
+            Result;
+        {aborted, Reason} ->
+            {error, Reason}
+    catch
+        _:Error ->
+            Error
     end.
 
 -spec trans(binary(), binary()) -> binary().

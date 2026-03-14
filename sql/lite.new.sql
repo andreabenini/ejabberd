@@ -44,6 +44,7 @@ CREATE TABLE rosterusers (
     jid text NOT NULL,
     nick text NOT NULL,
     subscription character(1) NOT NULL,
+    approved boolean NOT NULL,
     ask character(1) NOT NULL,
     askmessage text NOT NULL,
     server character(1) NOT NULL,
@@ -502,3 +503,4 @@ CREATE TABLE invite_token (
     PRIMARY KEY (token)
 );
 CREATE INDEX i_invite_token_username_server_host ON invite_token(username, server_host);
+CREATE INDEX i_invite_token_invitee ON invite_token(invitee);

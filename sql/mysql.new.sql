@@ -48,6 +48,7 @@ CREATE TABLE rosterusers (
     jid varchar(191) NOT NULL,
     nick text NOT NULL,
     subscription character(1) NOT NULL,
+    approved boolean NOT NULL,
     ask character(1) NOT NULL,
     askmessage text NOT NULL,
     server character(1) NOT NULL,
@@ -521,3 +522,4 @@ CREATE TABLE invite_token (
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE INDEX i_invite_token_username USING BTREE ON invite_token(username(191), server_host(191));
+CREATE INDEX i_invite_token_invitee USING BTREE ON invite_token(invitee(191));

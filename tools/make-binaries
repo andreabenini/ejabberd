@@ -68,10 +68,10 @@ mix_vsn=$(mix_version "$rel_vsn")
 crosstool_vsn='1.27.0'
 termcap_vsn='1.3.1'
 expat_vsn='2.7.4'
-zlib_vsn='1.3.1'
+zlib_vsn='1.3.2'
 yaml_vsn='0.2.5'
 ssl_vsn='3.5.5'
-otp_vsn='28.3.1'
+otp_vsn='28.4'
 elixir_vsn='1.19.5'
 pam_vsn='1.6.1' # Newer Linux-PAM versions use Meson, we don't support that yet.
 png_vsn='1.6.45'
@@ -197,8 +197,8 @@ check_configured_dep_vsns()
 	          'https://www.sqlite.org/download.html' \
 	          'sqlite-autoconf-\([1-9][0-9]*\)\.tar\.gz'
 	check_vsn 'ODBC' "$odbc_vsn" \
-	          'http://www.unixodbc.org/download.html' \
-	          'unixODBC-\([1-9][0-9.]*\)\.tar\.gz'
+	          'https://github.com/lurcher/unixODBC/releases' \
+	          '\([1-9]\.[0-9][0-9]*\.[0-9][0-9]*\)'
 	#
 	# Linux-PAM uses Meson since version 1.7.0, we don't support that yet.
 	#
@@ -692,6 +692,9 @@ build_deps()
 	# Revert https://github.com/erlang/otp/commit/53ef5df40c733ce3d8215c5c98805f99f378f656
 	# because it breaks MSSQL, see https://github.com/processone/ejabberd/issues/4178
 	sed -i 's|if(size == 0 && (sql_type == SQL_LONGVARCHAR|if((sql_type == SQL_LONGVARCHAR|g' lib/odbc/c_src/odbcserver.c
+	# Enable SSL features for static NIFs: https://github.com/erlang/otp/pull/10817
+	sed -i 's|^\(ALL_STATIC_CFLAGS = @DED_STATIC_CFLAGS@.*TYPE_EXTRA_CFLAGS)\) \$(CONFIGURE_ARGS)|\1 @SSL_FLAGS@ $(CONFIGURE_ARGS)|' \
+	    lib/crypto/c_src/Makefile.in
 	# The additional CFLAGS/LIBS below are required by --enable-static-nifs.
 	# The "-ldl" flag specifically is only needed for ODBC, though.
 	$configure \
@@ -891,7 +894,7 @@ else
 	curl -fsSLO "https://www.ijg.org/files/$jpeg_tar"
 	curl -fsSLO "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/$webp_tar"
 	curl -fsSLO "https://github.com/libgd/libgd/releases/download/gd-$gd_vsn/$gd_tar"
-	curl -fsSLO "http://www.unixodbc.org/$odbc_tar"
+	curl -fsSLO "https://github.com/lurcher/unixODBC/releases/download/v$odbc_vsn/$odbc_tar"
 	curl -fsSLO "https://www.sqlite.org/$(date '+%Y')/$sqlite_tar" \
 	    || curl -fsSLO "https://www.sqlite.org/$(date -d '1 year ago' '+%Y')/$sqlite_tar" \
 	    || curl -fsSLO "https://www.sqlite.org/$(date -d '2 years ago' '+%Y')/$sqlite_tar"

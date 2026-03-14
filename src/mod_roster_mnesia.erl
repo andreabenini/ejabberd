@@ -130,17 +130,26 @@ need_transform({roster_version, {U, S}, Ver})
   when is_list(U) orelse is_list(S) orelse is_list(Ver) ->
     ?INFO_MSG("Mnesia table 'roster_version' will be converted to binary", []),
     true;
+need_transform({roster, {_, _, _}, _, _, _, _, none, _, _, _, _}) ->
+    ?INFO_MSG("Mnesia table 'roster' will be converted to use new boolean() 'approved' attribute.", []),
+    true;
 need_transform(_) ->
     false.
 
-transform(#roster{usj = {U, S, {LU, LS, LR}},
-		  us = {U1, S1},
-		  jid = {U2, S2, R2},
-		  name = Name,
-		  groups = Gs,
-		  askmessage = Ask,
-		  xs = Xs} = R) ->
-    R#roster{usj = {iolist_to_binary(U), iolist_to_binary(S),
+transform({roster, USJ, US, Jid, Name, Sub, none, Ask, Groups, AskMsg, XS}) ->
+    #roster{
+       us = US,
+       usj = USJ,
+       jid = Jid,
+       name = Name,
+       subscription = Sub,
+       approved = false,
+       ask = Ask,
+       groups = Groups,
+       askmessage = AskMsg,
+       xs = XS};
+transform({roster, {U, S, {LU, LS, LR}}, {U1, S1}, {U2, S2, R2}, Name, Sub, Ask, Gs, AskMsg, Xs}) ->
+    #roster{usj = {iolist_to_binary(U), iolist_to_binary(S),
 		    {iolist_to_binary(LU),
 		     iolist_to_binary(LS),
 		     iolist_to_binary(LR)}},
@@ -149,8 +158,10 @@ transform(#roster{usj = {U, S, {LU, LS, LR}},
 		    iolist_to_binary(S2),
 		    iolist_to_binary(R2)},
 	     name = iolist_to_binary(Name),
+         subscription = Sub,
+         ask = Ask,
 	     groups = [iolist_to_binary(G) || G <- Gs],
-	     askmessage = try iolist_to_binary(Ask)
+	     askmessage = try iolist_to_binary(AskMsg)
 			  catch _:_ -> <<"">> end,
 	     xs = [fxml:to_xmlel(X) || X <- Xs]};
 transform(#roster_version{us = {U, S}, version = Ver} = R) ->

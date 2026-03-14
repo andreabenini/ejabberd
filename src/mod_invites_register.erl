@@ -74,7 +74,10 @@ c2s_unauthenticated_packet(#{invite := Invite} = State,
                    IQ1 = xmpp:set_els(IQ, [Register]),
                    User = Invite#invite_token.account_name,
                    IQ2 = xmpp:set_from_to(IQ1, jid:make(User, Server), jid:make(Server)),
-                   ResIQ = mod_register:process_iq(IQ2),
+                   Meta = xmpp:get_meta(IQ2),
+                   ResIQ =
+                       mod_register:process_iq(
+                           xmpp:set_meta(IQ2, Meta#{pre_auth => true})),
                    ResIQ1 = xmpp:set_from_to(ResIQ, jid:make(Server), undefined),
                    {stop, ejabberd_c2s:send(State, ResIQ1)}
                 end);
@@ -193,7 +196,19 @@ create_account_allowed(#invite_token{type = roster_only} = Invite) ->
     #invite_token{inviter = {User, Host}} = Invite,
     case mod_invites:is_create_allowed(User, Host) of
         true ->
-            ok;
+            NumInvites =
+                length(
+                  mod_invites:transaction(
+                    Host,
+                    fun() ->
+                            mod_invites:get_invites_tree_t(Host, {User, Host})
+                    end)),
+            case NumInvites >= ?OVERUSE_LIMIT of
+                false ->
+                    ok;
+                true ->
+                    {error, not_allowed}
+            end;
         false ->
             {error, not_allowed}
     end;

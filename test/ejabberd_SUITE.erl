@@ -188,7 +188,7 @@ end_per_group(mysql, Config) ->
     case catch ejabberd_sql:sql_query(?MYSQL_VHOST, [Query]) of
         {selected, _, [[<<"0">>]]} ->
             ok;
-        {selected, _, [[<<"1">>]]} ->
+        {selected, _, _} ->
             clear_sql_tables(mysql, Config);
         Other ->
             ct:fail({failed_to_check_table_existence, mysql, Other})
@@ -345,21 +345,11 @@ init_per_testcase(TestCase, OrigConfig) ->
             bind(auth(connect(Config)));
 	"replaced" ++ _ ->
 	    auth(connect(Config));
-        "antispam" ++ _ ->
-            Password = ?config(password, Config),
-            ejabberd_auth:try_register(User, Server, Password),
-            open_session(bind(auth(connect(Config))));
-        "invites_" ++ _ ->
-            Password = ?config(password, Config),
-            ejabberd_auth:try_register(User, Server, Password),
-            open_session(bind(auth(connect(Config))));
-        _ when IsMaster or IsSlave ->
-            Password = ?config(password, Config),
-            ejabberd_auth:try_register(User, Server, Password),
-            open_session(bind(auth(connect(Config))));
 	_ when TestGroup == s2s_tests ->
 	    auth(connect(starttls(connect(Config))));
         _ ->
+            Password = ?config(password, Config),
+            ejabberd_auth:try_register(User, Server, Password),
             open_session(bind(auth(connect(Config))))
     end.
 
