@@ -132,13 +132,13 @@ mod_doc() ->
            ?T("In order to use the included landing page feature, you have to"
               " set `landing_page` to either `auto` or an URL template like "
               "`https://{{ host }}/invites/{{ invite.token }}` "
-              " if your server setup includes a so called reverse proxy"),
+              " if your server setup includes a so called reverse proxy."),
            "",
            ?T("If you'd rather want to use an external service, set `landing_page` "
               "to something like "
               "`http://{{ host }}:8080/easy-xmpp-invites/#{{ invite.uri|strip_protocol }}` "
               "or `https://invites.joinjabber.org/#{{ invite.uri|strip_protocol }}`.")],
-      note => "added in 26.01",
+      note => "improved in 26.03",
       opts =>
           [{access_create_account,
             #{value => ?T("Access Rule Name"),
@@ -192,8 +192,9 @@ mod_doc() ->
                      "is `432000` (that is five days: `5 * 24 * 60 * 60`)")}},
            {webchat_url,
             #{value => "none | auto | Webchat URL",
+              note => "added in 26.03",
               desc =>
-                  ?T("URL to a webchat client. Upon manual registration through web-form this will be"
+                  ?T("URL to a webchat client. Upon manual registration through web-form this will be "
                      "recommended in order to get started. If `auto` is chosen, we pick the "
                      "`mod_conversejs` from the listeners section. Default is `auto`.")}}],
       example =>

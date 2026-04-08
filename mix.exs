@@ -114,14 +114,14 @@ defmodule Ejabberd.MixProject do
      {:fast_tls, "~> 1.1.24"},
      {:fast_xml, "~> 1.1.56"},
      {:fast_yaml, "~> 1.0"},
-     {:idna, "~> 6.0"},
+     {:idna, "~> 7.1"},
      {:mqtree, "~> 1.0"},
      {:p1_acme, ">= 1.0.28"},
      {:p1_oauth2, "~> 0.6"},
      {:p1_utils, "~> 1.0"},
      {:pkix, "~> 1.0"},
      {:stringprep, ">= 1.0.26"},
-     {:xmpp, ">= 1.12.0"},
+     {:xmpp, ">= 1.13.1"},
      {:yconf, ">= 1.0.22"}]
     ++ cond_deps()
   end
@@ -335,6 +335,7 @@ defmodule Ejabberd.MixProject do
         "CONTRIBUTORS.md": [title: "Contributors"],
         "CODE_OF_CONDUCT.md": [title: "Code of Conduct"],
         "CHANGELOG.md": [title: "ChangeLog"],
+        "SECURITY.md": [title: "Security Policy"],
         "COPYING": [title: "Copying License"],
         "_build/edoc/docs.md": [title: "&xrArr; ejabberd Docs"]
       ],

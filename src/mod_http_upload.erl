@@ -561,7 +561,7 @@ process(_LocalPath, #request{method = 'PUT', host = Host, ip = IP,
 		       [encode_addr(IP), Host, Error]),
 	    http_response(500)
     end;
-process(_LocalPath, #request{method = Method, host = Host, ip = IP} = Request0)
+process(_LocalPath, #request{method = Method, host = Host, ip = IP, headers = ReqHeaders} = Request0)
     when Method == 'GET';
 	 Method == 'HEAD' ->
     Request = Request0#request{host = redecode_url(Host)},
@@ -584,7 +584,7 @@ process(_LocalPath, #request{method = Method, host = Host, ip = IP} = Request0)
 			       end,
 		    Headers2 = [{<<"Content-Type">>, ContentType} | Headers1],
 		    Headers3 = ejabberd_http:apply_custom_headers(Headers2, CustomHeaders),
-		    http_response(200, Headers3, {file, Path});
+		    http_response(200, Headers3, {file, Path, ReqHeaders});
 		{error, eacces} ->
 		    ?WARNING_MSG("Cannot serve ~ts to ~ts: Permission denied",
 			      [Path, encode_addr(IP)]),
@@ -1070,7 +1070,8 @@ http_response(Code, ExtraHeaders) ->
     Message = <<(code_to_message(Code))/binary, $\n>>,
     http_response(Code, ExtraHeaders, Message).
 
--type http_body() :: binary() | {file, file:filename_all()}.
+-type http_body() :: binary() | {file, file:filename_all()} |
+	{file, file:filename_all(), [{binary(), binary()}]}.
 -spec http_response(100..599, [{binary(), binary()}], http_body())
       -> {pos_integer(), [{binary(), binary()}], http_body()}.
 http_response(Code, ExtraHeaders, Body) ->
