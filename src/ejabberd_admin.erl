@@ -311,11 +311,9 @@ get_commands_spec() ->
      #ejabberd_commands{name = leave_cluster, tags = [cluster],
 			desc = "Remove and shutdown Node from the running cluster",
 			longdesc = "This command can be run from any running "
-			"node of the cluster, even the node to be removed. "
-			"In the removed node, this command works only when "
-			"using ejabberdctl, not _`mod_http_api`_ or other code that "
-			"runs inside the same ejabberd node that will leave.",
+			"node of the cluster, even the node to be removed.",
 			module = ?MODULE, function = leave_cluster,
+			note = "improved in 26.04",
 			args_desc = ["Nodename of the node to kick from the cluster"],
 			args_example = [<<"ejabberd1@machine8">>],
 			args = [{node, binary}],
