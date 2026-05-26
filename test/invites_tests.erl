@@ -130,6 +130,7 @@ single_cases() ->
     {invites_single,
      [sequence],
      [single_test(gen_invite),
+      single_test(expire_and_delete),
       single_test(cleanup_expired),
       single_test(adhoc_items),
       single_test(adhoc_command_invite),
@@ -146,11 +147,14 @@ single_cases() ->
       single_test(ibr_reserved),
       single_test(ibr_subscription),
       single_test(ibr_conflict),
-      single_test(http)]}.
+      single_test(http),
+      single_test(create_invite_page),
+      single_test(reset_token)]}.
 
 %%%===================================================================
 
 gen_invite(Config) ->
+    _ = mod_invites:cleanup_expired(), %% clean from old runs
     Server = ?config(server, Config),
     User = ?config(user, Config),
     {TokenURI, _LandingPage} = mod_invites:gen_invite(<<"foo">>, Server),
@@ -176,19 +180,30 @@ gen_invite(Config) ->
     ?match(2, length(mod_invites:list_invites(Server))),
     %% TooLongHostname = list_to_binary([$a || _ <- lists:seq(1, 1024)]),
     %% ?match({error, hostname_invalid}, mod_invites:gen_invite(<<"foo">>, TooLongHostname)),
-    mod_invites:expire_tokens(<<>>, Server),
+    mod_invites:expire_invites(<<>>, Server),
     ?match(2, mod_invites:cleanup_expired()),
+    disconnect(Config).
+
+expire_and_delete(Config) ->
+    Server = ?config(server, Config),
+    #invite_token{token = Token} = create_account_invite(Server, {<<"foo">>, Server}),
+    ?match(ok, mod_invites:expire_invite_by_token(Server, Token)),
+    ?match(true,
+           mod_invites:is_expired(
+               mod_invites:get_invite(Server, Token))),
+    ?match(ok, mod_invites:delete_invite_by_token(Server, Token)),
+    ?match({error, not_found}, mod_invites:delete_invite_by_token(Server, Token)),
     disconnect(Config).
 
 cleanup_expired(Config) ->
     Server = ?config(server, Config),
     create_account_invite(Server, {<<"foo">>, Server}),
-    mod_invites:expire_tokens(<<"foo">>, Server),
+    mod_invites:expire_invites(<<"foo">>, Server),
     Token = token_from_uri(element(1, mod_invites:gen_invite(<<"foobar">>, Server))),
     ?match(1, mod_invites:cleanup_expired()),
     ?match(#invite_token{}, mod_invites:get_invite(Server, Token)),
     ?match(0, mod_invites:cleanup_expired()),
-    mod_invites:expire_tokens(<<>>, Server),
+    mod_invites:expire_invites(<<>>, Server),
     ?match(1, mod_invites:cleanup_expired()),
     disconnect(Config).
 
@@ -359,11 +374,11 @@ token_valid(Config) ->
     end,
     ?match(false,
            mod_invites:is_token_valid(Server, AccountToken, {<<"someoneElse">>, Server})),
-    mod_invites:expire_tokens(<<"foo">>, Server),
+    mod_invites:expire_invites(<<"foo">>, Server),
     ?match(false, mod_invites:is_token_valid(Server, AccountToken, Inviter)),
     mod_invites:cleanup_expired(),
     mod_invites:remove_user(User, Server),
-    mod_invites:expire_tokens(<<>>, Server),
+    mod_invites:expire_invites(<<>>, Server),
     ?match(1, mod_invites:cleanup_expired()),
     disconnect(Config).
 
@@ -384,10 +399,10 @@ expire_tokens(Config) ->
     #invite_token{token = RosterToken} = mod_invites:create_roster_invite(Server, Inviter),
     #invite_token{token = AccountToken} = create_account_invite(Server, Inviter),
     ?match(true, mod_invites:is_token_valid(Server, RosterToken, Inviter)),
-    ?match(1, mod_invites:expire_tokens(User, Server)),
+    ?match(1, mod_invites:expire_invites(User, Server)),
     ?match(true, mod_invites:is_token_valid(Server, RosterToken, Inviter)),
     ?match(false, mod_invites:is_token_valid(Server, AccountToken, Inviter)),
-    ?match(0, mod_invites:expire_tokens(User, Server)),
+    ?match(0, mod_invites:expire_invites(User, Server)),
     mod_invites:cleanup_expired(),
     mod_invites:remove_user(User, Server),
     disconnect(Config).
@@ -398,10 +413,7 @@ max_invites(Config0) ->
     Inviter = {User, Server},
     OldOpts = gen_mod:get_module_opts(Server, mod_invites),
     NewOpts =
-        gen_mod_set_opts(OldOpts,
-                         [{max_invites, 3},
-                          {access_create_account, account_invite},
-                          {allow_modules, [mod_invites]}]),
+        gen_mod_set_opts(OldOpts, [{max_invites, 3}, {access_create_account, account_invite}]),
     update_module_opts(Server, mod_invites, NewOpts),
 
     Config = reconnect(Config0),
@@ -422,7 +434,7 @@ max_invites(Config0) ->
     update_module_opts(Server, mod_invites, OldOpts),
     #invite_token{} = create_account_invite(Server, Inviter),
     mod_invites:remove_user(User, Server),
-    mod_invites:expire_tokens(<<>>, Server),
+    mod_invites:expire_invites(<<>>, Server),
     ?match(4, mod_invites:cleanup_expired()),
     disconnect(Config).
 
@@ -432,9 +444,7 @@ overuse(Config0) ->
     Inviter = {User, Server},
     InviteeJID = jid:make(User, Server),
     OldOpts = gen_mod:get_module_opts(Server, mod_invites),
-    NewOpts =
-        gen_mod_set_opts(OldOpts,
-                         [{access_create_account, account_invite}, {allow_modules, [mod_invites]}]),
+    NewOpts = gen_mod_set_opts(OldOpts, [{access_create_account, account_invite}]),
     update_module_opts(Server, mod_invites, NewOpts),
 
     Config1 = reconnect(Config0),
@@ -451,7 +461,7 @@ overuse(Config0) ->
 
     #invite_token{} = create_account_invite(Server, Inviter),
 
-    mod_invites:expire_tokens(<<>>, Server),
+    mod_invites:expire_invites(<<>>, Server),
     ?match(1, mod_invites:cleanup_expired()),
     mod_invites:remove_user(User, Server),
 
@@ -497,7 +507,7 @@ presence_with_preauth_token(Config) ->
 is_reserved(Config) ->
     Server = ?config(server, Config),
     Inviter = {<<"inviter">>, Server},
-    mod_invites:expire_tokens(<<"inviter">>, Server),
+    mod_invites:expire_invites(<<"inviter">>, Server),
     mod_invites:cleanup_expired(),
     #invite_token{token = Token} =
         mod_invites:create_account_invite(Server, Inviter, <<"reserved_user">>, false),
@@ -635,7 +645,7 @@ ibr(Config0) ->
     ejabberd_auth:remove_user(<<"some_much_better_name">>, Server),
     update_module_opts(Server, mod_register, OldRegisterOpts),
     mod_invites:remove_user(<<"inviter">>, Server),
-    mod_invites:expire_tokens(<<>>, Server),
+    mod_invites:expire_invites(<<>>, Server),
     ?match(4, mod_invites:cleanup_expired()),
     disconnect(Config4).
 
@@ -651,7 +661,7 @@ ibr_reserved(Config0) ->
     ?match(#iq{type = error}, send_iq_register(Config2, <<"reserved">>)),
     ?match(#iq{type = result}, send_pars(Config2, OtherToken)),
     ejabberd_auth:remove_user(<<"check_registration_works">>, Server),
-    mod_invites:expire_tokens(<<>>, Server),
+    mod_invites:expire_invites(<<>>, Server),
     ?match(2, mod_invites:cleanup_expired()),
     disconnect(Config2).
 
@@ -817,7 +827,7 @@ ibr_conflict(Config0) ->
     ?match(true, mod_invites:is_token_valid(Server, RosterToken)),
 
     mod_invites:remove_user(<<"inviter">>, Server),
-    mod_invites:expire_tokens(<<>>, Server),
+    mod_invites:expire_invites(<<>>, Server),
     ?match(1, mod_invites:cleanup_expired()),
     disconnect(Config2),
     ok.
@@ -825,6 +835,7 @@ ibr_conflict(Config0) ->
 http(Config) ->
     Server = ?config(server, Config),
     User = ?config(user, Config),
+    httpc:set_options([{cookies, enabled}]),
     {TokenURI, LandingPage} = mod_invites:gen_invite(Server),
     Token = token_from_uri(TokenURI),
     {ok, {{_, 200, _}, Headers, Body}} = httpc:request(LandingPage),
@@ -852,12 +863,8 @@ http(Config) ->
 
     [Last] = hd(lists:reverse(RegistrationURLs)),
     RegURL = <<BaseURL/binary, Last/binary>>,
-    {ok, {{_, 200, _}, _, RegURLBody}} = httpc:request(RegURL),
-    {match, [[CSRFToken]]} =
-        re:run(RegURLBody,
-               <<"<input.+name=\"csrf_token\" value=\"(.+)\"">>,
-               [global, {capture, [1], binary}]),
-    ct:pal("extracted csrf token: ~p", [CSRFToken]),
+    CSRFToken = get_csrf_token(RegURL),
+
     {ok, {{_, 400, _}, _, _}} = post(RegURL, <<"badtoken">>, CSRFToken, <<"foo">>, <<"bar">>),
     {ok, {{_, 400, _}, _, _}} = post(RegURL, Token, CSRFToken, User, <<"bar">>),
     {ok, {{_, 400, _}, _, _}} = post(RegURL, Token, CSRFToken, <<"@invalidUser">>, <<"bar">>),
@@ -888,9 +895,130 @@ http(Config) ->
         post(FakeRegURL, RosterToken, CSRFToken, <<"baz">>, <<"bar">>),
     ejabberd_auth:remove_user(<<"foo">>, Server),
     mod_invites:remove_user(<<"inviter">>, Server),
-    mod_invites:expire_tokens(<<>>, Server),
+    mod_invites:expire_invites(<<>>, Server),
     ?match(1, mod_invites:cleanup_expired()),
     disconnect(Config).
+
+create_invite_page(Config) ->
+    Server = ?config(server, Config),
+    User = ?config(user, Config),
+    Password = ?config(password, Config),
+
+    AutoURL = ejabberd_http:get_auto_url(any, mod_invites),
+    BaseURL = misc:expand_keyword(<<"@HOST@">>, AutoURL, Server),
+
+    httpc:set_options([{cookies, disabled}]),
+
+    ?match({ok, {{_, 400, _}, _, _}}, post(BaseURL, [], <<>>)),
+    ?match({ok, {{_, 400, _}, _, _}},
+           post(BaseURL,
+                [],
+                to_qs([{user, User}, {password, Password}, {csrf_token, <<"some_nonsense">>}]))),
+
+    CSRFToken = get_csrf_token(BaseURL),
+    %% still not working because no cookie
+    ?match({ok, {{_, 400, _}, _, _}},
+           post(BaseURL, [], to_qs([{user, User}, {password, Password}, {csrf_token, CSRFToken}]))),
+
+    httpc:set_options([{cookies, enabled}]),
+
+    NewCSRFToken = get_csrf_token(BaseURL),
+
+    %% user not allowed to create invites
+    ?match({ok, {{_, 400, _}, _, _}},
+           post(BaseURL,
+                [],
+                to_qs([{user, User}, {password, Password}, {csrf_token, NewCSRFToken}]))),
+
+    OldOpts = gen_mod:get_module_opts(Server, mod_invites),
+    NewOpts = gen_mod:set_opt(access_create_account, account_invite, OldOpts),
+    update_module_opts(Server, mod_invites, NewOpts),
+
+    ?match({ok, {{_, 200, _}, _, _}},
+           post(BaseURL,
+                [],
+                to_qs([{user, User}, {password, Password}, {csrf_token, NewCSRFToken}]))),
+    ?match({ok, {{_, 400, _}, _, _}},
+           post(BaseURL,
+                [],
+                to_qs([{user, User}, {password, <<"bad_password">>}, {csrf_token, NewCSRFToken}]))),
+    ?match({ok, {{_, 400, _}, _, _}},
+           post(BaseURL,
+                [],
+                to_qs([{user, User},
+                       {password, Password},
+                       {csrf_token, NewCSRFToken},
+                       {account_name, User}]))),
+    ?match({ok, {{_, 200, _}, _, _}},
+           post(BaseURL,
+                [],
+                to_qs([{user, User},
+                       {password, Password},
+                       {csrf_token, NewCSRFToken},
+                       {account_name, <<"some_free_account_name">>}]))),
+    %% now it's reserved
+    ?match({ok, {{_, 400, _}, _, _}},
+           post(BaseURL,
+                [],
+                to_qs([{user, User},
+                       {password, Password},
+                       {csrf_token, NewCSRFToken},
+                       {account_name, <<"some_free_account_name">>}]))),
+
+    mod_invites:remove_user(User, Server),
+    update_module_opts(Server, mod_invites, OldOpts),
+    disconnect(Config).
+
+reset_token(Config0) ->
+    Server = ?config(server, Config0),
+    User = ?config(user, Config0),
+    Password = ?config(password, Config0),
+
+    httpc:set_options([{cookies, enabled}]),
+
+    OldRegisterOpts = gen_mod:get_module_opts(Server, mod_register),
+    NewRegisterOpts = gen_mod:set_opt(allow_modules, [mod_invites], OldRegisterOpts),
+    update_module_opts(Server, mod_register, NewRegisterOpts),
+
+    Config1 = reconnect(Config0),
+
+    #invite_token{token = Token} = mod_invites:create_reset_token(User, Server),
+
+    BaseURL = mod_invites_http:landing_page(Server, mod_invites:get_invite(Server, Token)),
+    CSRFToken = get_csrf_token(BaseURL),
+
+    ?match(true, ejabberd_auth:check_password(User, <<"plain">>, Server, Password)),
+
+    ?match(#iq{type = error}, send_iq_register(Config1, User, <<"newPassword">>)),
+    ?match(#iq{type = result}, send_pars(Config1, Token)),
+    ?match(#iq{type = error}, send_iq_register(Config1, <<"wrong_user">>, <<"newPassword">>)),
+    ?match(#iq{type = result}, send_iq_register(Config1, User, <<"newPassword">>)),
+
+    ?match(true, ejabberd_auth:check_password(User, <<"plain">>, Server, <<"newPassword">>)),
+    ?match(false, ejabberd_auth:check_password(User, <<"plain">>, Server, Password)),
+
+    ?match(false, mod_invites:is_token_valid(Server, Token)),
+
+    {ok, {{_, 404, _}, _, _}} = post(BaseURL, Token, CSRFToken, User, <<"anotherPassword">>),
+
+    #invite_token{token = Token2} = mod_invites:create_reset_token(User, Server),
+    BaseURL2 = mod_invites_http:landing_page(Server, mod_invites:get_invite(Server, Token2)),
+    CSRFToken2 = get_csrf_token(BaseURL2),
+
+    {ok, {{_, 400, _}, _, _}} =
+        post(BaseURL2, Token2, CSRFToken, User, <<"anotherPassword">>),
+    {ok, {{_, 400, _}, _, _}} =
+        post(BaseURL2, Token2, CSRFToken2, <<"wronguser">>, <<"anotherPassword">>),
+    {ok, {{_, 200, _}, _, _}} =
+        post(BaseURL2, Token2, CSRFToken2, User, <<"anotherPassword">>),
+    ?match(true,
+           ejabberd_auth:check_password(User, <<"plain">>, Server, <<"anotherPassword">>)),
+
+    ok = mod_register:try_set_password(User, Server, Password),
+    update_module_opts(Server, mod_register, OldRegisterOpts),
+    mod_invites:expire_invites(<<>>, Server),
+    ?match(2, mod_invites:cleanup_expired()),
+    disconnect(Config1).
 
 %%%===================================================================
 %%% Internal functions
@@ -995,12 +1123,15 @@ send_get_iq_register(Config) ->
                   to = ServerJID,
                   sub_els = [#register{}]}).
 
-send_iq_register(Config, AccountName) ->
+send_iq_register(Config, Username) ->
+    send_iq_register(Config, Username, <<"mySecret">>).
+
+send_iq_register(Config, Username, Password) ->
     ServerJID = jid:from_string(?config(server, Config)),
     send_recv(Config,
               #iq{type = set,
                   to = ServerJID,
-                  sub_els = [#register{username = AccountName, password = <<"mySecret">>}]}).
+                  sub_els = [#register{username = Username, password = Password}]}).
 
 send_pars(Config, Token) ->
     ServerJID = jid:from_string(?config(server, Config)),
@@ -1009,24 +1140,39 @@ send_pars(Config, Token) ->
                   to = ServerJID,
                   sub_els = [#preauth{token = Token}]}).
 
-post(URL, Token0, User0, Password0) ->
-    [Token, User, Password] = [uri_string:quote(V) || V <- [Token0, User0, Password0]],
-    Data = <<"token=", Token/binary, "&user=", User/binary, "&password=", Password/binary>>,
-    httpc:request(post, {URL, [], "application/x-www-form-urlencoded", Data}, [], []).
+post(URL, Token, User, Password) ->
+    Data = to_qs([{token, Token}, {user, User}, {password, Password}]),
+    post(URL, [], Data).
 
-post(URL, Token0, CSRFToken0, User0, Password0) ->
-    [Token, CSRFToken, User, Password] =
-        [uri_string:quote(V) || V <- [Token0, CSRFToken0, User0, Password0]],
+post(URL, Token, CSRFToken, User, Password) ->
     Data =
-        <<"token=",
-          Token/binary,
-          "&csrf_token=",
-          CSRFToken/binary,
-          "&user=",
-          User/binary,
-          "&password=",
-          Password/binary>>,
-    httpc:request(post, {URL, [], "application/x-www-form-urlencoded", Data}, [], []).
+        to_qs([{token, Token}, {user, User}, {password, Password}, {csrf_token, CSRFToken}]),
+    post(URL, [], Data).
+
+post(URL, Headers, Data) ->
+    httpc:request(post, {URL, Headers, "application/x-www-form-urlencoded", Data}, [], []).
+
+to_qs(List) ->
+    lists:foldl(fun ({K, V}, <<>>) ->
+                        <<(atom_to_binary(K))/binary, "=", (uri_string:quote(V))/binary>>;
+                    ({K, V}, QS) ->
+                        <<QS/binary,
+                          "&",
+                          (atom_to_binary(K))/binary,
+                          "=",
+                          (uri_string:quote(V))/binary>>
+                end,
+                <<>>,
+                List).
+
+get_csrf_token(URL) ->
+    {ok, {{_, 200, _}, _, Body}} = httpc:request(URL),
+    {match, [[CSRFToken]]} =
+        re:run(Body,
+               <<"<input.+name=\"csrf_token\" value=\"(.+)\"">>,
+               [global, {capture, [1], binary}]),
+    ct:pal("extracted csrf token: ~p", [CSRFToken]),
+    CSRFToken.
 
 gen_mod_set_opts(OldOpts, NewOpts) ->
     lists:foldl(fun({Opt, Val}, Opts) -> gen_mod:set_opt(Opt, Val, Opts) end,
