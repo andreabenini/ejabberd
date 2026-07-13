@@ -24,7 +24,7 @@
 %%%----------------------------------------------------------------------
 -module(mod_muc).
 -author('alexey@process-one.net').
--protocol({xep, 45, '1.35.3', '0.5.0', "complete", ""}).
+-protocol({xep, 45, '1.35.5', '0.5.0', "complete", ""}).
 -protocol({xep, 249, '1.2', '0.5.0', "complete", ""}).
 -protocol({xep, 421, '1.0.1', '23.10', "complete", ""}).
 -protocol({xep, 486, '0.1.0', '24.07', "complete", ""}).
@@ -137,6 +137,7 @@ start(Host, Opts) ->
 	    RMod = gen_mod:ram_db_mod(Opts, ?MODULE),
 	    Mod:init(Host, gen_mod:set_opt(hosts, MyHosts, Opts)),
 	    RMod:init(Host, gen_mod:set_opt(hosts, MyHosts, Opts)),
+	    check_duplicate_routes(Host, MyHosts),
 	    load_permanent_rooms(MyHosts, Host, Opts);
 	Err ->
 	    Err
@@ -204,6 +205,23 @@ procname(Host, RoomHost) ->
     I = erlang:phash2(RoomHost, Cores) + 1,
     procname(Host, I).
 
+check_duplicate_routes(HostNew, MyHosts) when is_list(MyHosts) ->
+    [check_duplicate_routes(HostNew, MyHost) || MyHost <- MyHosts];
+check_duplicate_routes(HostNew, MyHost) ->
+    case ejabberd_router:host_of_route(MyHost) of
+        HostNew ->
+            ok;
+        HostExisting ->
+            ?WARNING_MSG("The MUC service '~ts' is already being served by vhost '~ts', "
+                         "and you configured it also for vhost '~ts' ! "
+                         "That may lead to unexpected results. "
+                         "Please edit the ejabberd configuration to ensure each "
+                         "mod_muc serves different hosts: "
+                         "for example use @HOST@ in the 'hosts' option in mod_muc, "
+                         "or use 'append_host_config' toplevel option.",
+                       [MyHost, HostExisting, HostNew])
+    end.
+
 -spec route(stanza()) -> ok.
 route(Pkt) ->
     To = xmpp:get_to(Pkt),
@@ -215,7 +233,7 @@ route(Pkt, ServerHost) ->
     From = xmpp:get_from(Pkt),
     To = xmpp:get_to(Pkt),
     Host = To#jid.lserver,
-    Access = mod_muc_opt:access(ServerHost),
+    Access = get_mod_option(ServerHost, To#jid.lserver, access),
     case acl:match_rule(ServerHost, Access, From) of
 	allow ->
 	    route(Pkt, Host, ServerHost);
@@ -235,7 +253,7 @@ route(#message{lang = Lang, body = Body, type = Type, from = From,
     if Type == error ->
             ok;
        true ->
-	    AccessAdmin = mod_muc_opt:access_admin(ServerHost),
+	    AccessAdmin = get_mod_option(ServerHost, Host, access_admin),
             case acl:match_rule(ServerHost, AccessAdmin, From) of
                 allow ->
                     Msg = xmpp:get_text(Body),
@@ -426,7 +444,7 @@ handle_call({create, Room, Host, Opts}, _From,
 	    #{server_host := ServerHost} = State) ->
     ?DEBUG("MUC: create new room '~ts'~n", [Room]),
     NewOpts = case Opts of
-		  default -> mod_muc_opt:default_room_options(ServerHost);
+		  default -> get_mod_option(ServerHost, Host, default_room_options);
 		  _ -> Opts
 	      end,
     RMod = gen_mod:ram_db_mod(ServerHost, ?MODULE),
@@ -442,7 +460,7 @@ handle_call({create, Room, Host, From, Nick, Opts}, _From,
 	    #{server_host := ServerHost} = State) ->
     ?DEBUG("MUC: create new room '~ts'~n", [Room]),
     NewOpts = case Opts of
-		  default -> mod_muc_opt:default_room_options(ServerHost);
+		  default -> get_mod_option(ServerHost, Host, default_room_options);
 		  _ -> Opts
 	      end,
     RMod = gen_mod:ram_db_mod(ServerHost, ?MODULE),
@@ -669,7 +687,7 @@ route_to_room(Packet, ServerHost) ->
 -spec process_vcard(iq()) -> iq().
 process_vcard(#iq{type = get, to = To, lang = Lang, sub_els = [#vcard_temp{}]} = IQ) ->
     ServerHost = ejabberd_router:host_of_route(To#jid.lserver),
-    VCard = case mod_muc_opt:vcard(ServerHost) of
+    VCard = case get_mod_option(ServerHost, To#jid.lserver, vcard) of
 		undefined ->
 		    #vcard_temp{fn = <<"ejabberd/mod_muc">>,
 				url = ejabberd_config:get_uri(),
@@ -700,7 +718,7 @@ process_iq_register(#iq{type = Type, from = From, to = To, lang = Lang,
     Host = To#jid.lserver,
     RegisterDestination = jid:encode(To),
     ServerHost = ejabberd_router:host_of_route(Host),
-    AccessRegister = mod_muc_opt:access_register(ServerHost),
+    AccessRegister = get_mod_option(ServerHost, Host, access_register),
     case acl:match_rule(ServerHost, AccessRegister, From) of
 	allow ->
 	    case Type of
@@ -723,7 +741,7 @@ process_disco_info(#iq{type = get, from = From, to = To, lang = Lang,
 		       sub_els = [#disco_info{node = <<"">>}]} = IQ) ->
     ServerHost = ejabberd_router:host_of_route(To#jid.lserver),
     RMod = gen_mod:ram_db_mod(ServerHost, ?MODULE),
-    AccessRegister = mod_muc_opt:access_register(ServerHost),
+    AccessRegister = get_mod_option(ServerHost, To#jid.lserver, access_register),
     X = ejabberd_hooks:run_fold(disco_info, ServerHost, [],
 				[ServerHost, ?MODULE, <<"">>, Lang]),
     MAMFeatures = case gen_mod:is_loaded(ServerHost, mod_mam) of
@@ -742,7 +760,7 @@ process_disco_info(#iq{type = get, from = From, to = To, lang = Lang,
 		?NS_MUC, ?NS_VCARD, ?NS_MUCSUB, ?NS_MUC_UNIQUE,
 		?NS_MUC_STABLE_ID, ?NS_OCCUPANT_ID
 		| RegisterFeatures ++ RSMFeatures ++ MAMFeatures],
-    Name = mod_muc_opt:name(ServerHost),
+    Name = get_mod_option(ServerHost, To#jid.lserver, name),
     Identity = #identity{category = <<"conference">>,
 			 type = <<"text">>,
 			 name = translate:translate(Lang, Name)},
@@ -765,7 +783,7 @@ process_disco_items(#iq{type = get, from = From, to = To, lang = Lang,
 			sub_els = [#disco_items{node = Node, rsm = RSM}]} = IQ) ->
     Host = To#jid.lserver,
     ServerHost = ejabberd_router:host_of_route(Host),
-    MaxRoomsDiscoItems = mod_muc_opt:max_rooms_discoitems(ServerHost),
+    MaxRoomsDiscoItems = get_mod_option(ServerHost, Host, max_rooms_discoitems),
     case iq_disco_items(ServerHost, Host, From, Lang,
 			MaxRoomsDiscoItems, Node, RSM) of
 	{error, Err} ->
@@ -830,15 +848,15 @@ should_start_room(_) ->
 
 -spec check_create_room(binary(), binary(), binary(), jid()) -> boolean().
 check_create_room(ServerHost, Host, Room, From) ->
-    AccessCreate = mod_muc_opt:access_create(ServerHost),
+    AccessCreate = get_mod_option(ServerHost, Host, access_create),
     case acl:match_rule(ServerHost, AccessCreate, From) of
 	allow ->
-	    case mod_muc_opt:max_room_id(ServerHost) of
+	    case get_mod_option(ServerHost, Host, max_room_id) of
 		Max when byte_size(Room) =< Max ->
-		    Regexp = mod_muc_opt:regexp_room_id(ServerHost),
+		    Regexp = get_mod_option(ServerHost, Host, regexp_room_id),
 		    case re:run(Room, Regexp, [{capture, none}]) of
 			match ->
-			    AccessAdmin = mod_muc_opt:access_admin(ServerHost),
+			    AccessAdmin = get_mod_option(ServerHost, Host, access_admin),
 			    case acl:match_rule(ServerHost, AccessAdmin, From) of
 				allow ->
 				    true;
@@ -857,13 +875,13 @@ check_create_room(ServerHost, Host, Room, From) ->
 	    false
     end.
 
--spec get_access(binary() | gen_mod:opts()) -> access().
-get_access(ServerHost) ->
-    Access = mod_muc_opt:access(ServerHost),
-    AccessCreate = mod_muc_opt:access_create(ServerHost),
-    AccessAdmin = mod_muc_opt:access_admin(ServerHost),
-    AccessPersistent = mod_muc_opt:access_persistent(ServerHost),
-    AccessMam = mod_muc_opt:access_mam(ServerHost),
+-spec get_access(binary(), binary()) -> access().
+get_access(ServerHost, Host) ->
+    Access = get_mod_option(ServerHost, Host, access),
+    AccessCreate = get_mod_option(ServerHost, Host, access_create),
+    AccessAdmin = get_mod_option(ServerHost, Host, access_admin),
+    AccessPersistent = get_mod_option(ServerHost, Host, access_persistent),
+    AccessMam = get_mod_option(ServerHost, Host, access_mam),
     {Access, AccessCreate, AccessAdmin, AccessPersistent, AccessMam}.
 
 -spec get_rooms(binary(), binary()) -> [#muc_room{}].
@@ -872,21 +890,22 @@ get_rooms(ServerHost, Host) ->
     Mod:get_rooms(ServerHost, Host).
 
 -spec load_permanent_rooms([binary()], binary(), gen_mod:opts()) -> ok.
+
 load_permanent_rooms(Hosts, ServerHost, Opts) ->
-    case mod_muc_opt:preload_rooms(Opts) of
-	true ->
-	    lists:foreach(
-		fun(Host) ->
-		    ?DEBUG("Loading rooms at ~ts", [Host]),
-		    lists:foreach(
-			fun(R) ->
-			    {Room, _} = R#muc_room.name_host,
-			    unhibernate_room(ServerHost, Host, Room, false)
-			end, get_rooms(ServerHost, Host))
-		end, Hosts);
-	false ->
-	    ok
-    end.
+    lists:foreach(
+        fun(Host) ->
+            case mod_muc_opt:preload_rooms(Opts) of
+                true ->
+                    ?DEBUG("Loading rooms at ~ts", [Host]),
+                    lists:foreach(
+                        fun(R) ->
+                            {Room, _} = R#muc_room.name_host,
+                            unhibernate_room(ServerHost, Host, Room, false)
+                        end, get_rooms(ServerHost, Host));
+                false ->
+                    ok
+            end
+        end, Hosts).
 
 -spec load_room(module(), binary(), binary(), binary(), boolean()) ->
     {ok, pid()} | {error, notfound | term()}.
@@ -928,7 +947,7 @@ do_restore_room(RMod, Host, ServerHost, Room, ResetHibernationTime, Opts) ->
 
 start_new_room(RMod, Host, ServerHost, Room, Pass, From, Nick) ->
     ?DEBUG("Open new room: ~ts", [Room]),
-    DefRoomOpts = mod_muc_opt:default_room_options(ServerHost),
+    DefRoomOpts = get_mod_option(ServerHost, Host, default_room_options),
     DefRoomOpts2 = add_password_options(Pass, DefRoomOpts),
     start_room(RMod, Host, ServerHost, Room, DefRoomOpts2, From, Nick).
 
@@ -941,18 +960,18 @@ add_password_options(Pass, DefRoomOpts) when is_binary(Pass) ->
     lists:keystore(password_protected, 1, O2, {password_protected, true}).
 
 start_room(Mod, Host, ServerHost, Room, DefOpts) ->
-    Access = get_access(ServerHost),
-    HistorySize = mod_muc_opt:history_size(ServerHost),
-    QueueType = mod_muc_opt:queue_type(ServerHost),
-    RoomShaper = mod_muc_opt:room_shaper(ServerHost),
+    Access = get_access(ServerHost, Host),
+    HistorySize = get_mod_option(ServerHost, Host, history_size),
+    QueueType = get_mod_option(ServerHost, Host, queue_type),
+    RoomShaper = get_mod_option(ServerHost, Host, room_shaper),
     start_room(Mod, Host, ServerHost, Access, Room, HistorySize,
 	       RoomShaper, DefOpts, QueueType).
 
 start_room(Mod, Host, ServerHost, Room, DefOpts, Creator, Nick) ->
-    Access = get_access(ServerHost),
-    HistorySize = mod_muc_opt:history_size(ServerHost),
-    QueueType = mod_muc_opt:queue_type(ServerHost),
-    RoomShaper = mod_muc_opt:room_shaper(ServerHost),
+    Access = get_access(ServerHost, Host),
+    HistorySize = get_mod_option(ServerHost, Host, history_size),
+    QueueType = get_mod_option(ServerHost, Host, queue_type),
+    RoomShaper = get_mod_option(ServerHost, Host, room_shaper),
     start_room(Mod, Host, ServerHost, Access, Room,
 	       HistorySize, RoomShaper,
 	       Creator, Nick, DefOpts, QueueType).
@@ -1343,6 +1362,15 @@ import(LServer, {sql, _}, DBType, Tab, L) ->
     Mod = gen_mod:db_mod(DBType, ?MODULE),
     Mod:import(LServer, Tab, L).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+-spec get_mod_option(binary(), binary(), atom()) -> any().
+get_mod_option(ServerHost, MucHost, Option) ->
+    gen_mod:get_module_option_append(ServerHost,
+                                     MucHost,
+                                     mod_muc_opt, %% +++ TODO
+                                     Option).
+
 mod_opt_type(access) ->
     econf:acl();
 mod_opt_type(access_admin) ->
@@ -1440,6 +1468,13 @@ mod_opt_type(host) ->
     econf:host();
 mod_opt_type(hosts) ->
     econf:hosts();
+mod_opt_type(append_module_config) ->
+    econf:and_then(
+        econf:map(econf:domain(), econf:list(econf:any())),
+      econf:map(
+	econf:domain(),
+        ejabberd_options:validator(?MODULE, [append_module_config]),
+        [unique]));
 mod_opt_type(queue_type) ->
     econf:queue_type();
 mod_opt_type(hibernation_timeout) ->
@@ -1447,6 +1482,11 @@ mod_opt_type(hibernation_timeout) ->
 mod_opt_type(vcard) ->
     econf:vcard_temp().
 
+
+%% We only define the types of options that cannot be derived
+%% automatically by tools/opt_type.sh script
+-spec mod_options(binary()) -> [{append_module_config, [{binary(), any()}]} |
+		    {atom(), any()}].
 mod_options(Host) ->
     [{access, all},
      {access_admin, none},
@@ -1459,6 +1499,7 @@ mod_options(Host) ->
      {history_size, 20},
      {host, <<"conference.", Host/binary>>},
      {hosts, []},
+     {append_module_config, []},
      {name, ?T("Chatrooms")},
      {max_room_desc, infinity},
      {max_room_id, infinity},
@@ -1585,6 +1626,26 @@ mod_doc() ->
                      "within the Multi-User Chat service and rooms. The default is 'all' for "
                      "backward compatibility, which means that any user is allowed "
                      "to register any free nick in the MUC service and in the rooms.")}},
+           {append_module_config,
+            #{value => "{MUCHost: Options}",
+              note => "added in 25.xx",
+              desc =>
+                  ?T("Add a few specific options to a certain MUC host "
+                     "previously defined in the mod_muc 'hosts' option. "
+                     "This is similar to the toplevel _`append_host_config`_ option, "
+                     "but in this case it's applied to the mod_muc options."),
+              example =>
+                  ["modules:",
+                   "  mod_muc:",
+                   "    hosts:",
+                   "      - service1.@HOST@",
+                   "      - service2.@HOST@",
+                   "    name: \"Service General\"",
+                   "    append_module_config:",
+                   "      service1.localhost:",
+                   "        name: \"Service 1\"",
+                   "      service2.example.net:",
+                   "        name: \"Service 2\""]}},
            {db_type,
             #{value => "mnesia | sql",
               desc =>
@@ -1618,7 +1679,7 @@ mod_doc() ->
               desc =>
                   ?T("This option defines the Jabber IDs of the service. "
                      "If the 'hosts' option is not specified, the only Jabber ID will "
-                     "be the hostname of the virtual host with the prefix \"conference.\". "
+                     "be the hostname of the virtual host with the prefix '\"conference.\"'. "
                      "The keyword '@HOST@' is replaced with the real virtual host name.")}},
            {name,
             #{value => "string()",

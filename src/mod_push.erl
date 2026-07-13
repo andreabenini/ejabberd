@@ -504,10 +504,9 @@ notify(LUser, LServer, Clients, Pkt, Dir) ->
 						LServer, Node, Reason, Type])
 			  end;
 		     (timeout) ->
-			  ?DEBUG("Timeout sending notification for ~ts@~ts (~ts) "
-				 "to ~ts",
-				 [LUser, LServer, Node, jid:encode(PushLJID)]),
-			  ok % Hmm.
+			  ?WARNING_MSG("Timeout sending notification for ~ts@~ts (~ts) "
+				       "to ~ts",
+				       [LUser, LServer, Node, jid:encode(PushLJID)])
 		  end,
 	      notify(LServer, PushLJID, Node, XData, Pkt, Dir, HandleResponse)
       end, Clients).
@@ -624,14 +623,16 @@ delete_session(LUser, LServer, ID) ->
 -spec delete_session(binary(), binary(), jid(), binary()) -> ok | {error, err_reason()}.
 delete_session(LUser, LServer, PushJID, Node) ->
     Mod = gen_mod:db_mod(LServer, ?MODULE),
-    case Mod:lookup_session(LUser, LServer, PushJID, Node) of
-	{ok, {ID, _, _, _}} ->
-	    delete_session(LUser, LServer, ID);
-	error ->
-	    {error, notfound};
-	{error, _} = Err ->
-	    Err
-    end.
+    LookupFun = fun() ->
+			case Mod:lookup_sessions(LUser, LServer, PushJID) of
+			    {ok, Sessions} ->
+				{ok, [Session || {_, _, N, _} = Session <- Sessions,
+						 N == Node]};
+			    {error, _} = Err ->
+				Err
+			end
+		end,
+    delete_sessions(LUser, LServer, LookupFun, Mod).
 
 -spec delete_sessions(binary(), binary(), jid()) -> ok | {error, err_reason()}.
 delete_sessions(LUser, LServer, PushJID) ->
