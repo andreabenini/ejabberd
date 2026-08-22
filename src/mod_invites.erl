@@ -158,8 +158,8 @@ mod_doc() ->
            ?T("If you'd rather want to use an external service, set `landing_page` "
               "to something like "
               "`http://{{ host }}:8080/easy-xmpp-invites/#{{ invite.uri|strip_protocol }}` "
-              "or `https://invites.joinjabber.org/#{{ invite.uri|strip_protocol }}`.")],
-      note => "improved in 26.03",
+              "or `https://invite.joinjabber.org/#{{ invite.uri|strip_protocol }}`.")],
+      note => "improved in 26.07",
       opts =>
           [{access_create_account,
             #{value => ?T("Access Rule Name"),
@@ -373,8 +373,8 @@ webadmin_page_main(Acc, _) ->
 %%---------------
 %% WebAdmin Host
 
-web_menu_system(Result, _Request, _Level) ->
-    Els = ejabberd_web_admin:make_menu_system(?MODULE, "🎫", "Invites", ""),
+web_menu_system(Result, #request{host = Host}, _Level) ->
+    Els = ejabberd_web_admin:make_menu_system(Host, ?MODULE, "🎫", "Invites", ""),
     Els ++ Result.
 
 webadmin_menu_host(Acc, _Host, Lang) ->
@@ -440,7 +440,7 @@ get_commands_spec() ->
                         desc = "Delete invite for given token",
                         module = ?MODULE,
                         function = delete_invite_by_token,
-                        note = "added in 26.04",
+                        note = "added in 26.07",
                         args = [{host, binary}, {token, binary}],
                         args_desc = ["Hostname token belongs to", "Token to be expired"],
                         args_example = [<<"example.com">>, <<"stDqh4dEEmrWxb0TFJDxitnc">>],
@@ -462,7 +462,7 @@ get_commands_spec() ->
                         desc = "Sets expiration to a date in the past for all tokens given",
                         module = ?MODULE,
                         function = expire_invite_by_token,
-                        note = "added in 26.04",
+                        note = "added in 26.07",
                         args = [{host, binary}, {token, binary}],
                         args_desc = ["Hostname token belongs to", "Token to be expired"],
                         args_example = [<<"example.com">>, <<"stDqh4dEEmrWxb0TFJDxitnc">>],
@@ -504,7 +504,7 @@ get_commands_spec() ->
                             "Create a password reset token for user with given name on given host.",
                         module = ?MODULE,
                         function = generate_reset_token,
-                        note = "added in 26.05",
+                        note = "added in 26.07",
                         args = [{username, binary}, {host, binary}],
                         args_desc = ["Username", "Hostname"],
                         args_example = [<<"juliet">>, <<"example.com">>],
@@ -691,8 +691,8 @@ adhoc_commands(_Acc,
                                          Invite,
                                          Lang,
                                          [#xdata_field{var = <<"FORM_TYPE">>,
-                                                       type = 'hidden',
-                                                       values = [?NS_INVITE_INVITE]},
+                                                       type = hidden,
+                                                       values = [?NS_INVITE_INVITATION]},
                                           #xdata_field{var = <<"uri">>,
                                                        label = trans(Lang, <<"Invite URI">>),
                                                        type = 'text-single',
@@ -737,8 +737,8 @@ adhoc_commands(_Acc,
                                                Invite,
                                                Lang,
                                                [#xdata_field{var = <<"FORM_TYPE">>,
-                                                       type = 'hidden',
-                                                       values = [?NS_INVITE_INVITE]},
+                                                             type = hidden,
+                                                             values = [?NS_INVITE_INVITATION]},
                                                 #xdata_field{var = <<"uri">>,
                                                              label = trans(Lang, <<"Invite URI">>),
                                                              type = 'text-single',
@@ -1151,7 +1151,7 @@ maybe_throw(Good) ->
 invite_token_t(Type, Host, Inviter, AccountName0) ->
     maybe_throw(check_max_invites_t(Type, Inviter)),
     maybe_throw(check_overuse_t(Type, Inviter)),
-    Token = p1_rand:get_alphanum_string(?INVITE_TOKEN_LENGTH_DEFAULT),
+    Token = misc:strong_alphanum_token(?INVITE_TOKEN_LENGTH_DEFAULT),
     AccountName = maybe_throw(check_account_name(jid:nodeprep(AccountName0), Host)),
     set_token_expires(#invite_token{token = Token,
                                     inviter = Inviter,
@@ -1172,7 +1172,7 @@ reset_token(User, Host) ->
         true ?= lists:member(Host, ejabberd_option:hosts()) orelse {error, host_unknown},
         true ?= ejabberd_auth:user_exists(User, Host) orelse {error, user_not_exists},
         set_token_expires(#invite_token{token =
-                                            p1_rand:get_alphanum_string(?INVITE_TOKEN_LENGTH_DEFAULT),
+                                            misc:strong_alphanum_token(?INVITE_TOKEN_LENGTH_DEFAULT),
                                         inviter = {<<>>, Host},
                                         type = reset_token,
                                         account_name = User},
@@ -1335,7 +1335,7 @@ reason_to_text(user_exists) ->
     ?T("User already exists").
 
 maybe_gen_sid(<<>>) ->
-    p1_rand:get_alphanum_string(?INVITE_TOKEN_LENGTH_DEFAULT);
+    misc:strong_alphanum_token(?INVITE_TOKEN_LENGTH_DEFAULT);
 maybe_gen_sid(SID) ->
     SID.
 

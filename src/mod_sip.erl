@@ -50,6 +50,11 @@ mod_doc() ->
 -export([start/2, stop/1, reload/3,
 	 make_response/2, is_my_host/1, at_my_host/1]).
 
+%% Exported for testing (GHSA-8j9p-hpfg-5cg3 security fixes)
+-ifdef(TEST).
+-export([action/2, action_route/4]).
+-endif.
+
 -export([data_in/2, data_out/2, message_in/2,
 	 message_out/2, request/2, request/3, response/2,
 	 locate/1, mod_opt_type/1, mod_options/1, depends/2,
@@ -177,6 +182,9 @@ request(Req, SIPSock, TrID, Action) ->
                                     type = response});
         not_found ->
             make_response(Req, #sip{status = 480,
+                                    type = response});
+        malformed ->
+            make_response(Req, #sip{status = 400,
                                     type = response})
     end.
 
@@ -237,30 +245,46 @@ action(#sip{method = Method, hdrs = Hdrs, type = request} = Req, SIPSock) ->
                 [_|_] ->
                     {unsupported, Require};
                 _ ->
-                    {_, ToURI, _} = esip:get_hdr('to', Hdrs),
-                    {_, FromURI, _} = esip:get_hdr('from', Hdrs),
-		    case at_my_host(FromURI) of
-			true ->
-			    case check_auth(Req, 'proxy-authorization', SIPSock) of
-                                true ->
-				    case at_my_host(ToURI) of
-					true ->
-					    find(ToURI);
-					false ->
-					    LServer = jid:nameprep(FromURI#uri.host),
-					    {relay, LServer}
-				    end;
-                                false ->
-                                    {proxy_auth, FromURI#uri.host}
-                            end;
-			false ->
-			    case at_my_host(ToURI) of
-				true ->
-				    find(ToURI);
-				false ->
-				    deny
-			    end
+                    %% RFC 3261 Section 8.1.1.3/8.1.1.4: There MUST be
+                    %% exactly one From and one To header field value
+                    case {esip:get_hdrs('from', Hdrs), esip:get_hdrs('to', Hdrs)} of
+                        {[{_, FromURI, _}], [{_, ToURI, _}]} ->
+                            action_route(FromURI, ToURI, Req, SIPSock);
+                        _ ->
+                            malformed
                     end
+            end
+    end.
+
+action_route(FromURI, ToURI, Req, SIPSock) ->
+    case at_my_host(FromURI) of
+        true ->
+            %% Local sender: require proxy-authorization
+            case check_auth(Req, 'proxy-authorization', SIPSock) of
+                true ->
+                    case at_my_host(ToURI) of
+                        true ->
+                            find(ToURI);
+                        false ->
+                            LServer = jid:nameprep(FromURI#uri.host),
+                            {relay, LServer}
+                    end;
+                false ->
+                    {proxy_auth, FromURI#uri.host}
+            end;
+        false ->
+            case at_my_host(ToURI) of
+                true ->
+                    %% External sender to local recipient: require authentication
+                    %% to prevent caller-ID spoofing (GHSA-8j9p-hpfg-5cg3)
+                    case check_auth(Req, 'proxy-authorization', SIPSock) of
+                        true ->
+                            find(ToURI);
+                        false ->
+                            {proxy_auth, ToURI#uri.host}
+                    end;
+                false ->
+                    deny
             end
     end.
 

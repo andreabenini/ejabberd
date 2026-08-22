@@ -1,5 +1,5 @@
 #' Define default build variables
-ARG OTP_VSN='28.5.0.2'
+ARG OTP_VSN='28.5.0'
 ARG ELIXIR_VSN='1.19.5'
 ARG UID='9000'
 ARG USER='ejabberd'
@@ -44,7 +44,6 @@ RUN wget -O - https://github.com/elixir-lang/elixir/archive/v$ELIXIR_VSN.tar.gz 
         | tar -xzf -
 
 WORKDIR /elixir-$ELIXIR_VSN
-ENV ERL_FLAGS="+JPperf true"
 RUN make install clean
 
 RUN mix local.hex --force \

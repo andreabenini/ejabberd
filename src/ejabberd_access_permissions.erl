@@ -33,6 +33,7 @@
 %% API
 -export([start_link/0,
 	 can_access/2,
+	 can_access/4,
 	 invalidate/0,
 	 validator/0,
 	 show_current_definitions/0]).
@@ -70,7 +71,47 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
+
+get_vhost_argument([]) ->
+    no_host_argument;
+get_vhost_argument([{{service, _}, Service} | _Tail]) ->
+    mod_muc_admin:get_room_serverhost(Service);
+get_vhost_argument([{{host, _}, Host} | _Tail]) ->
+    Host;
+get_vhost_argument([_ | Tail]) ->
+    get_vhost_argument(Tail).
+
+-spec can_access(atom(), caller_info(), list(), list()) -> allow | deny.
+can_access(Cmd, CallerInfo, Arguments, ArgsFormat) ->
+    Vhost = get_vhost_argument(lists:zip(ArgsFormat, Arguments)),
+    HostCheck = case {maps:get(usr, CallerInfo, no_usr), Vhost} of
+                    {USR, VhostArg} when is_tuple(USR) and is_binary(VhostArg) ->
+                        acl:match_rule(VhostArg,
+                                       configure,
+                                       jid:make(USR));
+                     _ ->
+                         allow
+         end,
+    CallerInfo2 = case Vhost of
+                      B when is_binary(B) -> CallerInfo;
+                      no_host_argument -> CallerInfo#{caller_host => global}
+                  end,
+    case HostCheck of
+        allow ->
+            can_access(Cmd, CallerInfo2);
+        _ ->
+            ?DEBUG("Command '~p' execution denied because "
+                      "tried to execute a command with a host argument "
+                      "but the account doesn't have admin rights for that host "
+                      "~n (CallerInfo=~p)", [Cmd, CallerInfo]),
+            deny
+    end.
+
 -spec can_access(atom(), caller_info()) -> allow | deny.
+can_access(echo, _CallerInfo) ->
+    allow;
+can_access(registered_vhosts, #{caller_module := ejabberd_web_admin}) ->
+    allow;
 can_access(Cmd, CallerInfo) ->
     Defs0 = show_current_definitions(),
     CallerModule = maps:get(caller_module, CallerInfo, none),

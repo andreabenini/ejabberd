@@ -651,7 +651,7 @@ options() ->
      {oauth_expire, 4294967},
      {oauth_use_cache,
       fun(Host) -> ejabberd_config:get_option({use_cache, Host}) end},
-     {oauth_client_id_check, allow},
+     {oauth_client_id_check, db},
      {oom_killer, true},
      {oom_queue, 10000},
      {oom_watermark, 80},
@@ -851,7 +851,7 @@ validator(Module, Disallowed) ->
                  options_module => Module,
                  options_type_function => mod_opt_type,
                  options_function => mod_options,
-                 options_arguments => [<<"undefined">>]}).
+                 options_arguments => [ejabberd_config:get_myname()]}).
 
 validator2(Disallowed, Custom) ->
     {Validators, Required} = ejabberd_config:validators(Disallowed, Custom),

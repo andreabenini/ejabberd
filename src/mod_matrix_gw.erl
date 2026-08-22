@@ -129,7 +129,7 @@ process([<<"federation">>, <<"v1">>, <<"user">>, <<"devices">>, UserID],
     end;
 process([<<"federation">>, <<"v1">>, <<"user">>, <<"keys">>, <<"query">>],
         #request{method = 'POST', host = _Host} = Request) ->
-    case preprocess_federation_request(Request, false) of
+    case preprocess_federation_request(Request) of
         {ok, #{<<"device_keys">> := DeviceKeys}, _Origin} ->
             DeviceKeys2 = maps:map(fun(_Key, _) -> #{} end, DeviceKeys),
             Res = #{<<"device_keys">> => DeviceKeys2},
@@ -191,7 +191,7 @@ process([<<"federation">>, <<"v2">>, <<"invite">>, RoomID, EventID],
     end;
 process([<<"federation">>, <<"v1">>, <<"send">>, _TxnID],
         #request{method = 'PUT', host = _Host} = Request) ->
-    case preprocess_federation_request(Request, false) of
+    case preprocess_federation_request(Request) of
         {ok, #{<<"origin">> := Origin,
                <<"pdus">> := PDUs} = JSON,
          Origin} ->
@@ -216,7 +216,7 @@ process([<<"federation">>, <<"v1">>, <<"send">>, _TxnID],
     end;
 process([<<"federation">>, <<"v1">>, <<"get_missing_events">>, RoomID],
         #request{method = 'POST', host = _Host} = Request) ->
-    case preprocess_federation_request(Request, false) of
+    case preprocess_federation_request(Request) of
         {ok, #{<<"earliest_events">> := EarliestEvents,
                <<"latest_events">> := LatestEvents} = JSON,
          Origin} ->
@@ -239,7 +239,7 @@ process([<<"federation">>, <<"v1">>, <<"backfill">>, RoomID],
         #request{method = 'GET', host = _Host} = Request) ->
     case catch binary_to_integer(proplists:get_value(<<"limit">>, Request#request.q)) of
         Limit when is_integer(Limit) ->
-            case preprocess_federation_request(Request, false) of
+            case preprocess_federation_request(Request) of
                 {ok, _JSON, Origin} ->
                     LatestEvents = proplists:get_all_values(<<"v">>, Request#request.q),
                     ?DEBUG("backfill request ~p~n", [{Limit, LatestEvents}]),
@@ -417,7 +417,7 @@ process(Path, Request) ->
 preprocess_federation_request(Request) ->
     preprocess_federation_request(Request, true).
 
-preprocess_federation_request(Request, DoSignCheck) ->
+preprocess_federation_request(Request, _DoSignCheck) ->
     ?DEBUG("matrix federation: ~p~n", [Request]),
     case proplists:get_value('Authorization', Request#request.headers) of
         Auth when is_binary(Auth) ->
@@ -445,8 +445,8 @@ preprocess_federation_request(Request, DoSignCheck) ->
                             case JSON of
                                 error ->
                                     {result, {400, [], <<"400 Bad Request: invalid JSON">>}};
-                                JSON when not DoSignCheck ->
-                                    {ok, JSON, MatrixServer};
+                                %JSON when not DoSignCheck ->
+                                %    {ok, JSON, MatrixServer};
                                 JSON ->
                                     Host = ejabberd_config:get_myname(),
                                     case mod_matrix_gw_s2s:check_auth(

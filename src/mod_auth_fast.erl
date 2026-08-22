@@ -98,10 +98,11 @@ mod_doc() ->
 	  "https://xmpp.org/extensions/xep-0484.html"
 	  "[XEP-0484: Fast Authentication Streamlining Tokens] that allows users to authenticate "
 	  "using self-managed tokens.")],
-      note => "added in 24.12",
+      note => "improved in 26.07",
       opts =>
       [{db_type,
-	#{value => "mnesia",
+	#{value => "mnesia | sql",
+	  note => "improved in 26.07",
 	  desc =>
 	  ?T("Same as top-level _`default_db`_ option, but applied to this module only.")}},
        {token_lifetime,
@@ -149,7 +150,7 @@ c2s_inline_features({Sasl, Bind, Extra}, Host, State) ->
 
 gen_token(Server, User, UA) ->
     Mod = gen_mod:db_mod(Server, ?MODULE),
-    Token = base64:encode(ua_hash(<<UA/binary, (p1_rand:get_string())/binary>>)),
+    Token = base64:encode(ua_hash(<<UA/binary, (misc:strong_alphanum_token())/binary>>)),
     ExpiresAt = erlang:system_time(second) + (mod_auth_fast_opt:token_lifetime(Server) div 1000),
     Mod:set_token(Server, User, ua_hash(UA), next, Token, ExpiresAt),
     #fast_token{token = Token, expiry = misc:usec_to_now(ExpiresAt*1000000)}.

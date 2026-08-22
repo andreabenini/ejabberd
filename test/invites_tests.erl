@@ -297,8 +297,7 @@ adhoc_command_invite(Config) ->
                   #iq{type = set,
                       to = ServerJID,
                       sub_els = [Command]}),
-    ?match(?NS_INVITE_INVITE,
-           xdata_field(<<"FORM_TYPE">>, XdataFields)),
+    ?match(?NS_INVITE_INVITATION, xdata_field(<<"FORM_TYPE">>, XdataFields)),
     Uri = xdata_field(<<"uri">>, XdataFields),
     ?match({match, [_, _]},
            re:run(Uri,
@@ -330,8 +329,7 @@ adhoc_command_create_account(Config) ->
     NewOpts = gen_mod:set_opt(access_create_account, account_invite, OldOpts),
     update_module_opts(Server, mod_invites, NewOpts),
     ResultXDataFields1 = test_create_account(Config, <<>>, <<"0">>),
-    ?match(?NS_INVITE_INVITE,
-           xdata_field(<<"FORM_TYPE">>, ResultXDataFields1)),
+    ?match(?NS_INVITE_INVITATION, xdata_field(<<"FORM_TYPE">>, ResultXDataFields1)),
     ?match({match, [_, _]},
            re:run(xdata_field(<<"uri">>, ResultXDataFields1),
                   <<"xmpp:", Server/binary, "\\?register;preauth=(.+)">>)),
@@ -991,15 +989,15 @@ reset_token(Config0) ->
     BaseURL = mod_invites_http:landing_page(Server, mod_invites:get_invite(Server, Token)),
     CSRFToken = get_csrf_token(BaseURL),
 
-    ?match(true, ejabberd_auth:check_password(User, <<"plain">>, Server, Password)),
+    ?match(true, ejabberd_auth:check_password(User, <<>>, Server, Password)),
 
     ?match(#iq{type = error}, send_iq_register(Config1, User, <<"newPassword">>)),
     ?match(#iq{type = result}, send_pars(Config1, Token)),
     ?match(#iq{type = error}, send_iq_register(Config1, <<"wrong_user">>, <<"newPassword">>)),
     ?match(#iq{type = result}, send_iq_register(Config1, User, <<"newPassword">>)),
 
-    ?match(true, ejabberd_auth:check_password(User, <<"plain">>, Server, <<"newPassword">>)),
-    ?match(false, ejabberd_auth:check_password(User, <<"plain">>, Server, Password)),
+    ?match(true, ejabberd_auth:check_password(User, <<>>, Server, <<"newPassword">>)),
+    ?match(false, ejabberd_auth:check_password(User, <<>>, Server, Password)),
 
     ?match(false, mod_invites:is_token_valid(Server, Token)),
 
@@ -1015,8 +1013,7 @@ reset_token(Config0) ->
         post(BaseURL2, Token2, CSRFToken2, <<"wronguser">>, <<"anotherPassword">>),
     {ok, {{_, 200, _}, _, _}} =
         post(BaseURL2, Token2, CSRFToken2, User, <<"anotherPassword">>),
-    ?match(true,
-           ejabberd_auth:check_password(User, <<"plain">>, Server, <<"anotherPassword">>)),
+    ?match(true, ejabberd_auth:check_password(User, <<>>, Server, <<"anotherPassword">>)),
 
     ok = mod_register:try_set_password(User, Server, Password),
     update_module_opts(Server, mod_register, OldRegisterOpts),

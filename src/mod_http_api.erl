@@ -98,7 +98,7 @@ extract_auth(#request{auth = HTTPAuth, ip = {IP, _}, opts = Opts}) ->
 		       #jid{luser = User, lserver = Server} ->
 			   case ejabberd_auth:check_password(User, <<"">>, Server, Pass) of
 			       true ->
-				   #{usr => {User, Server, <<"">>}, caller_server => Server};
+				   #{usr => {User, Server, <<"">>}, caller_host => Server};
 			       false ->
 				   {error, invalid_auth}
 			   end
@@ -108,7 +108,7 @@ extract_auth(#request{auth = HTTPAuth, ip = {IP, _}, opts = Opts}) ->
 	       {oauth, Token, _} ->
 		   case ejabberd_oauth:check_token(Token) of
 		       {ok, {U, S}, Scope} ->
-			   #{usr => {U, S, <<"">>}, oauth_scope => Scope, caller_server => S};
+			   #{usr => {U, S, <<"">>}, oauth_scope => Scope, caller_host => S};
 		       {false, Reason} ->
 			   {error, Reason}
 		   end;
@@ -227,8 +227,7 @@ get_api_version([], Host) ->
 
 % generic ejabberd command handler
 handle(Call, Auth, Args, Version) when is_atom(Call), is_list(Args) ->
-    Args2 = [{misc:binary_to_atom(Key), Value} || {Key, Value} <- Args],
-    try handle2(Call, Auth, Args2, Version)
+    try handle2(Call, Auth, Args, Version)
     catch throw:not_found ->
 	    {404, <<"not_found">>};
 	  throw:{not_found, Why} when is_atom(Why) ->
@@ -268,7 +267,16 @@ handle(Call, Auth, Args, Version) when is_atom(Call), is_list(Args) ->
 
 handle2(Call, Auth, Args, Version) when is_atom(Call), is_list(Args) ->
     {ArgsF, ArgsR, _ResultF} = ejabberd_commands:get_command_format(Call, Auth, Version),
-    ArgsFormatted = format_args(Call, rename_old_args(Args, ArgsR), ArgsF),
+    Args2 = lists:map(
+	fun({Name, Type}) ->
+	    try erlang:binary_to_existing_atom(Name, utf8) of
+		Atom -> {Atom, Type}
+	    catch _:_ ->
+		throw({invalid_parameter,
+	               io_lib:format("Request have unknown argument: ~s", [Name])})
+	    end
+	end, Args),
+    ArgsFormatted = format_args(Call, rename_old_args(Args2, ArgsR), ArgsF),
     case ejabberd_commands:execute_command2(Call, ArgsFormatted, Auth, Version) of
 	{error, Error} ->
 	    throw(Error);

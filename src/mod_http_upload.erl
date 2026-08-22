@@ -244,7 +244,7 @@ mod_doc() ->
                      "The keyword '@HOST@' is replaced with the real virtual host name.")}},
            {append_module_config,
             #{value => "{UploadHost: Options}",
-              note => "added in 25.xx",
+              note => "added in 26.07",
               desc =>
                   ?T("Add a few specific options to a certain upload host "
                      "previously defined in the mod_http_upload 'hosts' option. "
@@ -620,7 +620,9 @@ process(_LocalPath, #request{method = Method, host = Host, ip = IP, headers = Re
 				       <<"attachment; filename=",
 					 $", FileName/binary, $">>}]
 			       end,
-		    Headers2 = [{<<"Content-Type">>, ContentType} | Headers1],
+		    Headers2 = [{<<"Content-Type">>, ContentType},
+				{<<"X-Content-Type-Options">>, <<"nosniff">>},
+				{<<"Content-Security-Policy">>, <<"sandbox; default-src 'none'">>} | Headers1],
 		    Headers3 = ejabberd_http:apply_custom_headers(Headers2, CustomHeaders),
 		    http_response(200, Headers3, {file, Path, ReqHeaders});
 		{error, eacces} ->
@@ -1181,7 +1183,7 @@ convert(InData, #media_info{path = Path, type = T, width = W, height = H} = Info
        true ->
 	    Dir = filename:dirname(Path),
 	    Ext = atom_to_binary(T, latin1),
-	    FileName = <<(p1_rand:get_string())/binary, $., Ext/binary>>,
+	    FileName = <<(misc:strong_alphanum_token())/binary, $., Ext/binary>>,
 	    OutPath = filename:join(Dir, FileName),
 	    {W1, H1} = if W > H -> {300, round(H*300/W)};
 			  H > W -> {round(W*300/H), 300};

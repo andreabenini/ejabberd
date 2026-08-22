@@ -48,7 +48,8 @@ single_cases() ->
       single_test(adduser),
       single_test(changepassword),
       single_test(removeuser),
-      single_test(invites)]}.
+      single_test(invites),
+      single_test(register_web)]}.
 
 login_page(Config) ->
     Headers = ?match({ok, {{"HTTP/1.1", 401, _}, Headers, _}},
@@ -96,7 +97,7 @@ adduser(Config) ->
 	     "server/" ++ binary_to_list(Server) ++ "/users/",
 	     <<"register/user=", (mue(User))/binary, "&register/password=",
 	       (mue(Password))/binary, "&register=Register">>),
-    Password = ejabberd_auth:get_password_s(User, Server),
+    ?match(Password, ejabberd_auth:get_password_s(User, Server)),
     ?match({_, _}, binary:match(Body, <<"User ", User/binary, "@", Server/binary,
                                         " successfully registered">>)).
 
@@ -142,6 +143,25 @@ invites(Config) ->
            mod_invites:is_expired(mod_invites:get_invite(Server, Token))),
     ok.
 
+register_web(Config) ->
+    Server = ?config(server_host, Config),
+    Port = ct:get_config(web_port, 5280),
+    Url = "http://" ++ Server ++ ":" ++ integer_to_list(Port) ++ "/register/new/",
+    Body = ?match({ok, {{_, 200, _}, _, Body}}, httpc:request(get, {Url, []}, [], [{body_format, binary}]), Body),
+    case binary:match(Body, <<"<img ">>) of
+        nomatch ->
+            % No captcha on page
+            captcha_not_offered;
+        _ ->
+            Host = ?config(server, Config),
+	        Query = [{"username", "bad_user"}, {"host", Host}, {"password", "pass"}, {"password2", "pass"}],
+            Data = iolist_to_binary(uri_string:compose_query(Query)),
+            ?match({ok, {{_, 404, _}, _, _}},
+                httpc:request(post, {Url, [], "application/x-www-form-urlencoded", Data},
+                 [], [{body_format, binary}])),
+            ?match(false, ejabberd_auth:user_exists(<<"bad_user">>, Host))
+    end.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
@@ -175,10 +195,22 @@ mue(Binary) ->
     misc:url_encode(Binary).
 
 make_query(Config, URL, BodyQ) ->
+    case inets:start(httpc, [{profile, csrf}]) of
+        {ok, _} ->
+            httpc:set_options([{cookies, enabled}], csrf);
+        _ ->
+            ok
+    end,
+    {Headers, Page} = ?match({ok, {{"HTTP/1.1", 200, _}, Headers, Page}},
+		     httpc:request(get, {page(Config, URL), [basic_auth_header(Config)]}, [],
+				   [{body_format, binary}], csrf),
+		     {Headers, Page}),
+    {match, [CsrfToken]} = re:run(Page, <<"name='csrf_token' value='(.*?)'">>, [{capture, [1], binary}]),
+    Q = iolist_to_binary(uri_string:compose_query([{"csrf_token", CsrfToken}])),
     ?match({ok, {{"HTTP/1.1", 200, _}, _, Body}},
 	   httpc:request(post, {page(Config, URL),
 				[basic_auth_header(Config)],
 				"application/x-www-form-urlencoded",
-				BodyQ}, [],
-			 [{body_format, binary}]),
+				<<BodyQ/binary, "&", Q/binary>>}, [],
+			 [{body_format, binary}], csrf),
 	   Body).

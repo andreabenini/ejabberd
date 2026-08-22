@@ -67,6 +67,7 @@ start_ejabberd(_) ->
     application:set_env(ejabberd, external_beams, TestBeams),
     {ok, _} = application:ensure_all_started(ejabberd, transient).
 
+
 end_per_suite(_Config) ->
     application:stop(ejabberd).
 
@@ -329,7 +330,11 @@ init_per_testcase(TestCase, OrigConfig) ->
             connect(Config);
         "auth_md5" ->
             connect(Config);
+        "auth_md5_wrong_authzid" ->
+            connect(Config);
         "auth_plain" ->
+            connect(Config);
+        "auth_plain_wrong_authzid" ->
             connect(Config);
 	"auth_sasl2" ->
 	    Jid = jid:encode(jid:make(User, Server)),
@@ -348,6 +353,8 @@ init_per_testcase(TestCase, OrigConfig) ->
             bind(auth(connect(Config)));
 	"replaced" ++ _ ->
 	    auth(connect(Config));
+	"sqlschemaupdater_" ++ _ ->
+	    Config;
 	_ when TestGroup == s2s_tests ->
 	    auth(connect(starttls(connect(Config))));
         _ ->
@@ -429,16 +436,21 @@ no_db_tests() ->
      replaced_tests:master_slave_cases(),
      upload_tests:single_cases(),
      carbons_tests:single_cases(),
-     carbons_tests:master_slave_cases()].
+     carbons_tests:master_slave_cases(),
+     sip_tests:single_cases(),
+     sip_tests:master_slave_cases()].
 
 db_tests(DB) when DB == mnesia; DB == redis ->
     [{single_user, [sequence],
       [test_register,
        legacy_auth_tests(),
        auth_plain,
+       auth_plain_wrong_authzid,
        auth_sasl2,
        auth_md5,
+       auth_md5_wrong_authzid,
        presence_broadcast,
+       caps_stuffing_bug,
        last,
        antispam_tests:single_cases(),
        webadmin_tests:single_cases(),
@@ -466,13 +478,21 @@ db_tests(DB) when DB == mnesia; DB == redis ->
      csi_tests:master_slave_cases(),
      push_tests:master_slave_cases()];
 db_tests(DB) ->
+    SqlUpdate = if
+		    DB == sqlite; DB == mysql; DB == pgsql; DB == mssql ->
+			[sqlschemaupdater_tests:single_cases()];
+		    true -> []
+		end,
     [{single_user, [sequence],
       [test_register,
        legacy_auth_tests(),
        auth_plain,
+       auth_plain_wrong_authzid,
        auth_sasl2,
        auth_md5,
+       auth_md5_wrong_authzid,
        presence_broadcast,
+       caps_stuffing_bug,
        last,
        webadmin_tests:single_cases(),
        roster_tests:single_cases(),
@@ -486,7 +506,7 @@ db_tests(DB) ->
        push_tests:single_cases(),
        invites_tests:single_cases(),
        test_pass_change,
-       test_unregister]},
+       test_unregister] ++ SqlUpdate},
      muc_tests:master_slave_cases(),
      privacy_tests:master_slave_cases(),
      pubsub_tests:master_slave_cases(),
@@ -846,11 +866,37 @@ auth_md5(Config) ->
             {skipped, 'DIGEST-MD5_not_available'}
     end.
 
+auth_md5_wrong_authzid(Config) ->
+    Mechs = ?config(mechs, Config),
+    case lists:member(<<"DIGEST-MD5">>, Mechs) of
+        true ->
+            AZ = <<"fake@", (?config(server, Config))/binary>>,
+            Config2 = set_opt(authzid, AZ, Config),
+            Config3 = disconnect(auth_SASL(<<"DIGEST-MD5">>, Config2, true)),
+            set_opt(authzid, <<>>, Config3);
+        false ->
+            disconnect(Config),
+            {skipped, 'DIGEST-MD5_not_available'}
+    end.
+
 auth_plain(Config) ->
     Mechs = ?config(mechs, Config),
     case lists:member(<<"PLAIN">>, Mechs) of
         true ->
             disconnect(auth_SASL(<<"PLAIN">>, Config));
+        false ->
+            disconnect(Config),
+            {skipped, 'PLAIN_not_available'}
+    end.
+    
+auth_plain_wrong_authzid(Config) ->
+    Mechs = ?config(mechs, Config),
+    case lists:member(<<"PLAIN">>, Mechs) of
+        true ->
+            AZ = <<"fake@", (?config(server, Config))/binary>>,
+            Config2 = set_opt(authzid, AZ, Config),
+            Config3 = disconnect(auth_SASL(<<"PLAIN">>, Config2, true)),
+            set_opt(authzid, <<>>, Config3);
         false ->
             disconnect(Config),
             {skipped, 'PLAIN_not_available'}
@@ -1010,6 +1056,51 @@ presence_broadcast(Config) ->
 	  end, [], [0, 100, 200, 2000, 5000, 10000]),
     disconnect(Config).
 
+caps_stuffing_bug(Config) ->
+    Feature = <<"p1:tmp:", (p1_rand:get_string())/binary>>,
+    Ver = crypto:hash(sha, ["client", $/, "bot", $/, "en", $/,
+                            "ejabberd_ct", $<, Feature, $<]),
+    B64Ver = base64:encode(Ver),
+    Node = <<(?EJABBERD_CT_URI)/binary, $#, B64Ver/binary>>,
+    Server = ?config(server, Config),
+    Info = #disco_info{identities =
+			   [#identity{category = <<"client">>,
+				      type = <<"bot">>,
+				      lang = <<"en">>,
+				      name = <<"ejabberd_ct">>}],
+		       node = Node, features = [Feature]},
+    BadInfo = Info#disco_info{features = [Feature, <<"p1:bad:feature">>]},
+    Caps = #caps{hash = <<"sha-1">>, node = ?EJABBERD_CT_URI, version = B64Ver},
+    BadCaps = Caps#caps{hash = <<>>},
+    send(Config, #presence{sub_els = [BadCaps]}),
+    JID = my_jid(Config),
+    IQ = #iq{type = get,
+	     from = JID,
+	     sub_els = [#disco_info{node = Node}]} = recv_iq(Config),
+    %% #message{type = chat,
+    %%          subject = [#text{lang = <<"en">>,data = <<"Welcome!">>}]} = recv_message(Config),
+    #presence{from = JID, to = JID} = recv_presence(Config),
+    send(Config, #iq{type = result, id = IQ#iq.id,
+		     to = JID, sub_els = [BadInfo]}),
+    send(Config, #presence{sub_els = [Caps]}),
+    receive #iq{} = IQ2 ->
+        send(Config, #iq{type = result, id = IQ2#iq.id,
+    		     to = JID, sub_els = [Info]})
+        after 2000 ->
+            ok
+    end,
+    #presence{from = JID, to = JID} = recv_presence(Config),
+    RetrievedCaps =
+	lists:foldl(
+	  fun(Time, []) ->
+		  timer:sleep(Time),
+		  mod_caps:get_features(Server, Caps);
+	     (_, Acc) ->
+		  Acc
+	  end, [], [0, 100, 200, 2000, 5000, 10000]),
+    ?match([Feature], RetrievedCaps),
+    disconnect(Config).
+    
 ping(Config) ->
     true = is_feature_advertised(Config, ?NS_PING),
     #iq{type = result, sub_els = []} =
@@ -1215,3 +1306,23 @@ split(Data) ->
          (_) ->
               true
       end, re:split(Data, <<"\s">>)).
+
+%%%===================================================================
+%%% SIP test wrappers (for GHSA-8j9p-hpfg-5cg3 security fixes)
+%%% These delegate to sip_tests module
+%%%===================================================================
+sip_reject_multiple_from_headers(Config) ->
+    sip_tests:sip_reject_multiple_from_headers(Config).
+
+sip_reject_multiple_to_headers(Config) ->
+    sip_tests:sip_reject_multiple_to_headers(Config).
+
+sip_reject_missing_from_header(Config) ->
+    sip_tests:sip_reject_missing_from_header(Config).
+
+sip_reject_missing_to_header(Config) ->
+    sip_tests:sip_reject_missing_to_header(Config).
+
+
+sip_require_auth_external_to_local(Config) ->
+    sip_tests:sip_require_auth_external_to_local(Config).

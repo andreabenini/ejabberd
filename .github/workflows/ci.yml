@@ -33,19 +33,20 @@ jobs:
 
     steps:
 
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - uses: erlef/setup-beam@v1
       with:
         otp-version: ${{ matrix.otp }}
 
+    - run: sudo apt-get update
     - uses: awalsh128/cache-apt-pkgs-action@latest
       with:
         packages: libexpat1-dev libgd-dev libpam0g-dev
                   libsqlite3-dev libwebp-dev libyaml-dev
 
     - name: Cache rebar3
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cache/rebar3/
@@ -64,7 +65,7 @@ jobs:
       run: |
         tar -cvf /tmp/compiled.tar .
 
-    - uses: actions/upload-artifact@v6
+    - uses: actions/upload-artifact@v7
       with:
         name: compiled-${{ matrix.otp }}
         path: /tmp/compiled.tar
@@ -87,7 +88,7 @@ jobs:
       with:
         otp-version: ${{ matrix.otp }}
 
-    - uses: actions/download-artifact@v7
+    - uses: actions/download-artifact@v8
       with:
         name: compiled-${{ matrix.otp }}
     - run: tar -xf compiled.tar
@@ -141,7 +142,7 @@ jobs:
         packages: libexpat1-dev libgd-dev libpam0g-dev
                   libsqlite3-dev libwebp-dev libyaml-dev
 
-    - uses: actions/download-artifact@v7
+    - uses: actions/download-artifact@v8
       with:
         name: compiled-${{ matrix.otp }}
     - run: tar -xf compiled.tar
@@ -150,13 +151,13 @@ jobs:
       uses: ./.github/actions/manage-ejabberd
       with:
         for: prod
-        do: deploy, start, stop, check
+        do: deploy, no_acme, start, stop, check
 
     - name: Start development release
       uses: ./.github/actions/manage-ejabberd
       with:
         for: dev
-        do: deploy, no_tls, start, register
+        do: deploy, no_acme, no_tls, start, register
         username: user123
 
     - name: Run XMPP Interoperability Tests against CI server
@@ -222,7 +223,7 @@ jobs:
       with:
         otp-version: ${{ matrix.otp }}
 
-    - uses: actions/download-artifact@v7
+    - uses: actions/download-artifact@v8
       with:
         name: compiled-${{ matrix.otp }}
     - run: tar -xf compiled.tar
@@ -282,7 +283,7 @@ jobs:
 
     - name: Upload CT logs
       if: failure()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: ct-logs-${{ matrix.otp }}-${{ matrix.backend }}-${{ matrix.schema }}
         path: _build/test/logs
@@ -322,7 +323,7 @@ jobs:
       with:
         otp-version: ${{ matrix.otp }}
 
-    - uses: actions/download-artifact@v7
+    - uses: actions/download-artifact@v8
       with:
         name: compiled-${{ matrix.otp }}
     - run: tar -xf compiled.tar
@@ -341,6 +342,7 @@ jobs:
             --suite=test/ejabberd_SUITE --group=configtest_single
         make dev
         cp test/ejabberd_SUITE_data/ejabberd.yml ${{ env.DEV }}/conf/
+        sed -i 's|captcha_cmd: captcha_gen||g' ${{ env.DEV }}/conf/ejabberd.yml
         cp _build/test/logs/last/*.yml ${{ env.DEV }}/database/
         echo "define_macro: [CONFIGTEST_CONFIG: {modules: {mod_muc: {}}}]" \
              > ${{ env.DEV }}/database/configtest.yml

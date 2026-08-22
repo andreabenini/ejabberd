@@ -29,11 +29,11 @@ jobs:
             suffix: -arm
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Cache build directory
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/build/
           key: installers-ubuntu-22.04-${{runner.arch}}-${{hashFiles('tools/make-binaries')}}
@@ -80,7 +80,7 @@ jobs:
           mkdir ejabberd-packages
           mv ejabberd_*.deb ejabberd-*.rpm ejabberd-*.run ejabberd-packages
       - name: Upload packages
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ejabberd-packages-${{ matrix.platform }}
           #
@@ -99,11 +99,11 @@ jobs:
     if: github.ref_type == 'tag'
     steps:
       - name: Download packages
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           merge-multiple: true
       - name: Draft Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           files: ejabberd-packages/*
