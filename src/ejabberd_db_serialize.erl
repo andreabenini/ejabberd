@@ -147,8 +147,56 @@ to_json(#serialize_roster_v1{entries = Entries} = Data) ->
                          end,
                          Entries),
     Data2 = setelement(#serialize_roster_v1.entries, Data, Entries2),
-    to_json(tuple_to_list(Data2), [type | record_info(fields, serialize_roster_v1)], #{}).
+    to_json(tuple_to_list(Data2), [type | record_info(fields, serialize_roster_v1)], #{});
+to_json(#serialize_roster_v2{entries = Entries} = Data) ->
+    Entries2 = lists:map(fun({Jid, Nick, Groups, Sub, Ask, AskMsg, Approved}) ->
+        #{jid => Jid, nick => Nick, groups => Groups, sub => Sub, ask => Ask, ask_msg => AskMsg, approved => Approved}
+                         end,
+                         Entries),
+    Data2 = setelement(#serialize_roster_v1.entries, Data, Entries2),
+    to_json(tuple_to_list(Data2), [type | record_info(fields, serialize_roster_v1)], #{});
+to_json(#serialize_privacy_v1{lists = Lists} = Data) ->
+    Lists2 = lists:map(
+        fun({Name, Entries}) ->
+            Entries2 = lists:map(
+                fun({Value, Action, Order, MA, MI, MM, MPI, MPO}) ->
+                    Value2 = case Value of
+                                 V when is_atom(V) -> atom_to_binary(V, utf8);
+                                 V -> V
+                             end,
+                    #{value => Value2, action => atom_to_binary(Action, utf8), order => Order,
+                      match_all => MA, match_iq => MI, match_message => MM,
+                      match_presence_in => MPI, match_presence_out => MPO}
+                end, Entries),
+            #{list_name => Name, entries => Entries2}
+        end, Lists),
+Data2 = setelement(#serialize_privacy_v1.lists, Data, Lists2),
+    to_json(tuple_to_list(Data2), [type | record_info(fields, serialize_privacy_v1)], #{});
+to_json(#serialize_pubsub_item_v1{id = Id, created = {CTs, CJid}, modified = {MTs, MJid}, xml = Xml}) ->
+    #{id => Id, created_ts => CTs, created_by => CJid, modified_ts => MTs, modified_by => MJid, payload => Xml};
+to_json(#serialize_pubsub_state_v1{jid = Jid, items = Items, affiliation = Affiliation, subscriptions = Subscriptions}) ->
+    Subs = [to_json(S) || S <- Subscriptions],
+    #{jid => Jid, items => Items, affiliation => atom_to_binary(Affiliation), subscriptions => Subs};
+to_json(#serialize_pubsub_subscription_v1{subid = SubId, subscription = Subscription, options = Options}) ->
+    Options2 = tl_to_json(Options, #{}),
+    #{id => SubId, subscription => atom_to_binary(Subscription), options => Options2};
+to_json(#serialize_pubsub_v1{jid = Jid, node = Node, items = Items, options = Options, parents = Parents,
+                             plugin = Plugin, states = States}) ->
+    Items2 = [to_json(I) || I <- Items],
+    States2 = [to_json(S) || S <- States],
+    Options2 = tl_to_json(Options, #{}),
+    misc:json_encode(
+        #{type => <<"serialize_pubsub_v1">>, jid => Jid, node => Node, items => Items2, parents => Parents, plugin => Plugin,
+          states => States2, options => Options2}).
 
+tl_to_json([], Acc) ->
+    Acc;
+tl_to_json([{N, Atom} | Rest], Acc) when Atom == true; Atom == false ->
+    tl_to_json(Rest, Acc#{N => Atom});
+tl_to_json([{N, Atom} | Rest], Acc) when is_atom(Atom) ->
+    tl_to_json(Rest, Acc#{N => atom_to_binary(Atom, utf8)});
+tl_to_json([{N, Other} | Rest], Acc) ->
+    tl_to_json(Rest, Acc#{N => Other}).
 
 to_json([], _, Acc) ->
     misc:json_encode(Acc);
@@ -353,6 +401,11 @@ write_batch(WriteFun, _Ext, Host, _Mod, DbMod, _Dir, {IO, Path, Key}) ->
             {error, iolist_to_binary(Error)}
     end.
 
+update(#serialize_roster_v1{serverhost = ServerHost, entries = Entries, username = Username, version = Version}) ->
+    Entries2 = [{E1, E2, E3, E4, E5, E6, E7, false} || {E1, E2, E3, E4, E5, E6, E7} <- Entries],
+    #serialize_roster_v2{serverhost = ServerHost, username = Username, version = Version, entries = Entries2};
+update(Other) ->
+    Other.
 
 read_batch(Host, Mod, DbMod, Dir, undefined) ->
     FN = <<Host/binary, "_", (atom_to_binary(Mod, latin1))/binary, ".dbser">>,
@@ -372,7 +425,8 @@ read_batch(Host, _Mod, DbMod, _Dir, {IO, Path}) ->
                 {ok, Data} when byte_size(Data) == Len ->
                     try
                         Decoded = erlang:binary_to_term(iolist_to_binary(Data)),
-                        case DbMod:deserialize(Host, Decoded) of
+                        Updated = lists:map(fun update/1, Decoded),
+                        case DbMod:deserialize(Host, Updated) of
                             ok ->
                                 {ok, {IO, Path}, length(Decoded)};
                             Err -> Err
