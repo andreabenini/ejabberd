@@ -46,6 +46,12 @@
 	 terminate/2,
 	 code_change/3]).
 
+-ifdef(TEST).
+-export([get_vhost_argument/1,
+         prepare_arguments/2,
+         sort_arguments_relevance/1]).
+-endif.
+
 -define(SERVER, ?MODULE).
 -define(CACHE_TAB, access_permissions_cache).
 
@@ -72,43 +78,74 @@
 %%% API
 %%%===================================================================
 
+get_vhost_argument(ArgsFormat, Arguments) ->
+    Args2 = prepare_arguments(ArgsFormat, Arguments),
+    get_vhost_argument(Args2).
+
+prepare_arguments(ArgsFormat, Arguments) ->
+    AAzip = zip_arguments(ArgsFormat, Arguments),
+    sort_arguments_relevance(AAzip).
+
+zip_arguments(ArgsFormat, Arguments) ->
+    lists:zipwith(fun({Name, _}, Value) ->
+                          {Name, Value}
+                  end,
+                  ArgsFormat,
+                  Arguments).
+
+sort_arguments_relevance(AAzip) ->
+    lists:sort(fun ({service, _}, _) ->
+                       true;
+                   (_, {service, _}) ->
+                       false;
+                   ({grouphost, _}, _) ->
+                       true;
+                   (_, {grouphost, _}) ->
+                       false;
+                   ({localhost, _}, _) ->
+                       true;
+                   (_, {localhost, _}) ->
+                       false;
+                   ({host, _}, _) ->
+                       true;
+                   (_, {host, _}) ->
+                       false;
+                   (_, _) ->
+                       false
+               end,
+               AAzip).
+
 get_vhost_argument([]) ->
     no_host_argument;
-get_vhost_argument([{{service, _}, Service} | _Tail]) ->
+get_vhost_argument([{service, <<"global">>} | _Tail]) ->
+    %% Commands: muc_online_rooms* and rooms_*
+    global_scope;
+get_vhost_argument([{service, Service} | _Tail]) ->
     mod_muc_admin:get_room_serverhost(Service);
-get_vhost_argument([{{host, _}, Host} | _Tail]) ->
+get_vhost_argument([{grouphost, GroupHost} | _Tail]) ->
+    %% Commands: srg_user_add and srg_user_del
+    GroupHost;
+get_vhost_argument([{localhost, LocalHost} | _Tail]) ->
+    %% Commands: add_rosteritem and delete_rosteritem
+    LocalHost;
+get_vhost_argument([{host, Host} | _Tail]) ->
     Host;
 get_vhost_argument([_ | Tail]) ->
     get_vhost_argument(Tail).
 
 -spec can_access(atom(), caller_info(), list(), list()) -> allow | deny.
 can_access(Cmd, CallerInfo, Arguments, ArgsFormat) ->
-    Vhost = get_vhost_argument(lists:zip(ArgsFormat, Arguments)),
-    HostCheck = case {maps:get(usr, CallerInfo, no_usr), Vhost} of
-                    {USR, VhostArg} when is_tuple(USR) and is_binary(VhostArg) ->
-                        acl:match_rule(VhostArg,
-                                       configure,
-                                       jid:make(USR));
-                     _ ->
-                         allow
-         end,
-    CallerInfo2 = case Vhost of
-                      B when is_binary(B) -> CallerInfo;
-                      no_host_argument -> CallerInfo#{caller_host => global}
+    Vhost = get_vhost_argument(ArgsFormat, Arguments),
+    CallerHost = case Vhost of
+                      B when is_binary(B) -> B;
+                      no_host_argument -> global
                   end,
-    case HostCheck of
-        allow ->
-            can_access(Cmd, CallerInfo2);
-        _ ->
-            ?DEBUG("Command '~p' execution denied because "
-                      "tried to execute a command with a host argument "
-                      "but the account doesn't have admin rights for that host "
-                      "~n (CallerInfo=~p)", [Cmd, CallerInfo]),
-            deny
-    end.
+    can_access(Cmd, CallerInfo#{caller_host => CallerHost}).
 
 -spec can_access(atom(), caller_info()) -> allow | deny.
 can_access(echo, _CallerInfo) ->
+    allow;
+can_access(echo3, _CallerInfo) ->
     allow;
 can_access(registered_vhosts, #{caller_module := ejabberd_web_admin}) ->
     allow;

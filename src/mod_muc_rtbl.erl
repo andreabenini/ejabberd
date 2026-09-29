@@ -75,6 +75,9 @@ handle_info({iq_reply, IQReply, initial_items}, State) ->
 handle_info({iq_reply, IQReply, subscription}, State) ->
     State2 = parse_subscription(State, IQReply),
     {noreply, State2};
+handle_info(fetch_list, #rtbl_state{host = Host} = State) ->
+    request_initial_items(Host),
+    {noreply, State#rtbl_state{retry_timer = undefined}};
 handle_info(_Request, State) ->
     {noreply, State}.
 
@@ -174,19 +177,18 @@ pubsub_event_handler(#message{from = #jid{luser = <<>>, lserver = SServer},
 pubsub_event_handler(_) ->
     ok.
 
-muc_presence_filter(#presence{from = #jid{lserver = Server} = From, lang = Lang} = Packet, _State, _Nick) ->
-    Blocked =
-    case mnesia:dirty_read(muc_rtbl, {Server, sha256(Server)}) of
-	[] ->
-	    JIDs = sha256(jid:encode(jid:tolower(jid:remove_resource(From)))),
-	    case mnesia:dirty_read(muc_rtbl, {Server, JIDs}) of
-		[] -> false;
-		_ -> true
-	    end;
-	_ -> true
-    end,
-    case Blocked of
-	false -> Packet;
+muc_presence_filter(#presence{from = #jid{lserver = Server} = From, lang = Lang} = Packet,
+                    #state{server_host = ServerHost}, _Nick) ->
+    Allowed = maybe
+                  JidClean = jid:encode(jid:tolower(jid:remove_resource(From))),
+                  [] ?= mnesia:dirty_read(muc_rtbl, {ServerHost, sha256(Server)}),
+                  [] ?= mnesia:dirty_read(muc_rtbl, {ServerHost, sha256(JidClean)}),
+                  [] ?= mnesia:dirty_read(muc_rtbl, {ServerHost, Server}),
+                  [] ?= mnesia:dirty_read(muc_rtbl, {ServerHost, JidClean}),
+                  true
+              end,
+    case Allowed of
+	true -> Packet;
 	_ ->
 	    ErrText = ?T("You have been banned from this room"),
 	    Err = xmpp:err_forbidden(ErrText, Lang),

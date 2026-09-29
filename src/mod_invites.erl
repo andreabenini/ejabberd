@@ -49,8 +49,8 @@
 %% helpers
 -export([create_account_allowed/2, create_account_invite/4, get_invite/2, get_invites_tree_t/2,
          get_max_invites/2, is_create_allowed/2, is_expired/1, is_reserved/3, is_token_valid/2,
-         roster_add/2, send_presence/3, set_invitee/3, set_invitee/5, token_uri/1, transaction/2,
-         xdata_field/3]).
+         overuse_limit/0, roster_add/2, send_presence/3, set_invitee/3, set_invitee/5, token_uri/1,
+         transaction/2, xdata_field/3]).
 
 %% ejabberd_http
 -export([process/2]).
@@ -1061,22 +1061,32 @@ get_max_invites(User, Server) ->
             MaxInvites
     end.
 
-check_overuse_t(roster_only, {User, Host}) ->
-    NumInvites = length(get_invites_t(Host, {User, Host})),
-    case NumInvites >= ?OVERUSE_LIMIT of
-        true ->
-            {error, num_invites_exceeded};
-        false ->
-            ok
-    end;
-check_overuse_t(_Type, {User, Host}) ->
-    NumInvites = length(get_invites_tree_t(Host, {User, Host})),
-    case NumInvites >= ?OVERUSE_LIMIT of
+check_overuse_t(_Type, {<<>>, _Host}) ->
+    ok;
+check_overuse_t(Type, {User, Host}) ->
+    case over_overuse_limit_t(Type, User, Host) of
         true ->
             {error, num_invites_exceeded};
         false ->
             ok
     end.
+
+over_overuse_limit_t(Type, User, Host) ->
+    case get_max_invites(User, Host) of
+        infinity ->
+            false;
+        _ ->
+            get_num_invites_t(Type, User, Host) >= ?MODULE:overuse_limit()
+    end.
+
+overuse_limit() ->
+    %% Mostly so we can meck this function in tests
+    ?OVERUSE_LIMIT.
+
+get_num_invites_t(roster_only, User, Host) ->
+    length(get_invites_t(Host, {User, Host}));
+get_num_invites_t(_Type, User, Host) ->
+    length(get_invites_tree_t(Host, {User, Host})).
 
 get_invites_tree_t(Host, Inviter) ->
     Now = calendar:datetime_to_gregorian_seconds(
@@ -1087,6 +1097,8 @@ get_invites_tree_t(Host, Inviter) ->
 
 find_invites_tree_root_t(Now, Host, Invitee, Lvl) ->
     case get_invite_by_invitee_t(Host, Invitee) of
+        #invite_token{inviter = {<<>>, _}} ->
+            Invitee;
         #invite_token{inviter = Inviter, created_at = CreatedAt} ->
             maybe_block_speedy_goat(Now, CreatedAt, Lvl),
             find_invites_tree_root_t(Now, Host, Inviter, Lvl + 1);

@@ -75,7 +75,7 @@ start() ->
                      end
              end,
     Node = list_to_atom(SNode1),
-    Status = case ejabberd_cluster:call(Node, ?MODULE, process, [Args], Timeout) of
+    Status = case rpc:call(Node, ?MODULE, process, [Args], Timeout) of
                  {badrpc, Reason} ->
                      print("Failed RPC connection to the node ~p: ~p~n",
                            [Node, Reason]),
@@ -324,7 +324,7 @@ try_call_command(Args, Auth, AccessCommands, Version) ->
     catch
 	throw:{error, unknown_command} ->
 	    KnownCommands = [Cmd || {Cmd, _, _} <- ejabberd_commands:list_commands(Version)],
-	    UnknownCommand = list_to_atom(hd(Args)),
+	    UnknownCommand = hd(Args),
 	    {io_lib:format(
 	       "Error: unknown command '~ts'. Did you mean '~ts'?",
 	       [hd(Args), misc:best_match(UnknownCommand, KnownCommands)]),

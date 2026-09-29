@@ -34,6 +34,7 @@
 -export([captcha_cmd/0]).
 -export([captcha_host/0]).
 -export([captcha_limit/0]).
+-export([captcha_pow/0]).
 -export([captcha_url/0]).
 -export([certfiles/0]).
 -export([cluster_backend/0]).
@@ -237,10 +238,10 @@ auth_cache_missed() ->
 auth_cache_size() ->
     ejabberd_config:get_option({auth_cache_size, global}).
 
--spec auth_external_user_exists_check() -> boolean().
+-spec auth_external_user_exists_check() -> 'false' | 'force' | 'true'.
 auth_external_user_exists_check() ->
     auth_external_user_exists_check(global).
--spec auth_external_user_exists_check(global | binary()) -> boolean().
+-spec auth_external_user_exists_check(global | binary()) -> 'false' | 'force' | 'true'.
 auth_external_user_exists_check(Host) ->
     ejabberd_config:get_option({auth_external_user_exists_check, Host}).
 
@@ -364,6 +365,10 @@ captcha_host() ->
 -spec captcha_limit() -> 'infinity' | pos_integer().
 captcha_limit() ->
     ejabberd_config:get_option({captcha_limit, global}).
+
+-spec captcha_pow() -> 'false' | pos_integer().
+captcha_pow() ->
+    ejabberd_config:get_option({captcha_pow, global}).
 
 -spec captcha_url() -> 'auto' | 'undefined' | binary().
 captcha_url() ->

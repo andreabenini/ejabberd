@@ -426,13 +426,15 @@ doc() ->
            "to a more secure format. If this option if set, it will override values set in _`auth_scram_hash`_ "
            "and _`auth_password_format`_ options. The default value is `[]`.")}},
      {auth_external_user_exists_check,
-      #{value => "true | false",
-        note => "added in 23.10",
+      #{value => "true | false | force",
+        note => "added in 23.10, `force` added in 26.09",
         desc =>
         ?T("Supplement check for user existence based on _`mod_last`_ data, for authentication "
            "methods that don't have a way to reliably tell if a user exists (like is the case for "
            "'jwt' and certificate based authentication). This helps with processing offline message "
-           "for those users. The default value is 'true'.")}},
+           "for those users. Using `force` values enables this processing even when no external storage "
+           "method is enabled (like when using certificate authentications together with local stored passwords. "
+           "The default value is 'true'.")}},
      {auth_use_cache,
       #{value => "true | false",
         desc =>
@@ -513,6 +515,15 @@ doc() ->
             ?T("Maximum number of _`basic.md#captcha|CAPTCHA`_ generated images per minute for "
                "any given JID. The option is intended to protect the server "
                "from CAPTCHA DoS. The default value is 'infinity'.")}},
+     {captcha_pow,
+      #{value => "pos_integer() | false",
+        desc =>
+            ?T("Offer an XEP-0158 SHA-256 hashcash (proof-of-work) challenge in the "
+               "_`basic.md#captcha|CAPTCHA`_ form, alongside the image challenge or on its own. "
+               "The value is the difficulty: the number of hexadecimal digits of the SHA-256 "
+               "digest a client must match. "
+               "Unlike the image challenge, this does not require _`captcha_cmd`_. "
+               "The default value is 'false'.")}},
      {captcha_host,
       #{value => "String",
         desc => ?T("Deprecated. Use _`captcha_url`_ instead.")}},
