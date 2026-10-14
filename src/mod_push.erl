@@ -302,7 +302,10 @@ process_iq(#iq{from = #jid{lserver = LServer} = JID,
 	    xmpp:make_error(IQ, xmpp:err_internal_server_error(Txt, Lang));
 	{error, notfound} ->
 	    Txt = ?T("User session not found"),
-	    xmpp:make_error(IQ, xmpp:err_item_not_found(Txt, Lang))
+	    xmpp:make_error(IQ, xmpp:err_item_not_found(Txt, Lang));
+	{error, not_owner} ->
+	    Txt = ?T("User session is not owned by this connection"),
+	    xmpp:make_error(IQ, xmpp:err_internal_server_error(Txt, Lang))
     end;
 process_iq(#iq{from = #jid{lserver = LServer} = JID,
 	       to = #jid{lserver = LServer},
@@ -322,7 +325,8 @@ process_iq(#iq{from = #jid{lserver = LServer} = JID,
 process_iq(IQ) ->
     xmpp:make_error(IQ, xmpp:err_not_allowed()).
 
--spec enable(jid(), jid(), binary(), xdata()) -> ok | {error, err_reason()}.
+-spec enable(jid(), jid(), binary(), xdata())
+      -> ok | {error, err_reason() | not_owner}.
 enable(#jid{luser = LUser, lserver = LServer, lresource = LResource} = JID,
        PushJID, Node, XData) ->
     case ejabberd_sm:get_session_sid(LUser, LServer, LResource) of
@@ -687,7 +691,7 @@ drop_online_sessions(LUser, LServer, Clients) ->
 
 -spec make_summary(binary(), xmpp_element() | xmlel() | none, direction())
       -> xdata() | undefined.
-make_summary(Host, #message{from = From0} = Pkt, recv) ->
+make_summary(Host, #message{type = Type, from = From0} = Pkt, recv) ->
     case {mod_push_opt:include_sender(Host),
 	  mod_push_opt:include_body(Host)} of
 	{false, false} ->
@@ -706,6 +710,8 @@ make_summary(Host, #message{from = From0} = Pkt, recv) ->
 				      []
 			      end,
 		    Fields2 = case IncludeSender of
+				  true when Type == groupchat ->
+				      [{'last-message-sender', From0} | Fields1];
 				  true ->
 				      From = jid:remove_resource(From0),
 				      [{'last-message-sender', From} | Fields1];
