@@ -53,20 +53,24 @@
     serverhost :: binary(),
     username :: binary(),
     version :: binary() | undefined,
-    entries :: [{binary(),
-                 binary(),
-                 [binary()],
-                 both | from | to | none,
-                 boolean(),
-                 subscribe | unsubscribe | both | in | out | none,
-                 binary(),
-                 boolean()}]
+    entries :: [{Jid :: binary(),
+                 Name :: binary(),
+                 Groups :: [binary()],
+                 Subscription :: both | from | to | none,
+                 Ask :: subscribe | unsubscribe | both | in | out | none,
+                 AskMsg :: binary(),
+                 Approved :: boolean()}]
 }).
 
 -record(serialize_auth_v1, {
     serverhost :: binary(),
     username :: binary(),
-    passwords :: [binary() | {sha | sha256 | sha512, binary(), binary(), binary(), integer()}]
+    passwords :: [binary() | {
+        Hash :: sha | sha256 | sha512,
+        StoredKey :: binary(),
+        ServerKey :: binary(),
+        Salt :: binary(),
+        IterCount :: integer()}]
 }).
 
 -record(serialize_muc_room_v1, {
